@@ -9,7 +9,7 @@ backgroundColor: '#1E293B'  # dark slate
 color: '#F8FAFC'            # light text
 ---
 
-# 🚀 Introducing [**netclab-xp**](https://github.com/mbakalarski/netclab-xp)
+# 🚀 Introducing [**netclab-xp**](https://github.com/netclab/netclab-xp)
 *Declarative Router Configuration with Crossplane*  
 <br>
 > ***Extend Kubernetes to manage any resource anywhere***
@@ -187,7 +187,7 @@ router.eos.netclab.dev/ceos01   ceos01.default.svc.cluster.local   65001   10.0.
 # 🎯 Next Steps
 
 *Repo:*
-[https://github.com/mbakalarski/netclab-xp](https://github.com/mbakalarski/netclab-xp)
+[https://github.com/netclab/netclab-xp](https://github.com/netclab/netclab-xp)
 
 *Registry:*
 [https://marketplace.upbound.io/configurations/netclab/netclab-xp](https://marketplace.upbound.io/configurations/netclab/netclab-xp)

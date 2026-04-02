@@ -58,14 +58,14 @@ This model hides vendor-specific complexity while enabling reusable, declarative
 ### Requirements
 
 * Target routers
-  (provided here via [`netclab-chart`](https://github.com/mbakalarski/netclab-chart))
+  (provided here via [`netclab-chart`](https://github.com/netclab/netclab-chart))
 * A Kubernetes cluster with Crossplane installed
   (in this setup, the same cluster that runs the netclab-chart topology)
 * The `netclab-xp` configuration package, which includes all required Crossplane dependencies.
 
 ### Installation Steps
 
-#### 1. Install [`netclab-chart`](https://github.com/mbakalarski/netclab-chart)
+#### 1. Install [`netclab-chart`](https://github.com/netclab/netclab-chart)
 
 Make sure you have downloaded the cEOS image from Arista Networks and imported it into your cluster.
 

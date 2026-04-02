@@ -3,7 +3,7 @@ kind: Configuration
 metadata:
   name: netclab-xp
   annotations:
-    meta.crossplane.io/source: https://github.com/mbakalarski/netclab-xp
+    meta.crossplane.io/source: https://github.com/netclab/netclab-xp
     meta.crossplane.io/license: Apache-2.0
     meta.crossplane.io/description: Declarative router configuration and lifecycle management.
     meta.crossplane.io/readme: |
