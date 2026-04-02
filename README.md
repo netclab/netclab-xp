@@ -89,7 +89,7 @@ kind: Configuration
 metadata:
   name: netclab-xp
 spec:
-  package: xpkg.upbound.io/netclab/netclab-xp:v0.2.12
+  package: xpkg.upbound.io/netclab/netclab-xp:v0.2.13
 EOF
 ```
 
