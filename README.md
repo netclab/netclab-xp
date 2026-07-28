@@ -82,14 +82,20 @@ helm install crossplane crossplane-stable/crossplane \
 
 #### 3. Install the netclab-xp Configuration Package
 
+Pick a published version from
+[Releases](https://github.com/netclab/netclab-xp/releases) and set `VERSION` to
+it — the git tag *is* the package version, so the two can never disagree.
+
 ```bash
+VERSION=<version>   # e.g. the latest tag from the Releases page
+
 cat <<EOF | kubectl apply -f -
 apiVersion: pkg.crossplane.io/v1
 kind: Configuration
 metadata:
   name: netclab-xp
 spec:
-  package: xpkg.upbound.io/netclab/netclab-xp:v0.2.13
+  package: xpkg.upbound.io/netclab/netclab-xp:${VERSION}
 EOF
 ```
 

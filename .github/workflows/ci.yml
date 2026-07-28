@@ -1,0 +1,87 @@
+name: CI
+
+# Builds the Configuration package on every PR. Until now the only thing that
+# ever built this repo was a script in a *private* repo, run by hand at release
+# time -- so a broken XRD or composition was found after the tag, if at all.
+#
+# `crossplane xpkg build` is not a lint: it parses every YAML under
+# --package-root and rejects anything that is not a valid Kubernetes manifest,
+# and --examples-root puts the examples through the same check. So a green build
+# is a real statement about every XRD, composition and example that ships --
+# which is why it is the gate here and the first job of the release.
+#
+# --ignore is load-bearing: xpkg build collects every .yml and .yaml under
+# --package-root recursively, so without it this workflow's own files fail the
+# build. The globs are file-only -- per its own help --ignore "can't exclude
+# directories" -- and they do not cross '/', hence one glob per nesting level.
+# Adding a directory of non-package YAML means adding a glob here; the build
+# will say so loudly on the PR that adds it.
+#
+# The repo root stays the package root deliberately. `crossplane project` (BETA)
+# collects from named sub-directories instead and needs no --ignore at all, and
+# its layout is exactly this one -- apis/ and examples/ at the root -- so this
+# stays a drop-in conversion later, rather than a second round of moves.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: xpkg build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Install crossplane CLI
+        run: |
+          set -euo pipefail
+          # XP_VERSION pins the CLI: install.sh otherwise takes whatever is
+          # current, so this job would drift onto a different CLI with no commit.
+          # renovate: datasource=github-releases depName=crossplane/crossplane
+          curl -sfL "https://cli.crossplane.io/install.sh" | XP_VERSION=v2.4.0 sh
+          sudo mv ./crossplane /usr/local/bin/crossplane
+          crossplane version --client
+
+      # Unversioned on purpose: CI only has to answer "does this build", and a
+      # Configuration carries no version of its own -- the release tag supplies
+      # it. See release.yml for the same command with a real version.
+      - name: Build the package
+        run: |
+          set -euo pipefail
+          crossplane xpkg build \
+            --package-root=. \
+            --examples-root=./examples \
+            --ignore="./.github/*,./.github/*/*" \
+            -o netclab-xp-ci.xpkg
+
+      # The install snippet used to carry a hard-coded tag that was hand-synced
+      # with the release script -- and went stale every time someone forgot.
+      # Now the git tag is the only version, and this keeps it that way.
+      - name: Check README has no pinned version
+        run: |
+          set -euo pipefail
+          if grep -n 'netclab-xp:v[0-9]' README.md; then
+            echo "::error::README pins a netclab-xp version. The git tag is the" \
+                 "version; leave the install snippet's \${VERSION} placeholder alone."
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: xpkg-ci
+          path: netclab-xp-ci.xpkg
+          if-no-files-found: error
+          retention-days: 7
