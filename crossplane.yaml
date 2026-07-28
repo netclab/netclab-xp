@@ -1,4 +1,4 @@
-apiVersion: meta.pkg.crossplane.io/v1alpha1
+apiVersion: meta.pkg.crossplane.io/v1
 kind: Configuration
 metadata:
   name: netclab-xp
@@ -14,7 +14,7 @@ spec:
     - apiVersion: pkg.crossplane.io/v1
       kind: Provider
       package: xpkg.upbound.io/crossplane-contrib/provider-http
-      version: "=v1.0.12"
+      version: ">=v1.0.14"
 
     - apiVersion: pkg.crossplane.io/v1
       kind: Function
