@@ -1,0 +1,21 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The crossplane CLI pin lives inside a `run:` body, as XP_VERSION for install.sh. No built-in manager reads it -- github-actions only sees `uses:`, `container:` and `services:` -- so the pin carries a `# renovate:` comment naming its datasource and this manager reads it. Keep the comment directly above the line holding the version.",
+      "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+registryUrl=(?<registryUrl>\\S+))?(?:\\s+versioning=(?<versioning>\\S+))?[^\\n]*\\n[^\\n]*?(?<currentValue>v?\\d+\\.\\d+\\.\\d+)"
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Both workflows install the same crossplane CLI and must stay on one version -- ci.yml is only a meaningful gate for release.yml if they build with the same tool. Grouping keeps them in a single PR instead of two that each leave the pair mismatched.",
+      "matchDepNames": ["crossplane/crossplane"],
+      "groupName": "crossplane CLI"
+    }
+  ]
+}
