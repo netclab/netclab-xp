@@ -1,0 +1,169 @@
+name: Release
+
+# Publishes the Configuration package so it is installable straight from a
+# registry, instead of the hand-run script in the *private* repo that releasing
+# used to mean (netclab-xp-priv/scripts/crossplane-xpkg-build-and-push.sh --
+# a script that built the public repo from the private one, so a release needed
+# both checkouts and a hand-edited VERSION=):
+#
+#   ghcr.io/netclab/netclab-xp:<version>      (always)
+#   xpkg.upbound.io/netclab/netclab-xp:<ver>  (when the Upbound secrets are set)
+#
+# The Upbound push is what puts the Configuration on
+# https://marketplace.upbound.io/configurations/netclab -- the Marketplace
+# indexes that registry, so a GHCR-only release is not listed there.
+#
+# Both pushes go through `crossplane xpkg push`, which reads plain docker
+# credentials. The up CLI is not involved: its `up xpkg` group is deprecated in
+# favour of exactly this.
+#
+# **The git tag is the version.** Unlike function-avd, a Configuration has no
+# pyproject.toml -- nothing inside the package declares a version, it comes
+# from the image tag -- so there is no second number to cross-check and none to
+# forget to bump. Tagging is therefore the whole release ritual.
+
+on:
+  push:
+    tags: ['v*']
+  # Re-run a release whose publish leg failed (an expired UPBOUND_TOKEN, say)
+  # without moving the tag. Select the tag as the ref when dispatching; the
+  # version check below rejects a branch, since a branch has no version.
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+# Read-only by default; only the publishing job widens this.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: xpkg build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Resolve the version to publish
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.ref_type }}" != "tag" ]]; then
+            echo "::error::${{ github.ref_name }} is a ${{ github.ref_type }}, not a tag." \
+                 "The tag is the version; dispatch this workflow against a tag."
+            exit 1
+          fi
+
+          version="${{ github.ref_name }}"
+          if ! [[ "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'${version}' is not a semver; xpkg push would reject it."
+            exit 1
+          fi
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "publishing ${version}"
+
+      - name: Install crossplane CLI
+        run: |
+          set -euo pipefail
+          # renovate: datasource=github-releases depName=crossplane/crossplane
+          curl -sfL "https://cli.crossplane.io/install.sh" | XP_VERSION=v2.4.0 sh
+          sudo mv ./crossplane /usr/local/bin/crossplane
+          crossplane version --client
+
+      # One package, no per-arch matrix: a Configuration is YAML only. There is
+      # no runtime image to embed, so nothing here is architecture-specific --
+      # this is where the shape departs from function-avd's release.
+      #
+      # Same flags as ci.yml, deliberately: the artifact this pushes is built by
+      # the command PRs have been running all along. See ci.yml for why --ignore
+      # is needed and why the repo root stays the package root.
+      - name: Build the package
+        run: |
+          set -euo pipefail
+          crossplane xpkg build \
+            --package-root=. \
+            --examples-root=./examples \
+            --ignore="./.github/*,./.github/*/*" \
+            -o "netclab-xp-${{ steps.version.outputs.version }}.xpkg"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: xpkg
+          path: netclab-xp-*.xpkg
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: push to GHCR + Upbound
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      # secrets are not available to job-level `if:`, so hoist them into env and
+      # let the Upbound steps skip themselves when they are unset.
+      UP_TOKEN: ${{ secrets.UPBOUND_TOKEN }}
+      UP_USER: ${{ secrets.UPBOUND_USER }}
+    steps:
+      # No checkout: pushing packages needs the .xpkg file and nothing else.
+      - uses: actions/download-artifact@v8
+        with:
+          name: xpkg
+
+      - name: Install crossplane CLI
+        run: |
+          set -euo pipefail
+          # renovate: datasource=github-releases depName=crossplane/crossplane
+          curl -sfL "https://cli.crossplane.io/install.sh" | XP_VERSION=v2.4.0 sh
+          sudo mv ./crossplane /usr/local/bin/crossplane
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push to GHCR
+        run: |
+          set -euo pipefail
+          repo="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          crossplane xpkg push -f "netclab-xp-${VERSION}.xpkg" "ghcr.io/${repo}:${VERSION}"
+
+      # The up CLI is deliberately not used here. Its whole `up xpkg` group,
+      # push included, is deprecated: "To work with non-project Crossplane
+      # packages, use the Crossplane CLI." So authenticate with plain docker
+      # credentials -- which is all `crossplane xpkg push` reads -- and push
+      # with the same command that pushed to GHCR above.
+      - name: Login to the Upbound registry
+        if: env.UP_TOKEN != '' && env.UP_USER != ''
+        uses: docker/login-action@v4
+        with:
+          registry: xpkg.upbound.io
+          username: ${{ secrets.UPBOUND_USER }}
+          password: ${{ secrets.UPBOUND_TOKEN }}
+
+      # No --create equivalent, and none needed: netclab/netclab-xp already
+      # exists on Upbound -- v0.2.13 is published and anonymously pullable.
+      - name: Push to the Upbound Marketplace
+        if: env.UP_TOKEN != '' && env.UP_USER != ''
+        run: |
+          set -euo pipefail
+          crossplane xpkg push -f "netclab-xp-${VERSION}.xpkg" \
+            "xpkg.upbound.io/netclab/netclab-xp:${VERSION}"
+
+      - name: Note a skipped Upbound push
+        if: env.UP_TOKEN == '' || env.UP_USER == ''
+        run: |
+          echo "::warning::UPBOUND_TOKEN or UPBOUND_USER is not set -- pushed to" \
+               "GHCR only. The Marketplace listing will not move until both are set."
