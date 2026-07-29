@@ -3,7 +3,7 @@ kind: CompositeResourceDefinition
 metadata:
   name: routers.eos.netclab.dev
 spec:
-  scope: Cluster
+  scope: Namespaced
   group: eos.netclab.dev
   names:
     kind: Router

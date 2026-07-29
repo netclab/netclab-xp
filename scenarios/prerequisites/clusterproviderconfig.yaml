@@ -1,0 +1,21 @@
+# provider-http's ClusterProviderConfig, which every Request this package
+# composes resolves by default.
+#
+# Cluster scoped on purpose -- and this is not the obvious choice. A composed
+# `Request` in `http.m.crossplane.io` defaults its providerConfigRef to
+# `{kind: ClusterProviderConfig, name: default}`, *not* to a namespaced
+# ProviderConfig of the same name. A namespaced ProviderConfig called `default`
+# in the XR's own namespace is ignored, and the Request fails to reconcile with
+# "cannot get ClusterProviderConfig ... not found".
+#
+# One of these serves every namespace, so nothing here repeats when XRs move.
+#
+# `source: None` because the compositions carry their own credentials: they
+# build an `Authorization: Basic` header from the eos-creds Secret.
+apiVersion: http.m.crossplane.io/v1alpha2
+kind: ClusterProviderConfig
+metadata:
+  name: default
+spec:
+  credentials:
+    source: None

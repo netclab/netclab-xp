@@ -1,0 +1,19 @@
+# The namespace the scenario XRs live in.
+#
+# This is a control-plane namespace and is unrelated to where the devices run:
+# which namespace a cEOS pod sits in is carried by the `endpoint` FQDN inside
+# each example (`ceos01.default.svc.cluster.local`), never by the XR's own
+# namespace. They are deliberately different so the independence is visible.
+#
+# One file, shared by every scenario overlay. Each overlay pulls it in and its
+# `namespace:` transformer renames this object to match -- so changing a
+# scenario's namespace is one line in that scenario's kustomization.yaml, and
+# this follows automatically.
+#
+# The XRs need no per-namespace setup at all: provider-http resolves a single
+# cluster scoped ClusterProviderConfig from anywhere. See
+# prerequisites/clusterproviderconfig.yaml.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: netclab

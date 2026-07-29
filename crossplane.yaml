@@ -34,7 +34,7 @@ spec:
     - apiVersion: pkg.crossplane.io/v1
       kind: Function
       package: xpkg.upbound.io/netclab/function-eapi
-      version: ">=v0.0.15"
+      version: ">=v0.0.22"
 
   crossplane:
     version: ">=v2.1.1"

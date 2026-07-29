@@ -15,7 +15,15 @@ name: CI
 # build. The globs are file-only -- per its own help --ignore "can't exclude
 # directories" -- and they do not cross '/', hence one glob per nesting level.
 # Adding a directory of non-package YAML means adding a glob here; the build
-# will say so loudly on the PR that adds it.
+# will say so loudly on the PR that adds it. `scenarios/` is such a directory:
+# kustomize overlays and the prerequisite manifests, none of which are package
+# kinds.
+#
+# `examples/` is the opposite case and needs no glob: --examples-root is
+# excluded from the package's own collection. But note --ignore does NOT reach
+# --examples-root either, so anything placed under examples/ ships with no way
+# to filter it -- which is why examples/ holds XR manifests and nothing else,
+# and why the scenario overlays live outside it and reach in.
 #
 # The repo root stays the package root deliberately. `crossplane project` (BETA)
 # collects from named sub-directories instead and needs no --ignore at all, and
@@ -64,7 +72,7 @@ jobs:
           crossplane xpkg build \
             --package-root=. \
             --examples-root=./examples \
-            --ignore="./.github/*,./.github/*/*" \
+            --ignore="./.github/*,./.github/*/*,./scenarios/*,./scenarios/*/*" \
             -o netclab-xp-ci.xpkg
 
       # The install snippet used to carry a hard-coded tag that was hand-synced

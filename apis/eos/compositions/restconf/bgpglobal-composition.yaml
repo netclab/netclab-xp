@@ -51,7 +51,7 @@ spec:
           {{ $routerId := .observed.composite.resource.spec.routerId }}
 
           ---
-          apiVersion: http.crossplane.io/v1alpha2
+          apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
           metadata:
             annotations:
@@ -87,7 +87,7 @@ spec:
 
           {{- if and (hasKey .observed.composite.resource.spec "disableBgpDefaultIpv4Unicast") .observed.composite.resource.spec.disableBgpDefaultIpv4Unicast }}
           ---
-          apiVersion: http.crossplane.io/v1alpha2
+          apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
           metadata:
             annotations:

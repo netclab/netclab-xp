@@ -1,0 +1,20 @@
+# How to reach a device's management API, per protocol. Eleven of this
+# package's twelve compositions pull this in by name, so without it they
+# resolve nothing and the XRs never produce a Request.
+#
+# EnvironmentConfig is cluster scoped in Crossplane 2 -- there is no namespaced
+# variant -- and a namespaced XR resolves it normally, so one covers every
+# namespace.
+#
+# The values match netclab-chart's cEOS defaults; change them for your devices.
+apiVersion: apiextensions.crossplane.io/v1beta1
+kind: EnvironmentConfig
+metadata:
+  name: endpoint-protocols
+data:
+  restconf:
+    scheme: https
+    port: 6020
+  jsonrpc:
+    scheme: http
+    port: 6021

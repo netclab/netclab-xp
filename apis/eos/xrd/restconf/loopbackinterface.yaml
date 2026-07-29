@@ -5,7 +5,7 @@ metadata:
 spec:
   defaultCompositionRef:
     name: loopbackinterfaces.eos.netclab.dev
-  scope: Cluster
+  scope: Namespaced
   group: eos.netclab.dev
   names:
     kind: LoopbackInterface

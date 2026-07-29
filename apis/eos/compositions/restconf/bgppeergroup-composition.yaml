@@ -45,7 +45,7 @@ spec:
           {{- end }}
           {{- $basicAuth := ( getCredentialData . "eos-creds" ).basicAuth | toString | b64enc }}
           ---
-          apiVersion: http.crossplane.io/v1alpha2
+          apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
           metadata:
             annotations:
@@ -81,7 +81,7 @@ spec:
 
           {{- if hasKey .observed.composite.resource.spec "nextHopUnchanged" }}
           ---
-          apiVersion: http.crossplane.io/v1alpha2
+          apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
           metadata:
             annotations:
@@ -118,7 +118,7 @@ spec:
 
           {{- if hasKey .observed.composite.resource.spec "updateSource" }}
           ---
-          apiVersion: http.crossplane.io/v1alpha2
+          apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
           metadata:
             annotations:
@@ -155,7 +155,7 @@ spec:
 
           {{- if and (hasKey .observed.composite.resource.spec "bfd") .observed.composite.resource.spec.bfd }}
           ---
-          apiVersion: http.crossplane.io/v1alpha2
+          apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
           metadata:
             annotations:
@@ -192,7 +192,7 @@ spec:
 
           {{- if and (hasKey .observed.composite.resource.spec "ebgpMultihop") (ge .observed.composite.resource.spec.ebgpMultihop 1) }}
           ---
-          apiVersion: http.crossplane.io/v1alpha2
+          apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
           metadata:
             annotations:
@@ -237,7 +237,7 @@ spec:
 
           {{- if hasKey .observed.composite.resource.spec "maximumRoutes" }}
           ---
-          apiVersion: http.crossplane.io/v1alpha2
+          apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
           metadata:
             annotations:
@@ -274,7 +274,7 @@ spec:
 
           {{- if hasKey .observed.composite.resource.spec "sendCommunityTypes" }}
           ---
-          apiVersion: http.crossplane.io/v1alpha2
+          apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
           metadata:
             annotations:

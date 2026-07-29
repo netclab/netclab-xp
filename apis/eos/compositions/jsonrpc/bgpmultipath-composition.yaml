@@ -49,7 +49,7 @@ spec:
           {{- $maximumPathsNumber := .observed.composite.resource.spec.maximumPaths.number }}
           {{- $maximumPathsEcmp := .observed.composite.resource.spec.maximumPaths.ecmp }}
           ---
-          apiVersion: http.crossplane.io/v1alpha2
+          apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
           metadata:
             annotations:

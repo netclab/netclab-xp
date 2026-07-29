@@ -62,7 +62,7 @@ spec:
           {{- $cmd1 = printf "%s %s" "ip prefix-list" $plname }}
           {{- $cmd2 = printf "%s %s/%s eq %s" "seq 10 permit" $ifaddress $ifplen $ifplen }}
           ---
-          apiVersion: http.crossplane.io/v1alpha2
+          apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
           metadata:
             annotations:
@@ -159,7 +159,7 @@ spec:
           {{- $cmd1 = printf "%s %s permit 10" "route-map" $rmname }}
           {{- $cmd2 = printf "%s %s" "match ip address prefix-list" $plname }}
           ---
-          apiVersion: http.crossplane.io/v1alpha2
+          apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
           metadata:
             annotations:
@@ -256,7 +256,7 @@ spec:
           {{- $cmd1 = printf "%s %s" "router bgp" $asn }}
           {{- $cmd2 = printf "%s %s" "redistribute connected route-map" $rmname }}
           ---
-          apiVersion: http.crossplane.io/v1alpha2
+          apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
           metadata:
             annotations:
