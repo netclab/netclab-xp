@@ -99,40 +99,100 @@ spec:
 EOF
 ```
 
-#### 4. Add ProviderConfig, EnvironmentConfig and Secret
+#### 4. Add the prerequisites
+
+`dependsOn` installs provider-http and the functions for you, but it cannot
+create the ProviderConfig, EnvironmentConfig and Secret that the compositions
+reference by name. Apply them once:
 
 ```bash
-cat <<EOF | kubectl apply -f -
-apiVersion: http.crossplane.io/v1alpha1
-kind: ProviderConfig
-metadata:
-  name: default
-spec:
-  credentials:
-    source: None
----
-apiVersion: apiextensions.crossplane.io/v1beta1
-kind: EnvironmentConfig
-metadata:
-  name: endpoint-protocols
-data:
-  restconf:
-    scheme: https
-    port: 6020
-  jsonrpc:
-    scheme: http
-    port: 6021
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: eos-creds
-  namespace: crossplane-system
-type: Opaque
-data:
-  basicAuth: YXJpc3RhOmFyaXN0YQ==
-EOF
+kubectl apply -k scenarios/prerequisites
 ```
+
+All three are cluster-wide — the ClusterProviderConfig and EnvironmentConfig
+are cluster scoped, and the Secret belongs to `crossplane-system` because the
+compositions name it statically — so this is a one-time step regardless of
+which namespace you put XRs in. See
+[`scenarios/prerequisites/`](scenarios/prerequisites/) for what each is for.
+
+The scenario overlays below create their own namespace. The walkthrough further
+down applies XRs by hand, so create it first:
+
+```bash
+kubectl create namespace netclab
+```
+
+---
+
+## Upgrading from 0.2.x
+
+**0.3.0 moves every XRD from `scope: Cluster` to `scope: Namespaced`, and
+`spec.scope` is immutable.** Pointing an installed Configuration at `v0.3.0`
+therefore fails: the package revision cannot apply the new XRDs, and Crossplane
+rejects them with
+
+```
+spec.scope: Invalid value: "Namespaced": Value is immutable
+```
+
+The old XRDs have to go first. Deleting an XRD deletes its CRD and with it
+every XR of that kind — and those XRs own composed `Request` resources, so a
+plain delete asks provider-http to remove the configuration from your devices.
+This is measured, not feared: deleting a scenario's XRs takes the BGP instance,
+the routing config and the loopback interface off the box. On a lab that is
+fine; on anything you care about, pause the XRs or detach them before removing
+the Configuration.
+
+There is no in-place path, by design: cluster-scoped and namespaced XRs are
+different objects, so the configuration is re-created in a namespace after the
+upgrade rather than migrated.
+
+**0.3.0 also raises the `function-eapi` floor to `>=v0.0.23`, and Crossplane
+will not upgrade a dependency it has already installed.** It installs what is
+missing; it does not move what is there. So the new revision goes `Active` and
+stays unhealthy:
+
+```
+cannot resolve package dependencies: incompatible dependencies: existing
+package xpkg.upbound.io/netclab/function-eapi@v0.0.22 is incompatible with
+constraint >=v0.0.23
+```
+
+Nothing breaks loudly — the XRDs keep serving — so the symptom is simply a
+Configuration that is never healthy again. Upgrade the dependency yourself:
+
+```bash
+kubectl patch function.pkg.crossplane.io netclab-function-eapi --type=merge \
+  -p '{"spec":{"package":"xpkg.upbound.io/netclab/function-eapi:v0.0.23"}}'
+```
+
+---
+
+## Scenarios
+
+The package offers several mechanisms for configuring the same device, and
+each has its own directory under [`scenarios/`](scenarios/):
+
+| scenario | mechanism |
+|---|---|
+| [`restconf`](scenarios/restconf/) | OpenConfig RESTCONF — builds the base config |
+| [`jsonrpc`](scenarios/jsonrpc/) | eAPI JSON-RPC — settings OpenConfig does not model |
+| [`eapi`](scenarios/eapi/) | raw EOS CLI through `function-eapi` |
+| [`router`](scenarios/router/) | the `Router` abstraction, which composes the layers above |
+
+**`eapi` and `router` are alternatives to the others, not additions** — each
+would become a second owner of the same device configuration. Apply one
+mechanism per device.
+
+```bash
+kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/router \
+  | kubectl apply -f -
+```
+
+The flag is needed because the overlays reach into `examples/`, which holds XR
+manifests and nothing else so that the package's published examples stay clean.
+To use a different namespace, change `namespace:` in that scenario's
+`kustomization.yaml`; the Namespace object follows it.
 
 ---
 
@@ -207,7 +267,7 @@ ceos02-generate-cert-nxfp4   0/1     Completed   4          2m
 ### Apply interface configuration on ceos01:
 
 ```bash
-cat <<EOF | kubectl apply -f -
+cat <<EOF | kubectl apply -f - -n netclab
 apiVersion: eos.netclab.dev/v1alpha1
 kind: RoutedInterface
 metadata:
@@ -223,7 +283,7 @@ EOF
 ### Check resource:
 
 ```bash
-kubectl get netclab
+kubectl get netclab -n netclab
 ```
 
 Example output:
@@ -248,7 +308,7 @@ interface Ethernet1
 ### Remove configuration
 
 ```bash
-kubectl delete routedinterface r1e1ip
+kubectl delete routedinterface r1e1ip -n netclab
 ```
 
 ---
@@ -258,7 +318,7 @@ kubectl delete routedinterface r1e1ip
 ### Apply configuration on ceos01:
 
 ```bash
-cat <<EOF | kubectl apply -f -
+cat <<EOF | kubectl apply -f - -n netclab
 apiVersion: eos.netclab.dev/v1alpha1
 kind: Router
 metadata:
@@ -280,7 +340,7 @@ EOF
 ### Check resource:
 
 ```bash
-kubectl get router ceos01
+kubectl get router ceos01 -n netclab
 ```
 
 Example output:
@@ -293,7 +353,7 @@ ceos01   ceos01.default.svc.cluster.local   65001   10.0.0.1    True     True   
 ### Verify all SYNCED and READY:
 
 ```bash
-kubectl get netclab
+kubectl get netclab -n netclab
 ```
 
 Example output:
@@ -322,7 +382,7 @@ router.eos.netclab.dev/ceos01   ceos01.default.svc.cluster.local   65001   10.0.
 ### Add ceos02:
 
 ```bash
-cat <<EOF | kubectl apply -f -
+cat <<EOF | kubectl apply -f - -n netclab
 apiVersion: eos.netclab.dev/v1alpha1
 kind: Router
 metadata:
@@ -344,7 +404,7 @@ EOF
 ### Check resources:
 
 ```bash
-kubectl get routers
+kubectl get routers -n netclab
 ```
 
 Example output:
@@ -372,7 +432,7 @@ Neighbor Status Codes: m - Under maintenance
 ### Remove all configuration:
 
 ```bash
-kubectl delete netclab --all
+kubectl delete netclab --all -n netclab
 ```
 
 ```bash

@@ -31,10 +31,12 @@ spec:
       package: xpkg.upbound.io/crossplane-contrib/function-environment-configs
       version: ">=v0.4.0"
 
+    # v0.0.23 is a floor, not a preference: it renamed the EosCommand spec
+    # field `removeContainer` to `removeSection`, which the XRD here now uses.
     - apiVersion: pkg.crossplane.io/v1
       kind: Function
       package: xpkg.upbound.io/netclab/function-eapi
-      version: ">=v0.0.15"
+      version: ">=v0.0.23"
 
   crossplane:
     version: ">=v2.1.1"

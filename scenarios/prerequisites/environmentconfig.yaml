@@ -1,0 +1,32 @@
+# How to reach a device's management API, per protocol. Eleven of this
+# package's twelve compositions pull this in by name, so without it they
+# resolve nothing and the XRs never produce a Request.
+#
+# EnvironmentConfig is cluster scoped in Crossplane 2 -- there is no namespaced
+# variant -- and a namespaced XR resolves it normally, so one covers every
+# namespace.
+#
+# The values match netclab-chart's cEOS defaults; change them for your devices.
+#
+# `jsonrpc` is read by two layers, not one: the four go-templating compositions
+# under apis/eos/compositions/jsonrpc, and function-eapi, which pulls port and
+# scheme out of this same block (and a `skipTlsVerify` that defaults to true).
+# So this is the one place that says how eAPI is reached, whichever mechanism
+# reaches it.
+#
+# https/443 and not http/6021: netclab-chart 0.5.9 moved the cEOS eAPI
+# bootstrap to `management api http-commands / protocol https`, dropping the
+# plain-HTTP listener the earlier charts had. The certificate is self-signed,
+# which is fine -- every composition sets `insecureSkipTLSVerify: true` and
+# function-eapi defaults to the same.
+apiVersion: apiextensions.crossplane.io/v1beta1
+kind: EnvironmentConfig
+metadata:
+  name: endpoint-protocols
+data:
+  restconf:
+    scheme: https
+    port: 6020
+  jsonrpc:
+    scheme: https
+    port: 443

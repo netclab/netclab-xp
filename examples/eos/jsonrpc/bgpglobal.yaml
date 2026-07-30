@@ -1,0 +1,18 @@
+# The same BgpGlobal kind as examples/eos/restconf/bgpglobal.yaml, over eAPI
+# instead of RESTCONF.
+#
+# `compositionSelector` is what picks the mechanism. Without it the XRD's
+# defaultCompositionRef applies and this would go over RESTCONF -- so the
+# selector is the choice, not decoration.
+apiVersion: eos.netclab.dev/v1alpha1
+kind: BgpGlobal
+metadata:
+  name: bgpglobal-on-ceos-jsonrpc
+spec:
+  crossplane:
+    compositionSelector:
+      matchLabels:
+        eos.netclab.dev/mechanism: jsonrpc
+  endpoint: ceos01.default.svc.cluster.local
+  asn: 65001
+  routerId: 10.0.0.1

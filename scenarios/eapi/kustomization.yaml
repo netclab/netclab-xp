@@ -1,0 +1,41 @@
+# Scenario: eAPI / raw CLI.
+#
+# Configures ceos01 by sending EOS CLI commands, nested as a structure rather
+# than a flat script, through function-eapi. This is the escape hatch for
+# anything the modelled layers do not cover -- here a prefix-list, a BGP peer
+# group, and a full EVPN overlay.
+#
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/eapi \
+#     | kubectl apply -f -
+#
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/eapi \
+#     | yq 'select(.kind != "Namespace")' \
+#     | kubectl delete -f -
+#
+# This is an ALTERNATIVE to the restconf and jsonrpc scenarios, not an
+# addition: eoscommand-3 sets Loopback0 to 10.255.0.1/32, which contradicts
+# what examples/eos/restconf/loopback0ip.yaml puts there. Pick one mechanism
+# per device.
+#
+# Within the scenario, eoscommand-2 is entirely redundant -- verified, not
+# assumed. function-eapi names each composed Request after a hash of the
+# command it carries, so identical commands produce identical hashes; all three
+# of eoscommand-2's hashes appear among eoscommand-3's twenty-two. It is kept
+# only because it shows the smaller shape next to the full one. Drop it for the
+# minimal set; nothing on the device changes.
+#
+# eoscommand-1 is not redundant: the prefix-list is its alone.
+#
+# See scenarios/restconf/kustomization.yaml for why `resources` reaches into
+# examples/ and why the load-restrictor flag is required.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: netclab
+
+resources:
+  - ../namespace.yaml
+
+  - ../../examples/eos/eapi/eoscommand-1.yaml
+  - ../../examples/eos/eapi/eoscommand-2.yaml
+  - ../../examples/eos/eapi/eoscommand-3.yaml

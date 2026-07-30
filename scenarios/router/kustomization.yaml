@@ -1,0 +1,35 @@
+# Scenario: the Router abstraction.
+#
+# One `Router` XR per device, describing intent -- ASN, router-id, routed
+# interfaces, BGP neighbours -- which the composition fans out into the same
+# per-resource `eos` XRs the restconf scenario applies by hand. This is what
+# the lower layers are building towards, and the reason they are worth showing
+# separately.
+#
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/router \
+#     | kubectl apply -f -
+#
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/router \
+#     | yq 'select(.kind != "Namespace")' \
+#     | kubectl delete -f -
+#
+# This is an ALTERNATIVE to every eos-layer scenario, not an addition: a Router
+# composes LoopbackInterface, RoutedInterface, BgpGlobal, BgpNeighbor and
+# IpRouting itself, so applying it alongside restconf puts two owners on the
+# same device configuration.
+#
+# The only scenario that covers both lab devices; every other example targets
+# ceos01 alone.
+#
+# See scenarios/restconf/kustomization.yaml for why `resources` reaches into
+# examples/ and why the load-restrictor flag is required.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: netclab
+
+resources:
+  - ../namespace.yaml
+
+  - ../../examples/mid/ceos01-routereos.yaml
+  - ../../examples/mid/ceos02-routereos.yaml

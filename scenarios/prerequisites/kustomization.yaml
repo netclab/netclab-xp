@@ -1,0 +1,22 @@
+# What the package needs but cannot ship inside itself. The Configuration's
+# `dependsOn` installs provider-http and the four functions automatically, but
+# it cannot create the ProviderConfig, EnvironmentConfig or Secret that the
+# compositions then reference by name. Apply this once, before any scenario:
+#
+#   kubectl apply -k scenarios/prerequisites
+#
+# No --load-restrictor needed here: every resource is a local file. The
+# scenario overlays are the ones that reach into ../../examples.
+#
+# Deliberately NO `namespace:` transformer. Nothing here is namespaced --
+# ClusterProviderConfig and EnvironmentConfig are cluster scoped, and the
+# Secret belongs to `crossplane-system` because the compositions name that
+# namespace statically. A namespace transformer would rewrite all three and
+# break the package quietly.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - clusterproviderconfig.yaml
+  - environmentconfig.yaml
+  - secret.yaml

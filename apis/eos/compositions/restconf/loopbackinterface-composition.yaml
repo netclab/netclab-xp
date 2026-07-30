@@ -45,7 +45,7 @@ spec:
           {{- end }}
           {{- $basicAuth := ( getCredentialData . "eos-creds" ).basicAuth | toString | b64enc }}
           ---
-          apiVersion: http.crossplane.io/v1alpha2
+          apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
           metadata:
             annotations:

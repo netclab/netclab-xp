@@ -1,0 +1,33 @@
+# Scenario: RESTCONF.
+#
+# Configures ceos01 through the OpenConfig RESTCONF API -- structured YANG
+# paths, one XR per resource. This is the layer that builds the base config:
+# interfaces, addressing, `ip routing`, and `router bgp 65001` itself.
+#
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/restconf \
+#     | kubectl apply -f -
+#
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/restconf \
+#     | yq 'select(.kind != "Namespace")' \
+#     | kubectl delete -f -
+#
+# The flag is required because `resources` reaches out of this directory into
+# examples/. That is deliberate: examples/ holds nothing but XR manifests, so
+# that the package's .up/examples.yaml -- which the Marketplace renders under
+# each XRD -- stays free of kustomize files and other non-XR objects. The
+# manifests therefore exist in exactly one place and are used from two.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: netclab
+
+resources:
+  - ../namespace.yaml
+
+  - ../../examples/eos/restconf/loopback0.yaml
+  - ../../examples/eos/restconf/loopback0ip.yaml
+  - ../../examples/eos/restconf/ethernet1ip.yaml
+  - ../../examples/eos/restconf/iprouting.yaml
+  - ../../examples/eos/restconf/bgpglobal.yaml
+  - ../../examples/eos/restconf/bgpneighbor.yaml
+  - ../../examples/eos/restconf/bgppeergroup.yaml

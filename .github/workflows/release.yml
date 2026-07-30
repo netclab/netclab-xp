@@ -90,7 +90,7 @@ jobs:
           crossplane xpkg build \
             --package-root=. \
             --examples-root=./examples \
-            --ignore="./.github/*,./.github/*/*" \
+            --ignore="./.github/*,./.github/*/*,./scenarios/*,./scenarios/*/*" \
             -o "netclab-xp-${{ steps.version.outputs.version }}.xpkg"
 
       - uses: actions/upload-artifact@v7

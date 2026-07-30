@@ -2,6 +2,13 @@ apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
   name: bgpglobals.eos.netclab.dev
+  # `BgpGlobal` is served by two Compositions -- this one over RESTCONF and
+  # apis/eos/compositions/jsonrpc/bgpglobal-composition.yaml over eAPI. The
+  # label is how an XR asks for one by mechanism instead of by name. This one
+  # stays the XRD's defaultCompositionRef, so an XR that asks for nothing
+  # still lands here.
+  labels:
+    eos.netclab.dev/mechanism: restconf
 spec:
   compositeTypeRef:
     apiVersion: eos.netclab.dev/v1alpha1
@@ -51,7 +58,7 @@ spec:
           {{ $routerId := .observed.composite.resource.spec.routerId }}
 
           ---
-          apiVersion: http.crossplane.io/v1alpha2
+          apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
           metadata:
             annotations:
@@ -87,7 +94,7 @@ spec:
 
           {{- if and (hasKey .observed.composite.resource.spec "disableBgpDefaultIpv4Unicast") .observed.composite.resource.spec.disableBgpDefaultIpv4Unicast }}
           ---
-          apiVersion: http.crossplane.io/v1alpha2
+          apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
           metadata:
             annotations:
