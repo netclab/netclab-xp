@@ -7,6 +7,10 @@
 #   kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/restconf \
 #     | kubectl apply -f -
 #
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/restconf \
+#     | yq 'select(.kind != "Namespace")' \
+#     | kubectl delete -f -
+#
 # The flag is required because `resources` reaches out of this directory into
 # examples/. That is deliberate: examples/ holds nothing but XR manifests, so
 # that the package's .up/examples.yaml -- which the Marketplace renders under

@@ -137,13 +137,34 @@ spec.scope: Invalid value: "Namespaced": Value is immutable
 
 The old XRDs have to go first. Deleting an XRD deletes its CRD and with it
 every XR of that kind — and those XRs own composed `Request` resources, so a
-plain delete can ask provider-http to remove the configuration from your
-devices. On a lab that is fine; on anything you care about, pause the XRs or
-detach them before removing the Configuration.
+plain delete asks provider-http to remove the configuration from your devices.
+This is measured, not feared: deleting a scenario's XRs takes the BGP instance,
+the routing config and the loopback interface off the box. On a lab that is
+fine; on anything you care about, pause the XRs or detach them before removing
+the Configuration.
 
 There is no in-place path, by design: cluster-scoped and namespaced XRs are
 different objects, so the configuration is re-created in a namespace after the
 upgrade rather than migrated.
+
+**0.3.0 also raises the `function-eapi` floor to `>=v0.0.23`, and Crossplane
+will not upgrade a dependency it has already installed.** It installs what is
+missing; it does not move what is there. So the new revision goes `Active` and
+stays unhealthy:
+
+```
+cannot resolve package dependencies: incompatible dependencies: existing
+package xpkg.upbound.io/netclab/function-eapi@v0.0.22 is incompatible with
+constraint >=v0.0.23
+```
+
+Nothing breaks loudly — the XRDs keep serving — so the symptom is simply a
+Configuration that is never healthy again. Upgrade the dependency yourself:
+
+```bash
+kubectl patch function.pkg.crossplane.io netclab-function-eapi --type=merge \
+  -p '{"spec":{"package":"xpkg.upbound.io/netclab/function-eapi:v0.0.23"}}'
+```
 
 ---
 

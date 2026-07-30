@@ -1,0 +1,369 @@
+# BgpGlobal over eAPI -- the second Composition for the same XRD, selected by
+# the `eos.netclab.dev/mechanism` label. With no selector on the XR, the XRD's
+# defaultCompositionRef sends it to the RESTCONF one instead.
+#
+# This is also the jsonrpc layer's owner of `router bgp <asn>`: its REMOVE is
+# `no router bgp <asn>`, the instance itself. The other jsonrpc compositions
+# only configure settings inside that block, and removing a nested setting
+# means entering the block -- which in configure mode creates it.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: bgpglobals-jsonrpc.eos.netclab.dev
+  labels:
+    eos.netclab.dev/mechanism: jsonrpc
+spec:
+  compositeTypeRef:
+    apiVersion: eos.netclab.dev/v1alpha1
+    kind: BgpGlobal
+  mode: Pipeline
+  pipeline:
+  - step: environmentConfigs
+    functionRef:
+      name: crossplane-contrib-function-environment-configs
+    input:
+      apiVersion: environmentconfigs.fn.crossplane.io/v1beta1
+      kind: Input
+      spec:
+        environmentConfigs:
+        - type: Reference
+          ref:
+            name: endpoint-protocols
+
+  - step: requests
+    functionRef:
+      name: crossplane-contrib-function-go-templating
+
+    credentials:
+    - name: eos-creds
+      secretRef:
+        name: eos-creds
+        namespace: crossplane-system
+      source: Secret
+
+    input:
+      apiVersion: gotemplating.fn.crossplane.io/v1beta1
+      kind: GoTemplate
+      source: Inline
+      inline:
+        template: |
+          {{ $resourceNamePrefix := .observed.composite.resource.metadata.name }}
+
+          {{- $deviceUrl := "" }}
+          {{- $basicAuth := "" }}
+          {{- $address := .observed.composite.resource.spec.endpoint }}
+          {{- with index .context "apiextensions.crossplane.io/environment" }}
+            {{- $deviceUrl = printf "%s://%s:%d" .jsonrpc.scheme $address .jsonrpc.port }}
+          {{- end }}
+          {{- $basicAuth := ( getCredentialData . "eos-creds" ).basicAuth | toString | b64enc }}
+
+          {{ $asn := .observed.composite.resource.spec.asn }}
+          {{ $routerId := .observed.composite.resource.spec.routerId }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: {{ $resourceNamePrefix }}-asid
+          spec:
+            forProvider:
+              insecureSkipTLSVerify: true
+              headers:
+                Accept: ["application/json"]
+                Authorization: ["Basic {{ $basicAuth }}"]
+              payload:
+                baseUrl: "{{ $deviceUrl }}/command-api"
+                body: |
+                  {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "runCmds",
+                    "params": {
+                      "version": 1,
+                      "format": "json",
+                      "cmds": [
+                        "enable",
+                        "configure",
+                        "router bgp {{ $asn }}",
+                        "router-id {{ $routerId }}"
+                      ]
+                    }
+                  }
+
+              mappings:
+              - action: CREATE
+                method: POST
+                body: .payload.body
+                url: .payload.baseUrl
+
+              - action: UPDATE
+                method: POST
+                body: .payload.body
+                url: .payload.baseUrl
+
+              - action: OBSERVE
+                method: POST
+                url: .payload.baseUrl
+                body: |
+                  {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "runCmds",
+                    "params": {
+                      "version": 1,
+                      "format": "json",
+                      "cmds": [
+                        "enable",
+                        "show running-config"
+                      ]
+                    }
+                  }
+
+              # The whole instance, not just the router-id under it. This is
+              # the request that owns `router bgp <asn>`.
+              - action: REMOVE
+                method: POST
+                url: .payload.baseUrl
+                body: |
+                  {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "runCmds",
+                    "params": {
+                      "version": 1,
+                      "format": "json",
+                      "cmds": [
+                        "enable",
+                        "configure",
+                        "no router bgp {{ $asn }}"
+                      ]
+                    }
+                  }
+
+              expectedResponseCheck:
+                type: CUSTOM
+                logic: |
+                  .response.body.error == null
+                  and (
+                    .response.body.result[1].cmds."router bgp {{ $asn }}".cmds
+                    | has("router-id {{ $routerId }}")
+                  )
+
+              # Absence of the instance, not of the router-id: this request
+              # removes the block, so the block is what has to be gone.
+              isRemovedCheck:
+                type: CUSTOM
+                logic: |
+                  .response.body.error == null
+                  and (
+                    .response.body.result[1].cmds
+                    | has("router bgp {{ $asn }}") | not )
+
+          {{- if and (hasKey .observed.composite.resource.spec "disableBgpDefaultIpv4Unicast") .observed.composite.resource.spec.disableBgpDefaultIpv4Unicast }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: {{ $resourceNamePrefix }}-disableIp4
+          spec:
+            forProvider:
+              insecureSkipTLSVerify: true
+              headers:
+                Accept: ["application/json"]
+                Authorization: ["Basic {{ $basicAuth }}"]
+              payload:
+                baseUrl: "{{ $deviceUrl }}/command-api"
+                body: |
+                  {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "runCmds",
+                    "params": {
+                      "version": 1,
+                      "format": "json",
+                      "cmds": [
+                        "enable",
+                        "configure",
+                        "router bgp {{ $asn }}",
+                        "no bgp default ipv4-unicast"
+                      ]
+                    }
+                  }
+
+              mappings:
+              - action: CREATE
+                method: POST
+                body: .payload.body
+                url: .payload.baseUrl
+
+              - action: UPDATE
+                method: POST
+                body: .payload.body
+                url: .payload.baseUrl
+
+              - action: OBSERVE
+                method: POST
+                url: .payload.baseUrl
+                body: |
+                  {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "runCmds",
+                    "params": {
+                      "version": 1,
+                      "format": "json",
+                      "cmds": [
+                        "enable",
+                        "show running-config"
+                      ]
+                    }
+                  }
+
+              # `no bgp default ipv4-unicast` is itself the negation of a
+              # default, so undoing it means asserting the default back.
+              - action: REMOVE
+                method: POST
+                url: .payload.baseUrl
+                body: |
+                  {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "runCmds",
+                    "params": {
+                      "version": 1,
+                      "format": "json",
+                      "cmds": [
+                        "enable",
+                        "configure",
+                        "router bgp {{ $asn }}",
+                        "bgp default ipv4-unicast"
+                      ]
+                    }
+                  }
+
+              expectedResponseCheck:
+                type: CUSTOM
+                logic: |
+                  .response.body.error == null
+                  and (
+                    .response.body.result[1].cmds."router bgp {{ $asn }}".cmds
+                    | has("no bgp default ipv4-unicast")
+                  )
+
+              isRemovedCheck:
+                type: CUSTOM
+                logic: |
+                  .response.body.error == null
+                  and (
+                    .response.body.result[1].cmds."router bgp {{ $asn }}".cmds
+                    | has("no bgp default ipv4-unicast") | not )
+          {{- end }}
+
+          {{- if hasKey .observed.composite.resource.spec "maximumPaths" }}
+          {{- $mpath := .observed.composite.resource.spec.maximumPaths }}
+          {{- $mpathCmd := printf "maximum-paths %d" (int $mpath.number) }}
+          {{- if hasKey $mpath "ecmp" }}
+          {{- $mpathCmd = printf "%s ecmp %d" $mpathCmd (int $mpath.ecmp) }}
+          {{- end }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: {{ $resourceNamePrefix }}-mpath
+          spec:
+            forProvider:
+              insecureSkipTLSVerify: true
+              headers:
+                Accept: ["application/json"]
+                Authorization: ["Basic {{ $basicAuth }}"]
+              payload:
+                baseUrl: "{{ $deviceUrl }}/command-api"
+                body: |
+                  {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "runCmds",
+                    "params": {
+                      "version": 1,
+                      "format": "json",
+                      "cmds": [
+                        "enable",
+                        "configure",
+                        "router bgp {{ $asn }}",
+                        "{{ $mpathCmd }}"
+                      ]
+                    }
+                  }
+
+              mappings:
+              - action: CREATE
+                method: POST
+                body: .payload.body
+                url: .payload.baseUrl
+
+              - action: UPDATE
+                method: POST
+                body: .payload.body
+                url: .payload.baseUrl
+
+              - action: OBSERVE
+                method: POST
+                url: .payload.baseUrl
+                body: |
+                  {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "runCmds",
+                    "params": {
+                      "version": 1,
+                      "format": "json",
+                      "cmds": [
+                        "enable",
+                        "show running-config"
+                      ]
+                    }
+                  }
+
+              - action: REMOVE
+                method: POST
+                url: .payload.baseUrl
+                body: |
+                  {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "runCmds",
+                    "params": {
+                      "version": 1,
+                      "format": "json",
+                      "cmds": [
+                        "enable",
+                        "configure",
+                        "router bgp {{ $asn }}",
+                        "no maximum-paths"
+                      ]
+                    }
+                  }
+
+              expectedResponseCheck:
+                type: CUSTOM
+                logic: |
+                  .response.body.error == null
+                  and (
+                    .response.body.result[1].cmds."router bgp {{ $asn }}".cmds
+                    | has("{{ $mpathCmd }}")
+                  )
+
+              isRemovedCheck:
+                type: CUSTOM
+                logic: |
+                  .response.body.error == null
+                  and (
+                    .response.body.result[1].cmds."router bgp {{ $asn }}".cmds
+                    | has("{{ $mpathCmd }}") | not )
+          {{- end }}
+
+  - step: auto-ready
+    functionRef:
+      name: crossplane-contrib-function-auto-ready

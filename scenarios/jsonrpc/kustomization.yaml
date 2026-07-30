@@ -7,12 +7,17 @@
 #   kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/jsonrpc \
 #     | kubectl apply -f -
 #
-# NOTE -- unverified: this scenario looks like an *addition* to the RESTCONF
-# one rather than an alternative to it. `bgpinterfaceexport` and `bgpmultipath`
-# both carry `asn: 65001`, but nothing here creates `router bgp 65001`; that is
-# examples/eos/restconf/bgpglobal.yaml. If that holds, applying this alone on a
-# fresh device leaves those two XRs unable to converge, and the documented
-# order is restconf first. Confirm on a live device before writing that down.
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/jsonrpc \
+#     | yq 'select(.kind != "Namespace")' \
+#     | kubectl delete -f -
+#
+# Stands on its own -- verified on a live cEOS with nothing else applied. It is
+# not a layer on the RESTCONF scenario, and neither is a prerequisite for the
+# other.
+#
+# `bgpglobal` here owns `router bgp 65001`, so the scenario tears down without
+# leaving the instance behind. It selects this layer's Composition of a kind the
+# RESTCONF scenario also uses -- see examples/eos/jsonrpc/bgpglobal.yaml.
 #
 # See scenarios/restconf/kustomization.yaml for why `resources` reaches into
 # examples/ and why the load-restrictor flag is required.
@@ -24,6 +29,7 @@ namespace: netclab
 resources:
   - ../namespace.yaml
 
+  - ../../examples/eos/jsonrpc/bgpglobal.yaml
   - ../../examples/eos/jsonrpc/stpdisabled.yaml
   - ../../examples/eos/jsonrpc/vlanInternalAllocation.yaml
   - ../../examples/eos/jsonrpc/bgpmultipath.yaml

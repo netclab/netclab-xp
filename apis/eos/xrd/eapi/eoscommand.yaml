@@ -22,9 +22,9 @@ spec:
     - name: ENDPOINT
       type: string
       jsonPath: .spec.endpoint
-    - name: CONTAINER_RM
+    - name: SECTION_RM
       type: boolean
-      jsonPath: .spec.removeContainer
+      jsonPath: .spec.removeSection
 
     schema:
       openAPIV3Schema:
@@ -35,7 +35,12 @@ spec:
             properties:
               endpoint:
                 type: string
-              removeContainer:
+              # On remove, take out the enclosing config section rather than
+              # just the setting nested in it -- `no router bgp 65001` instead
+              # of entering that block and negating one line inside it. Only
+              # has an effect for a nested `cmds` path; a single-line path is
+              # already removed as itself.
+              removeSection:
                 type: boolean
                 default: false
               cmds:

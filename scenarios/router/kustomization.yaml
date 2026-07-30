@@ -9,6 +9,10 @@
 #   kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/router \
 #     | kubectl apply -f -
 #
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/router \
+#     | yq 'select(.kind != "Namespace")' \
+#     | kubectl delete -f -
+#
 # This is an ALTERNATIVE to every eos-layer scenario, not an addition: a Router
 # composes LoopbackInterface, RoutedInterface, BgpGlobal, BgpNeighbor and
 # IpRouting itself, so applying it alongside restconf puts two owners on the
