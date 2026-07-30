@@ -1,0 +1,34 @@
+# Two cEOS nodes on one bridge -- ceos01 and ceos02, cabled eth1<->eth1.
+#
+# Node names are load-bearing: the chart names each Service after its node, and
+# every example in netclab-xp addresses the device as
+# `ceos01.default.svc.cluster.local`. So the release must live in `default` and
+# the nodes must be called ceos01/ceos02.
+#
+# Both are needed even though only the `mid` scenario uses ceos02: it is the one
+# scenario with two routers (Router ceos01 <-> Router ceos02, eBGP 65001/65002
+# over 10.1.2.0/24 on Ethernet1).
+#
+# The image comes from the kind local registry -- cEOS is licensed and cannot be
+# pulled. It lives in the kind-registry-data volume and outlives teardown.
+topology:
+  networks:
+  - name: b1
+    type: bridge
+  nodes:
+  - name: ceos01
+    type: ceos
+    image: localhost:5001/netclab/ceos:4.36.1F
+    memory: 2Gi
+    cpu: 1000m
+    interfaces:
+    - name: eth1
+      network: b1
+  - name: ceos02
+    type: ceos
+    image: localhost:5001/netclab/ceos:4.36.1F
+    memory: 2Gi
+    cpu: 1000m
+    interfaces:
+    - name: eth1
+      network: b1
