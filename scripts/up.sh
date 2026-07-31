@@ -131,6 +131,11 @@ helm upgrade --install lab netclab/netclab --version "${NETCLAB_CHART}" \
   --kube-context "$CTX" -n default -f "$TOPO" >/dev/null
 
 echo
-echo "Ready once the cert Jobs complete (~2min from a cold boot):"
-echo "  kubectl --context ${CTX} -n default get jobs -w"
+# There is no readiness object to wait on. netclab-chart 0.5.11 dropped the
+# certificate Job -- RESTCONF now comes up from the startup-config alone -- and
+# a cEOS pod reports Running well before EOS has finished booting. So the only
+# honest signal is the device answering.
+echo "cEOS takes ~2min to boot. Ready when both devices answer:"
+echo "  for n in ceos01 ceos02; do kubectl --context ${CTX} -n default exec \$n -- \\"
+echo "    Cli -p 15 -c 'show management api restconf' | head -2; done"
 echo "  kubectl --context ${CTX} apply -k ${ROOT}/scenarios/prerequisites"
