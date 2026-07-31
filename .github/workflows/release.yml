@@ -82,15 +82,14 @@ jobs:
       # this is where the shape departs from function-avd's release.
       #
       # Same flags as ci.yml, deliberately: the artifact this pushes is built by
-      # the command PRs have been running all along. See ci.yml for why --ignore
-      # is needed and why the repo root stays the package root.
+      # the command PRs have been running all along. See ci.yml for why the
+      # package root is apis/ rather than the repo root.
       - name: Build the package
         run: |
           set -euo pipefail
           crossplane xpkg build \
-            --package-root=. \
+            --package-root=apis \
             --examples-root=./examples \
-            --ignore="./.github/*,./.github/*/*,./scenarios/*,./scenarios/*/*,./scripts/*" \
             -o "netclab-xp-${{ steps.version.outputs.version }}.xpkg"
 
       - uses: actions/upload-artifact@v7

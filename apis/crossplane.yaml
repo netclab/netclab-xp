@@ -38,5 +38,15 @@ spec:
       package: xpkg.upbound.io/netclab/function-eapi
       version: ">=v0.0.23"
 
+    # The AVD layer -- `Fabric` and `Device` in avd.netclab.dev -- is authored
+    # and released by function-avd, not vendored here. A Function package
+    # cannot carry XRDs at all, so that repo publishes them as their own
+    # Configuration, and this one depends on it. The fabric scenario is the
+    # only thing here that uses it; nothing under apis/ does.
+    - apiVersion: pkg.crossplane.io/v1
+      kind: Configuration
+      package: xpkg.upbound.io/netclab/configuration-avd
+      version: ">=v0.1.5"
+
   crossplane:
     version: ">=v2.1.1"
