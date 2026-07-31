@@ -1,0 +1,21 @@
+# Namespaced, unlike every other scenario's -- and that is not an oversight.
+#
+# The eos and mid scenarios compose Requests that leave `providerConfigRef`
+# unset, so provider-http applies its default of
+# `{kind: ClusterProviderConfig, name: default}` and one cluster-scoped object
+# serves every namespace. The AVD push does not: function-avd names the kind
+# explicitly (`function/push.py`, `kind: ProviderConfig`), so it needs a
+# namespaced object in the namespace the Fabric lives in.
+#
+# The name must match `spec.push.providerConfigName`, which defaults to `eapi`.
+apiVersion: http.m.crossplane.io/v1alpha2
+kind: ProviderConfig
+metadata:
+  name: eapi
+  namespace: avd
+spec:
+  # eAPI auth rides in each Request's Authorization header, built from the
+  # Secret beside this file. The ProviderConfig itself carries no credentials,
+  # but the field is required, so it has to say so.
+  credentials:
+    source: None

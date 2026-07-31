@@ -10,26 +10,23 @@ name: CI
 # is a real statement about every XRD, composition and example that ships --
 # which is why it is the gate here and the first job of the release.
 #
-# --ignore is load-bearing: xpkg build collects every .yml and .yaml under
-# --package-root recursively, so without it this workflow's own files fail the
-# build. The globs are file-only -- per its own help --ignore "can't exclude
-# directories" -- and they do not cross '/', hence one glob per nesting level.
-# Adding a directory of non-package YAML means adding a glob here; the build
-# will say so loudly on the PR that adds it. Two directories are like that:
-# `scenarios/`, holding kustomize overlays and the prerequisite manifests, and
-# `scripts/`, where topology.yaml is helm values with no `kind` at all -- which
-# fails with "Object 'Kind' is missing" rather than with a scheme error.
+# The package root is `apis/`, and the meta file lives there with it -- xpkg
+# requires the meta in the root it is given. This is what makes the build need
+# no --ignore at all: it collects every .yml and .yaml under --package-root
+# recursively, so with the repo root as package root, every workflow file,
+# kustomize overlay and helm values file had to be excluded by a glob. Those
+# globs were file-only and did not cross '/', so each nesting level needed its
+# own -- meaning a new sub-directory anywhere silently required an edit in three
+# places, and broke the build when it did not get one.
 #
-# `examples/` is the opposite case and needs no glob: --examples-root is
-# excluded from the package's own collection. But note --ignore does NOT reach
-# --examples-root either, so anything placed under examples/ ships with no way
-# to filter it -- which is why examples/ holds XR manifests and nothing else,
-# and why the scenario overlays live outside it and reach in.
+# Narrowing the root inverts that: anything outside apis/ is excluded by
+# construction, and no directory added later can affect this build. Verified
+# when it changed: the package is byte-identical to the one the globs produced.
 #
-# The repo root stays the package root deliberately. `crossplane project` (BETA)
-# collects from named sub-directories instead and needs no --ignore at all, and
-# its layout is exactly this one -- apis/ and examples/ at the root -- so this
-# stays a drop-in conversion later, rather than a second round of moves.
+# `examples/` is passed separately and is not collected here. Note --ignore
+# never reached --examples-root either, so anything placed under examples/
+# ships with no way to filter it -- which is why examples/ holds XR manifests
+# and nothing else, and why the scenario overlays live outside it and reach in.
 
 on:
   push:
@@ -71,9 +68,8 @@ jobs:
         run: |
           set -euo pipefail
           crossplane xpkg build \
-            --package-root=. \
+            --package-root=apis \
             --examples-root=./examples \
-            --ignore="./.github/*,./.github/*/*,./scenarios/*,./scenarios/*/*,./scripts/*" \
             -o netclab-xp-ci.xpkg
 
       # The install snippet used to carry a hard-coded tag that was hand-synced

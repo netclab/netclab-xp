@@ -179,10 +179,15 @@ each has its own directory under [`scenarios/`](scenarios/):
 | [`jsonrpc`](scenarios/jsonrpc/) | eAPI JSON-RPC — settings OpenConfig does not model |
 | [`eapi`](scenarios/eapi/) | raw EOS CLI through `function-eapi` |
 | [`router`](scenarios/router/) | the `Router` abstraction, which composes the layers above |
+| [`fabric`](scenarios/fabric/) | an AVD model rendering a whole network — [walkthrough](docs/scenarios/fabric.md) |
 
 **`eapi` and `router` are alternatives to the others, not additions** — each
 would become a second owner of the same device configuration. Apply one
 mechanism per device.
+
+`fabric` works at a different level: it configures a whole fabric from one AVD
+design rather than a device from an XR. So it runs on its own devices, has its
+own prerequisites, and fetches its base over the network from a pinned tag.
 
 ```bash
 kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/router \

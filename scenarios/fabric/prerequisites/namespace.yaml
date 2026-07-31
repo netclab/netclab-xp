@@ -1,0 +1,19 @@
+# The fabric scenario's namespace, holding both the AVD devices and the Fabric
+# that configures them. They cannot be separated: function-avd builds each
+# device's eAPI URL as `{hostname}.{namespace}.svc` from the *XR's* namespace
+# (function/fn.py), so a Fabric in one namespace cannot push to devices in
+# another without overriding `spec.push.urlTemplate`.
+#
+# One topology per namespace is netclab-chart's documented model -- its README
+# installs `dc2` and `dc3` exactly this way -- so the AVD devices get a release
+# of their own here rather than joining the one in `default`.
+#
+# It lives with the prerequisites rather than the scenario so that
+# `kubectl delete -k scenarios/fabric` never removes it. Deleting a Namespace
+# together with the XRs inside it deadlocks: provider-http's cleanup applies a
+# ProviderConfigUsage into a namespace that is already terminating, so the
+# Request keeps its finalizer and the Namespace waits on the Request.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: avd
