@@ -33,11 +33,11 @@ XP_CHART=${XP_CHART:-2.3.4}
 CNI_PLUGINS=${CNI_PLUGINS:-v1.9.1}
 # renovate: datasource=github-releases depName=k8snetworkplumbingwg/multus-cni
 MULTUS=${MULTUS:-v4.3.0}
-# 0.5.10 is a floor, not a preference: before it the cEOS RESTCONF SSL profile
-# stayed invalid after the certificate Job ran, so nothing ever listened on
-# 6020 and every restconf scenario failed to connect.
+# 0.5.11 is a floor, not a preference: below it cEOS RESTCONF either never came
+# up on 6020, or came up and did not survive a container restart. This lab is
+# expected to outlive a laptop going to sleep.
 # renovate: datasource=helm depName=netclab registryUrl=https://netclab.github.io/netclab-chart
-NETCLAB_CHART=${NETCLAB_CHART:-0.5.10}
+NETCLAB_CHART=${NETCLAB_CHART:-0.5.11}
 CEOS_IMG=${CEOS_IMG:-localhost:${REG_PORT}/netclab/ceos:4.36.1F}
 TOPO=${TOPO:-${HERE}/topology.yaml}
 
