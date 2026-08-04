@@ -1,0 +1,86 @@
+name: Docs
+
+# Builds and publishes docs/ as a MkDocs Material site.
+#
+# Until now docs/ was served by Pages in `legacy` mode -- GitHub running Jekyll
+# with no configuration. That did render: a markdown file without front matter
+# still came out as a themed HTML page, and its .md source was served next to it.
+# What it could not do is navigation, search, a canonical URL, or a single page
+# per document. Hence a real generator.
+#
+# This runs on pull requests too, and `--strict` is why: MkDocs fails the build
+# on a broken internal link or a nav entry pointing at a missing file, so a dead
+# link is caught in review instead of shipped. The deploy job is gated to
+# non-PR events, so a fork's PR builds but cannot publish.
+#
+# NOTE: this only publishes if the repository's Pages source is set to GitHub
+# Actions. While it is `legacy`, deploy-pages fails -- the workflow is correct
+# and the setting is what is wrong.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+# Pages allows one deployment at a time. Do not cancel a running one: a
+# half-finished deploy would leave the site on whatever was published last.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: mkdocs build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+
+      # requirements-docs.txt is pinned and lives outside docs/ on purpose --
+      # anything inside docs/ is copied into the published site, and the build's
+      # own dependency list is not documentation.
+      - name: Build the site
+        run: |
+          set -euo pipefail
+          uv run --with-requirements requirements-docs.txt \
+            mkdocs build --strict
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    name: deploy to Pages
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
