@@ -21,11 +21,20 @@ and tested against today.
 | [Your first resource](https://netclab.github.io/netclab-xp/first-resource/) | one interface, then a BGP session between two devices |
 | [Scenarios](https://netclab.github.io/netclab-xp/scenarios/) | every mechanism the package offers |
 
-## What is in the package
+## What you get
 
-Twelve resource types in the `eos.netclab.dev` API group, at two levels:
+**One API for you, several mechanisms for the device.** Everything is a
+Kubernetes resource, applied and reviewed the same way whatever the device
+speaks — while underneath, RESTCONF carries structured data and eAPI carries CLI
+commands over JSON-RPC, reaching what the other cannot. The mechanism is often
+selectable without changing the resource.
+
+Above that, layers describing how much you configure at once, all installed
+together:
 
 ```
+Fabric                                          a whole network, one design
+   ↓
 Router                                          one device, one resource
    ↓
 BgpGlobal · BgpNeighbor · BgpPeerGroup ·        one setting, one resource
@@ -36,11 +45,16 @@ provider-http                                   RESTCONF · JSON-RPC · eAPI
 ```
 
 The low-level resources map closely onto what a device models; `Router`
-composes them into something you would recognise as a router.
+composes them into something you would recognise as a router; and
+[`Fabric`](https://netclab.github.io/netclab-xp/scenarios/fabric/) describes the
+design of a whole network, leaving AVD to work out each switch's configuration.
 
-A level above that, the [fabric scenario](https://netclab.github.io/netclab-xp/scenarios/fabric/)
-configures a whole network from one AVD design. That API is not part of this
-package — it ships in `configuration-avd`, pulled in as a dependency.
+The bottom three layers are this package's own — twelve resource types in
+`eos.netclab.dev`. `Fabric` and `Device` are in `avd.netclab.dev`, authored and
+released by [function-avd](https://github.com/netclab/function-avd), because a
+Crossplane Function package cannot carry APIs. netclab-xp depends on that
+Configuration, so **installing netclab-xp installs it too** — there is nothing
+extra to fetch.
 
 ## Scenarios
 
