@@ -14,14 +14,14 @@ request and keep it in git the same way whatever the device on the other end
 speaks. That is the whole point: one workflow, one API surface, one place the
 intended state lives.
 
-Underneath, there is more than one way to reach a device, and they are not
-interchangeable. RESTCONF carries structured data and reaches what OpenConfig
-models; eAPI carries CLI commands over JSON-RPC and reaches everything else. The
-package carries both rather than committing to one, and the
-[scenarios](scenarios/index.md) are organised around exactly that split.
+Underneath, RESTCONF carries structured data and reaches what OpenConfig models;
+eAPI carries CLI commands over JSON-RPC, so it reaches whatever the CLI can say
+— including plenty that OpenConfig does not model. The two overlap heavily, and
+the [scenarios](scenarios/index.md) are organised around that split.
 
-Often the mechanism is a choice you make **without changing the resource**.
-`BgpGlobal` has one composition per mechanism, selected by a label:
+Where they overlap, the mechanism is a choice you can make **without changing
+the resource**. `BgpGlobal` has one composition per mechanism, selected by a
+label:
 
 ```yaml
 spec:
