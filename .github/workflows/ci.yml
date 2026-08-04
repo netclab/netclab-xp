@@ -75,12 +75,17 @@ jobs:
       # The install snippet used to carry a hard-coded tag that was hand-synced
       # with the release script -- and went stale every time someone forgot.
       # Now the git tag is the only version, and this keeps it that way.
-      - name: Check README has no pinned version
+      #
+      # It covers docs/ as well as the README, because that is where the snippet
+      # now lives. Guarding only the file the snippet used to be in is how this
+      # check would quietly stop protecting anything.
+      - name: Check no pinned version in README or docs
         run: |
           set -euo pipefail
-          if grep -n 'netclab-xp:v[0-9]' README.md; then
-            echo "::error::README pins a netclab-xp version. The git tag is the" \
-                 "version; leave the install snippet's \${VERSION} placeholder alone."
+          if grep -rn 'netclab-xp:v[0-9]' README.md docs/; then
+            echo "::error::A netclab-xp version is pinned above. The git tag is" \
+                 "the version; leave the install snippet's \${VERSION}" \
+                 "placeholder alone."
             exit 1
           fi
 

@@ -54,6 +54,10 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Getting started:
+      - Set up a lab: lab.md
+      - Install the package: install.md
+      - Your first resource: first-resource.md
   - Scenarios:
       - Overview: scenarios/index.md
       - Fabric: scenarios/fabric.md
