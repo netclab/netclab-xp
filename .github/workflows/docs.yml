@@ -52,7 +52,11 @@ jobs:
         with:
           fetch-depth: 1
 
-      - uses: astral-sh/setup-uv@v9
+      # Pinned to an exact release, not a moving major: setup-uv publishes
+      # moving tags only up to v7 while releases are on v9, so `@v9` does not
+      # resolve at all.
+      # renovate: datasource=github-releases depName=astral-sh/setup-uv
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
 
