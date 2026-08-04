@@ -25,8 +25,9 @@ and tested against today.
 
 **One API for you, several mechanisms for the device.** Everything is a
 Kubernetes resource, applied and reviewed the same way whatever the device
-speaks — while underneath, RESTCONF carries structured data and eAPI carries CLI
-commands over JSON-RPC, reaching what the other cannot. The mechanism is often
+speaks. Underneath, RESTCONF carries structured data and reaches what OpenConfig
+models, while eAPI carries CLI commands over JSON-RPC and reaches whatever the
+CLI can say. They overlap heavily — and where they overlap, the mechanism is
 selectable without changing the resource.
 
 Above that, layers describing how much you configure at once, all installed
