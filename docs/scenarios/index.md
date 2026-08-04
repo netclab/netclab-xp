@@ -22,21 +22,18 @@ holding manifests you can apply as they are.
     `fabric` is different in kind — it configures a whole network and runs on
     devices of its own.
 
-## Prerequisites
+## Before you start
 
-Installing the package brings in provider-http and the functions it needs, but
-not the `ClusterProviderConfig`, `EnvironmentConfig` and credentials `Secret`
-that the compositions reference by name. Apply those once:
+Every command below runs from a clone of the repository — the scenarios are
+manifests, not something the package installs:
 
 ```bash
-kubectl apply -k scenarios/prerequisites
+git clone https://github.com/netclab/netclab-xp
+cd netclab-xp
 ```
 
-All three are cluster-wide, so this is a one-time step no matter which namespace
-you put resources in.
-
-`fabric` does not use these — it has
-[its own set](https://github.com/netclab/netclab-xp/tree/main/scenarios/fabric/prerequisites).
+You also need [devices](../lab.md), the
+[package installed, and its prerequisites applied](../install.md).
 
 ## Applying a scenario
 
