@@ -1,0 +1,8 @@
+# Documentation build (mkdocs.yml). Kept out of docs/ so it is not published as
+# part of the site. Pinned so a deploy cannot break on an upstream release; bump
+# deliberately.
+#
+# Only Material is pinned: it declares `mkdocs<2,>=1.6`, so MkDocs 2.0 -- which
+# its own maintainers describe as having no migration path -- cannot be pulled
+# in by resolution. Checked, not assumed.
+mkdocs-material==9.7.7
