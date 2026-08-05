@@ -54,8 +54,14 @@ kind: Kustomization
 # a prerequisite, not part of this overlay, so teardown never removes it.
 namespace: avd
 
+# `submodules=false` is load-bearing, not tidiness. kustomize fetches a remote
+# base with `git submodule update --init --recursive`, and function-avd carries
+# aristanetworks/avd as a submodule -- which this scenario does not read at all,
+# since the design it wants is a plain YAML file in that repository. Fetching it
+# takes ~25s against kustomize's fixed 27s timeout, so `kubectl apply -k` fails
+# or succeeds depending on the day. Skipping it: 1.9s.
 resources:
-  - github.com/netclab/function-avd/examples/lab?ref=v0.1.6
+  - github.com/netclab/function-avd/examples/lab?ref=v0.1.6&submodules=false&timeout=120s
 
 patches:
   - target:
