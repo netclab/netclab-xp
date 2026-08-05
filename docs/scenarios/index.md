@@ -6,10 +6,10 @@ holding manifests you can apply as they are.
 
 | scenario | mechanism | what it configures |
 |---|---|---|
-| [`restconf`](https://github.com/netclab/netclab-xp/tree/main/scenarios/restconf) | OpenConfig over RESTCONF | the base config — BGP, interfaces, routing |
-| [`jsonrpc`](https://github.com/netclab/netclab-xp/tree/main/scenarios/jsonrpc) | eAPI over JSON-RPC | settings OpenConfig does not model |
-| [`eapi`](https://github.com/netclab/netclab-xp/tree/main/scenarios/eapi) | raw EOS CLI | the same config, expressed as commands |
-| [`router`](https://github.com/netclab/netclab-xp/tree/main/scenarios/router) | the `Router` abstraction | one device from one resource |
+| [`restconf`](restconf.md) | OpenConfig over RESTCONF | the base config — BGP, interfaces, routing |
+| [`jsonrpc`](jsonrpc.md) | eAPI over JSON-RPC | settings OpenConfig does not model |
+| [`eapi`](eapi.md) | raw EOS CLI | the same config, expressed as commands |
+| [`router`](router.md) | the `Router` abstraction | one device from one resource |
 | [`fabric`](fabric.md) | an AVD design | a whole network from one model |
 
 !!! warning "Pick one mechanism per device"
@@ -96,8 +96,5 @@ managing what it wrote and leaves it in place. See
     `Responsive=False WatchCircuitOpen`. It clears on its own. Wait rather than
     debug it.
 
-## Documentation status
-
-The [fabric walkthrough](fabric.md) is written. Pages for `restconf`,
-`jsonrpc`, `eapi` and `router` are still to come — until then, each scenario's
-`kustomization.yaml` carries the commands for applying and removing it.
+Each scenario's page carries its own apply and teardown commands, so the two
+above are the general shape rather than something to adapt by hand.
