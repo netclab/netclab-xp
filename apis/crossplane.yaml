@@ -11,9 +11,15 @@ metadata:
       netclab-xp abstracts device-specific complexities, enabling consistent and reproducible network configuration.
 spec:
   dependsOn:
+    # ghcr.io, not xpkg.upbound.io, and the reason is discoverability rather
+    # than availability: Upbound's tag list for this repository stops at
+    # v1.0.8, so a `>=v1.0.14` range has nothing to resolve to and the
+    # Configuration never becomes healthy. The image itself is there -- a
+    # manifest request for v1.0.14 returns 200 -- but dependency resolution
+    # walks the tag list, not the manifests. ghcr.io lists every version.
     - apiVersion: pkg.crossplane.io/v1
       kind: Provider
-      package: xpkg.upbound.io/crossplane-contrib/provider-http
+      package: ghcr.io/crossplane-contrib/provider-http
       version: ">=v1.0.14"
 
     - apiVersion: pkg.crossplane.io/v1
