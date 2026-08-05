@@ -65,16 +65,11 @@ the same tag the scenario reads:
 
 ```bash
 curl -sfL -o avd-topology.yaml \
-  https://raw.githubusercontent.com/netclab/function-avd/v0.1.5/examples/lab/topology.yaml
+  https://raw.githubusercontent.com/netclab/function-avd/v0.1.6/examples/lab/topology.yaml
 ```
 
-The file names the image of the reference lab, which serves cEOS from a local
-registry. If you loaded the image into the nodes with `kind load` instead, point
-it at that:
-
-```bash
-yq -i '.topology.nodes[].image = "ceos:4.36.1F"' avd-topology.yaml
-```
+It names the same `ceos:4.36.1F` image you loaded in
+[Set up a lab](../lab.md#the-ceos-image), so there is nothing to edit:
 
 ```bash
 helm upgrade --install avd netclab/netclab --version 0.5.11 \

@@ -53,7 +53,7 @@ WITH_FABRIC=${WITH_FABRIC:-0}
 # to one ref is what stops `spec.push.hosts` and the running devices from
 # drifting apart; a push to a device that is not running never converges.
 # Keep this in step with the ref in scenarios/fabric/kustomization.yaml.
-AVD_REF=${AVD_REF:-v0.1.5}
+AVD_REF=${AVD_REF:-v0.1.6}
 # Which matched pair to use. Upstream keeps the push-hosts kustomization and
 # the topology for a subset in one directory, so this single name selects both.
 AVD_LAB=${AVD_LAB:-lab}
@@ -169,6 +169,14 @@ if [ "$WITH_FABRIC" = "1" ]; then
     echo "   Does examples/${AVD_LAB}/topology.yaml exist at ref ${AVD_REF}?"
     exit 1
   fi
+  # Upstream generates the topology with a plain `ceos:<tag>`, which is what
+  # `docker import` + `kind load` leaves and what the documentation describes.
+  # This script serves cEOS from the local registry instead -- it survives
+  # teardown -- so point the copy at it. The tag still comes from the topology:
+  # it is generated from the AVD model, so the model picks the EOS version.
+  AVD_CEOS_TAG="$(awk '/image:/ {print $2; exit}' "$AVD_TOPO")"
+  sed -i "s|^\( *image: \).*|\1${CEOS_IMG%:*}:${AVD_CEOS_TAG##*:}|" "$AVD_TOPO"
+
   echo ">> netclab-chart ${NETCLAB_CHART} (AVD devices in ${AVD_NS})"
   helm upgrade --install avd netclab/netclab --version "${NETCLAB_CHART}" \
     --kube-context "$CTX" -n "$AVD_NS" --create-namespace -f "$AVD_TOPO" >/dev/null

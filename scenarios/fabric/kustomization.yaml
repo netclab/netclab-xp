@@ -55,7 +55,7 @@ kind: Kustomization
 namespace: avd
 
 resources:
-  - github.com/netclab/function-avd/examples/lab?ref=v0.1.5
+  - github.com/netclab/function-avd/examples/lab?ref=v0.1.6
 
 patches:
   - target:
