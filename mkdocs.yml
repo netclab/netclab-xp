@@ -60,6 +60,10 @@ nav:
       - Your first resource: first-resource.md
   - Scenarios:
       - Overview: scenarios/index.md
+      - RESTCONF: scenarios/restconf.md
+      - JSON-RPC: scenarios/jsonrpc.md
+      - eAPI: scenarios/eapi.md
+      - Router: scenarios/router.md
       - Fabric: scenarios/fabric.md
 
 extra:
