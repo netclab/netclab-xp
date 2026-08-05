@@ -33,7 +33,9 @@ cd netclab-xp
 ```
 
 You also need [devices](../lab.md), the
-[package installed, and its prerequisites applied](../install.md).
+[package installed, and its prerequisites applied](../install.md), and
+[yq](https://github.com/mikefarah/yq#install) — removing a scenario filters the
+rendered manifests through it.
 
 ## Applying a scenario
 

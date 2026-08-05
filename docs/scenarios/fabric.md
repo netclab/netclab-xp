@@ -10,7 +10,7 @@ what every switch in it must be configured with, then pushes that configuration
 over eAPI.
 
 It runs on its own devices, `dc1-spine1` and `dc1-leaf1a`, in the `avd`
-namespace.
+namespace — [added to your cluster below](#the-devices).
 
 ## Adding a VLAN
 
@@ -54,10 +54,54 @@ trunk list were none of them written down. Neither was the decision about
 The same VLAN at the `eos` layer is a hand-written XR per device, naming each
 device and repeating what you already told it.
 
+## The devices
+
+This scenario needs two devices the others do not have. Everything else — the
+cluster, Multus, the cEOS image, the chart — is the one you built in
+[Set up a lab](../lab.md); this is a second topology beside it.
+
+It is generated from the AVD model rather than written by hand, so fetch it from
+the same tag the scenario reads:
+
+```bash
+curl -sfL -o avd-topology.yaml \
+  https://raw.githubusercontent.com/netclab/function-avd/v0.1.5/examples/lab/topology.yaml
+```
+
+The file names the image of the reference lab, which serves cEOS from a local
+registry. If you loaded the image into the nodes with `kind load` instead, point
+it at that:
+
+```bash
+yq -i '.topology.nodes[].image = "ceos:4.36.1F"' avd-topology.yaml
+```
+
+```bash
+helm upgrade --install avd netclab/netclab --version 0.5.11 \
+  -n avd --create-namespace -f avd-topology.yaml
+```
+
+They boot in about two minutes, like the others.
+
+!!! danger "The namespace is not a choice"
+
+    function-avd builds each device's URL from the namespace of the `Fabric`
+    itself, and netclab-chart runs one topology per namespace — several of its
+    objects carry fixed names and only the namespace boundary keeps them apart.
+    So these devices cannot share `default` with `ceos01`/`ceos02`, and the
+    scenario cannot be moved out of `avd` without also overriding
+    `spec.push.urlTemplate`.
+
+!!! warning "One tag selects both halves"
+
+    `v0.1.5` above is the same ref as the `?ref=` in
+    `scenarios/fabric/kustomization.yaml`, and they have to stay in step. The
+    design says which devices it pushes to; the topology says which devices
+    exist. A push to a device that is not running never converges.
+
 ## Running it
 
 ```bash
-WITH_FABRIC=1 scripts/up.sh
 kubectl apply -k scenarios/fabric/prerequisites
 kubectl apply -k scenarios/fabric
 ```
@@ -65,6 +109,12 @@ kubectl apply -k scenarios/fabric
 The prerequisites create the `avd` namespace, the eAPI credentials and a
 `ProviderConfig`. They are separate from `scenarios/prerequisites/`, which the
 other scenarios use — apply this one, not that one.
+
+!!! tip "Working on the package itself?"
+
+    `WITH_FABRIC=1 scripts/up.sh` builds the cluster and both topologies in one
+    command, with the package built from your working tree. That is a
+    contributor tool, not the path described here.
 
 To see the model and the rendered configs:
 
