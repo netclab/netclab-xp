@@ -47,7 +47,8 @@ name* are not. Those are a `ClusterProviderConfig`, an `EnvironmentConfig`
 describing how each protocol is reached, and a `Secret` holding device
 credentials.
 
-They live in the repository, so clone it:
+They live in the repository, so clone it — this is the first step that needs
+[git](https://git-scm.com/downloads):
 
 ```bash
 git clone https://github.com/netclab/netclab-xp
@@ -68,7 +69,10 @@ you later put resources in.
     [its own prerequisites](https://github.com/netclab/netclab-xp/tree/main/scenarios/fabric/prerequisites).
     Apply that set, not this one.
 
-That is everything. Pick a [scenario](scenarios/index.md) next.
+That is everything. Next, apply
+[your first resource](first-resource.md) — one at a time, watching what each
+does to a device — or go straight to a [scenario](scenarios/index.md), which
+applies a whole set at once.
 
 ## Upgrading from 0.2.x
 

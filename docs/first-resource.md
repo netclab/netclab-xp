@@ -31,8 +31,8 @@ kubectl get netclab -n netclab
 ```
 
 ```console
-NAME                                     ENDPOINT                           IF          IP           PLEN   SYNCED   READY
-routedinterface.eos.netclab.dev/r1e1ip   ceos01.default.svc.cluster.local   Ethernet1   10.10.10.1   24     True     True
+NAME                                     ENDPOINT                           IF          IP           PLEN   SYNCED   READY   COMPOSITION                        AGE
+routedinterface.eos.netclab.dev/r1e1ip   ceos01.default.svc.cluster.local   Ethernet1   10.10.10.1   24     True     True    routedinterfaces.eos.netclab.dev   31s
 ```
 
 On the device:
@@ -111,8 +111,9 @@ kubectl exec ceos01 -- Cli -p15 -c "show ip bgp summary"
 ```console
 BGP summary information for VRF default
 Router identifier 10.0.0.1, local AS number 65001
-  Neighbor V AS           MsgRcvd   MsgSent  InQ OutQ  Up/Down State   PfxRcd
-  10.1.2.2 4 65002              5         5    0    0 00:01:19 Estab   0
+Neighbor Status Codes: m - Under maintenance
+  Neighbor V AS           MsgRcvd   MsgSent  InQ OutQ  Up/Down State   PfxRcd PfxAcc PfxAdv
+  10.1.2.2 4 65002              4         3    0    0 00:00:01 Estab   0      0      0
 ```
 
 Two resources, two devices, and a protocol adjacency that actually came up.

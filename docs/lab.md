@@ -2,42 +2,75 @@
 
 Every scenario in this documentation is written against two Arista cEOS devices
 called `ceos01` and `ceos02`, running as pods in the `default` namespace. This
-page gets you there.
+page gets you there from an empty machine.
 
 If you already have reachable devices, skip to
 [installing the package](install.md) — nothing here is required, it is just the
 lab the examples assume.
 
-## What you need
+## Before you start
 
-| | |
+| tool | why |
 |---|---|
-| a Kubernetes cluster | [kind](https://kind.sigs.k8s.io) is fine, and is what this is tested on |
-| Multus and two CNI plugins | the devices get extra interfaces; without this they come up with none |
-| a cEOS image | licensed by Arista — see below |
-| [netclab-chart](https://github.com/netclab/netclab-chart) `>=0.5.11` | runs the devices |
-| Crossplane | for the package itself |
+| [docker](https://docs.docker.com/engine/install/) | runs the cluster and imports the cEOS image |
+| [kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) | the cluster itself — what this is tested on |
+| [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/) | everything else |
+| [helm](https://helm.sh/docs/intro/install/) | installs the devices, and Crossplane on the next page |
 
-!!! warning "The cEOS image cannot be pulled"
+You also need a **cEOS image**, which is licensed and cannot be pulled — see
+below.
 
-    cEOS is licensed. You download it from Arista, import it yourself, and push
-    it somewhere your cluster can reach:
+!!! note "Memory"
 
-    ```bash
-    docker tag ceos:4.36.1F <your-registry>/netclab/ceos:4.36.1F
-    docker push <your-registry>/netclab/ceos:4.36.1F
-    ```
+    Each cEOS device asks for 2Gi, so this lab needs 4Gi of headroom on top of
+    the cluster itself. The [fabric scenario](scenarios/fabric.md) runs on two
+    devices of its own and doubles that.
 
-    On kind, that means a registry the node's containerd trusts. Nothing in
-    this project can distribute the image for you.
+## Create a cluster
+
+```bash
+kind create cluster --name netclab
+```
+
+Every command below assumes that name.
+
+## The cEOS image
+
+cEOS is licensed. You download the tarball from Arista, import it, and load it
+into the cluster's nodes:
+
+```bash
+docker import ./cEOS64-lab-4.36.1F.tar ceos:4.36.1F
+kind load docker-image ceos:4.36.1F --name netclab
+```
+
+Check it arrived:
+
+```bash
+docker exec netclab-control-plane crictl images | grep ceos
+```
+
+```console
+docker.io/library/ceos    4.36.1F    508be1538ab87    934MB
+```
+
+Nothing in this project can distribute the image for you.
+
+!!! tip "Rebuilding the cluster often?"
+
+    `kind load` puts the image inside the node, so deleting the cluster costs
+    you the import. Pushing it to a local registry backed by a docker volume
+    instead makes it survive teardown — that is what `scripts/up.sh` does, and
+    why this repository's own `scripts/topology.yaml` names
+    `localhost:5001/netclab/ceos:4.36.1F` rather than `ceos:4.36.1F`.
 
 ## Multus and the CNI plugins
 
 netclab-chart attaches each device's interfaces through Multus, using the
-`bridge` and `host-device` plugins. On kind, install both onto every node:
+`bridge` and `host-device` plugins. Install both onto every node:
 
 ```bash
-for node in $(kind get nodes --name <cluster>); do
+for node in $(kind get nodes --name netclab); do
   docker exec "$node" bash -c "curl -sSL \
     https://github.com/containernetworking/plugins/releases/download/v1.9.1/cni-plugins-linux-amd64-v1.9.1.tgz \
     | tar -xz -C /opt/cni/bin ./bridge ./host-device"
@@ -47,6 +80,8 @@ kubectl apply -f https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-c
 kubectl -n kube-system wait --for=jsonpath='{.status.numberReady}'=1 \
   --timeout=5m daemonset.apps/kube-multus-ds
 ```
+
+Without this the devices come up with no interfaces at all.
 
 ## The topology
 
@@ -65,7 +100,7 @@ topology:
   nodes:
   - name: ceos01
     type: ceos
-    image: <your-registry>/netclab/ceos:4.36.1F
+    image: ceos:4.36.1F
     memory: 2Gi
     cpu: 1000m
     interfaces:
@@ -73,7 +108,7 @@ topology:
       network: b1
   - name: ceos02
     type: ceos
-    image: <your-registry>/netclab/ceos:4.36.1F
+    image: ceos:4.36.1F
     memory: 2Gi
     cpu: 1000m
     interfaces:
@@ -116,14 +151,20 @@ done
 You are looking for RESTCONF enabled and running on port 6020:
 
 ```console
-Enabled:            Yes
+Enabled: yes
 Server: running on port 6020, in default VRF
 ```
 
 ## Next
 
-[Install the package](install.md), then pick a
+[Install the package](install.md), then apply
+[your first resource](first-resource.md) or pick a
 [scenario](scenarios/index.md).
+
+The [fabric scenario](scenarios/fabric.md) is the exception: it pushes a
+device's entire running configuration, so it runs on two devices of its own
+rather than on `ceos01`/`ceos02`. Its page adds them to the cluster you just
+built — everything above is shared.
 
 !!! tip "Working on the package itself?"
 
