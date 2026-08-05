@@ -7,7 +7,7 @@ repo_url: https://github.com/netclab/netclab-xp
 repo_name: netclab/netclab-xp
 edit_uri: edit/main/docs/
 
-copyright: Apache-2.0 — Michal Bakalarski and Netclab Contributors
+copyright: Apache-2.0 — Netclab Contributors
 
 theme:
   name: material
