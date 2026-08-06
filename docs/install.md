@@ -15,11 +15,11 @@ Tested against Crossplane 2.3.4.
 ## The Configuration
 
 Pick a version from the
-[Releases page](https://github.com/netclab/netclab-xp/releases). The git tag
-*is* the package version, so the two can never disagree.
+[tags](https://github.com/netclab/netclab-xp/tags). The git tag *is* the package
+version, so the two can never disagree.
 
 ```bash
-VERSION=<version>   # e.g. the latest tag from the Releases page
+VERSION=<version>   # e.g. the newest tag
 
 cat <<EOF | kubectl apply -f -
 apiVersion: pkg.crossplane.io/v1
