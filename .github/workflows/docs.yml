@@ -78,7 +78,11 @@ jobs:
     needs: build
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Generous on purpose. This job does no work of its own -- it waits on
+    # GitHub's Pages backend -- and that wait is not bounded by anything here.
+    # A 10 minute cap killed the deploy of PR #39 at 10m03s, leaving a merged
+    # docs change undeployed while every check showed green.
+    timeout-minutes: 30
     permissions:
       pages: write
       id-token: write
