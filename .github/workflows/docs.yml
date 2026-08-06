@@ -90,5 +90,16 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # `timeout` is the action's own limit and is separate from the job's
+      # `timeout-minutes`; both default to 10 minutes, so raising only the job
+      # moves the failure by seconds. When it fires the action does not merely
+      # give up -- it CANCELS the deployment, and because the deployment is
+      # keyed by commit SHA, a re-run of the same commit then fails instantly
+      # with "Deployment cancelled." Only a new commit can recover.
+      #
+      # Kept under the job's 30 minutes so the action times out and reports
+      # rather than being killed mid-flight.
       - id: deployment
         uses: actions/deploy-pages@v5
+        with:
+          timeout: 1200000
