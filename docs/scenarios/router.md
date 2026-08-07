@@ -1,8 +1,8 @@
 # Router — one device, one resource
 
-The scenarios below this one configure a device setting by setting. `Router`
-describes the device instead — its ASN, router-id, routed interfaces and BGP
-neighbours — and composes the per-setting resources itself.
+`Router` describes the device — its ASN, router-id, routed interfaces and BGP
+neighbours — instead of configuring it setting by setting, and composes the
+per-setting resources itself.
 
 A `Router` owns everything it composes — a `BgpGlobal`, a `BgpNeighbor`, an
 `IpRouting`, a `LoopbackInterface` and the `RoutedInterface`s — so one manifest

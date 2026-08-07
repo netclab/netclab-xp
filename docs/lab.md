@@ -51,7 +51,7 @@ docker exec netclab-control-plane crictl images | grep ceos
 ```
 
 ```console
-docker.io/library/ceos    4.36.1F    508be1538ab87    934MB
+docker.io/library/ceos    4.36.1F    <image id>    934MB
 ```
 
 Nothing in this project can distribute the image for you.

@@ -73,7 +73,8 @@ kubectl -n avd get requests.http.m.crossplane.io -w
 
 ## What lands on the switches
 
-The whole scenario is one patch in `scenarios/fabric/kustomization.yaml`:
+The design itself comes from function-avd. What this repository adds to it is
+one patch in `scenarios/fabric/kustomization.yaml`:
 
 ```yaml
 - op: add
@@ -85,8 +86,70 @@ The whole scenario is one patch in `scenarios/fabric/kustomization.yaml`:
     ip_address_virtual: 10.10.13.1/24
 ```
 
-Four lines describing an SVI in a tenant VRF. This is what reached
-`dc1-leaf1a`:
+Four lines describing an SVI in a tenant VRF. From them AVD renders a whole
+configuration for every switch in the design, and pushes it to the ones that are
+running. The `Fabric` and one `Device` per switch record that:
+
+```bash
+kubectl -n avd get fabrics.avd.netclab.dev
+kubectl -n avd get devices.avd.netclab.dev
+```
+
+```console
+NAME             SYNCED   READY   COMPOSITION   AGE
+single-dc-l3ls   True     True    fabric-avd    95s
+
+NAME                              SYNCED   READY   COMPOSITION   AGE
+single-dc-l3ls-dc1-leaf1a-fdb33   True     True    device-avd    95s
+single-dc-l3ls-dc1-leaf1b-44015   True     True    device-avd    95s
+single-dc-l3ls-dc1-leaf1c-18948   True     True    device-avd    95s
+single-dc-l3ls-dc1-leaf2a-70ff8   True     True    device-avd    95s
+single-dc-l3ls-dc1-leaf2b-89ff7   True     True    device-avd    95s
+single-dc-l3ls-dc1-leaf2c-4d745   True     True    device-avd    95s
+single-dc-l3ls-dc1-spine1-bf158   True     True    device-avd    95s
+single-dc-l3ls-dc1-spine2-3a1a3   True     True    device-avd    95s
+```
+
+Eight of them, for a design of eight switches — you booted two. The `Fabric`
+says as much, and says that pyavd accepted the model:
+
+```bash
+kubectl -n avd get fabrics.avd.netclab.dev single-dc-l3ls -o yaml \
+  | yq '{"deviceCount": .status.deviceCount, "validation": .status.validation}'
+```
+
+```console
+deviceCount: 8
+validation:
+  message: rendered
+  ok: true
+```
+
+The six that are not running are rendered and nothing more: only the two hosts
+named upstream in `spec.push.hosts` are given a `spec.push`, and only those two
+are configured. Each of them records what the switch confirmed:
+
+```bash
+kubectl -n avd get devices.avd.netclab.dev -l avd.netclab.dev/device=dc1-leaf1a \
+  -o jsonpath='{.items[0].status.push}' | yq -P .
+```
+
+```console
+configHash: sha256:971d986cf5faeaee
+digest: 784d254cd6c27c6b9e2d42b48a86a73e7bf0ebd7
+lastDeployedTime: "2026-08-07T12:40:43+00:00"
+```
+
+`configHash` identifies the render the device should be running, `digest` is what
+the device confirmed receiving, and `lastDeployedTime` moves only when the
+configuration actually changed. Select by label rather than by name — the
+`Device` names carry a generated suffix.
+
+This is what reached `dc1-leaf1a`, scattered through its running config:
+
+```bash
+kubectl -n avd exec dc1-leaf1a -- Cli -p 15 -c "show running-config"
+```
 
 ```console
 vlan 13
