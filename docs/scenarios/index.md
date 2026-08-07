@@ -39,6 +39,10 @@ rendered manifests through it.
 
 ## Applying a scenario
 
+Every scenario is applied the same way; the directory name is the only thing
+that changes. Substitute any row of the table above for `router` here and in the
+teardown below.
+
 ```bash
 kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/router \
   | kubectl apply -f -
@@ -54,7 +58,7 @@ follows it.
 Filter the `Namespace` out of the delete:
 
 ```bash
-kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/jsonrpc \
+kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/router \
   | yq 'select(.kind != "Namespace")' \
   | kubectl delete -f -
 ```
