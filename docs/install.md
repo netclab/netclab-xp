@@ -62,13 +62,6 @@ are cluster scoped, and the `Secret` belongs to `crossplane-system` because the
 compositions name it there. So this is a one-time step no matter which namespace
 you later put resources in.
 
-!!! note "The fabric scenario does not use these"
-
-    It needs a namespaced `ProviderConfig` and a differently-encoded credentials
-    Secret, so it carries
-    [its own prerequisites](https://github.com/netclab/netclab-xp/tree/main/scenarios/fabric/prerequisites).
-    Apply that set, not this one.
-
 That is everything. Next, apply
 [your first resource](first-resource.md) — one at a time, watching what each
 does to a device — or go straight to a [scenario](scenarios/index.md), which

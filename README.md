@@ -30,11 +30,10 @@ models, while eAPI carries CLI commands over JSON-RPC and reaches whatever the
 CLI can say. They overlap heavily — and where they overlap, the mechanism is
 selectable without changing the resource.
 
-Above that, layers describing how much you configure at once, all installed
-together:
+Above that, layers describing how much you configure at once:
 
 ```
-Fabric                                          a whole network, one design
+Fabric — in function-avd, installed apart       a whole network, one design
    ↓
 Router                                          one device, one resource
    ↓
@@ -46,16 +45,14 @@ provider-http                                   RESTCONF · JSON-RPC · eAPI
 ```
 
 The low-level resources map closely onto what a device models; `Router`
-composes them into something you would recognise as a router; and
-[`Fabric`](https://netclab.github.io/netclab-xp/scenarios/fabric/) describes the
-design of a whole network, leaving AVD to work out each switch's configuration.
+composes them into something you would recognise as a router; and `Fabric`
+describes the design of a whole network, leaving AVD to work out each switch's
+configuration.
 
 The bottom three layers are this package's own — twelve resource types in
-`eos.netclab.dev`. `Fabric` and `Device` are in `avd.netclab.dev`, authored and
-released by [function-avd](https://github.com/netclab/function-avd), because a
-Crossplane Function package cannot carry APIs. netclab-xp depends on that
-Configuration, so **installing netclab-xp installs it too** — there is nothing
-extra to fetch.
+`eos.netclab.dev`, installed together. `Fabric` is
+[function-avd](https://github.com/netclab/function-avd)'s, and not installed
+with netclab-xp.
 
 ## Scenarios
 
@@ -68,7 +65,6 @@ The repository carries runnable manifests for every mechanism, under
 | [`jsonrpc`](scenarios/jsonrpc/) | eAPI over JSON-RPC — settings OpenConfig does not model |
 | [`eapi`](scenarios/eapi/) | raw EOS CLI through `function-eapi` |
 | [`router`](scenarios/router/) | the `Router` abstraction |
-| [`fabric`](scenarios/fabric/) | an AVD model rendering a whole network |
 
 `restconf`, `eapi` and `router` are alternatives to one another — each becomes
 an owner of the same device configuration. See
