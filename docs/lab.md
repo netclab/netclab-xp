@@ -23,8 +23,7 @@ below.
 !!! note "Memory"
 
     Each cEOS device asks for 2Gi, so this lab needs 4Gi of headroom on top of
-    the cluster itself. The [fabric scenario](scenarios/fabric.md) runs on two
-    devices of its own and doubles that.
+    the cluster itself.
 
 ## Create a cluster
 
@@ -160,11 +159,6 @@ Server: running on port 6020, in default VRF
 [Install the package](install.md), then apply
 [your first resource](first-resource.md) or pick a
 [scenario](scenarios/index.md).
-
-The [fabric scenario](scenarios/fabric.md) is the exception: it pushes a
-device's entire running configuration, so it runs on two devices of its own
-rather than on `ceos01`/`ceos02`. Its page adds them to the cluster you just
-built — everything above is shared.
 
 !!! tip "Working on the package itself?"
 

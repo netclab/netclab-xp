@@ -10,7 +10,6 @@ holding manifests you can apply as they are.
 | [`jsonrpc`](jsonrpc.md) | eAPI over JSON-RPC | settings OpenConfig does not model |
 | [`eapi`](eapi.md) | raw EOS CLI | the same config, expressed as commands |
 | [`router`](router.md) | the `Router` abstraction | one device from one resource |
-| [`fabric`](fabric.md) | an AVD design | a whole network from one model |
 
 !!! warning "Pick one mechanism per device"
 
@@ -18,9 +17,6 @@ holding manifests you can apply as they are.
     configuration. Applying two of them to one device means two things editing
     the same lines. `jsonrpc` adds settings the others do not reach, and can sit
     alongside `restconf`.
-
-    `fabric` is different in kind — it configures a whole network and runs on
-    devices of its own.
 
 ## Before you start
 
@@ -87,11 +83,6 @@ This is the part that surprises people, and it is the point of the package:
 what Crossplane wrote, Crossplane removes. After deleting a `restconf`
 scenario, the BGP instance is gone, `ip routing` is gone, the loopback does not
 exist, and the ethernet interface is back to bare.
-
-**`fabric` behaves the opposite way** — it pushes a device's entire running
-configuration, so a teardown that reverted it would wipe the switch. It stops
-managing what it wrote and leaves it in place. See
-[the fabric walkthrough](fabric.md#teardown-leaves-the-device-configured).
 
 !!! tip "Readiness lags the device by one poll"
 

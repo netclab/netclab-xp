@@ -34,10 +34,10 @@ spec:
 ## How much you describe at once
 
 A separate question from mechanism, and the one the layers answer. Installing
-the package gives you all of them rather than picking for you.
+the package gives you all of its own rather than picking for you.
 
 ```
-Fabric                                          a whole network, one design
+Fabric — in function-avd, installed apart       a whole network, one design
    ↓
 Router                                          one device, one resource
    ↓
@@ -50,25 +50,13 @@ provider-http                                   RESTCONF · JSON-RPC · eAPI
 
 Reading from the bottom: the low-level resources map closely onto what a device
 actually models. `Router` composes them into something you would recognise as "a
-router". [`Fabric`](scenarios/fabric.md) goes a level further again — it
-describes the *design* of a network, and AVD works out what every switch in it
-must be configured with.
+router". `Fabric` goes a level further again — it describes the *design* of a
+network, and AVD works out what every switch in it must be configured with. It
+is [function-avd](https://github.com/netclab/function-avd)'s, and not installed
+with this package.
 
 Which layer is right depends on what you are doing. Managing one setting on one
 box is a low-level resource; standing up a fabric is not.
-
-!!! note "Where each layer is published"
-
-    The bottom three layers are this package's own — twelve resource types in
-    the `eos.netclab.dev` API group. `Fabric` and `Device` are in
-    `avd.netclab.dev`, authored and released by
-    [function-avd](https://github.com/netclab/function-avd): a Crossplane
-    Function package cannot carry APIs, so that repository publishes them as a
-    Configuration of its own.
-
-    **netclab-xp depends on it, so installing netclab-xp installs it too.** You
-    do not fetch anything separately — this is a note about where the code
-    lives, not about what you get.
 
 ## Getting started
 
@@ -91,9 +79,5 @@ box is a low-level resource; standing up a fabric is not.
 
     Each mechanism the package offers, with manifests you can apply and what
     they do to a real device.
-
-- **[Fabric walkthrough](scenarios/fabric.md)**
-
-    One VLAN added to a design, and everything a fabric derives from it.
 
 </div>
