@@ -12,14 +12,14 @@ and tested against today.
 
 ## 📖 Documentation
 
-**[netclab.github.io/netclab-xp](https://netclab.github.io/netclab-xp/)**
+**[netclab.dev/netclab-xp](https://netclab.dev/netclab-xp/)**
 
 | | |
 |---|---|
-| [Set up a lab](https://netclab.github.io/netclab-xp/lab/) | two cEOS devices on Kubernetes |
-| [Install the package](https://netclab.github.io/netclab-xp/install/) | the Configuration, prerequisites, and the 0.2.x upgrade hazards |
-| [Your first resource](https://netclab.github.io/netclab-xp/first-resource/) | one interface, then a BGP session between two devices |
-| [Scenarios](https://netclab.github.io/netclab-xp/scenarios/) | every mechanism the package offers |
+| [Set up a lab](https://netclab.dev/netclab-xp/lab/) | two cEOS devices on Kubernetes |
+| [Install the package](https://netclab.dev/netclab-xp/install/) | the Configuration and its prerequisites |
+| [Your first resource](https://netclab.dev/netclab-xp/first-resource/) | one interface, then a BGP session between two devices |
+| [Scenarios](https://netclab.dev/netclab-xp/scenarios/) | every mechanism the package offers |
 
 ## What you get
 

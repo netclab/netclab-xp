@@ -69,7 +69,7 @@ box is a low-level resource; standing up a fabric is not.
 
 - **[Install the package](install.md)**
 
-    The Configuration, its prerequisites, and the 0.2.x upgrade hazards.
+    The Configuration and its prerequisites.
 
 - **[Your first resource](first-resource.md)**
 

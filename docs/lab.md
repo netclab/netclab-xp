@@ -39,8 +39,8 @@ cEOS is licensed. You download the tarball from Arista, import it, and load it
 into the cluster's nodes:
 
 ```bash
-docker import ./cEOS64-lab-4.36.1F.tar ceos:4.36.1F
-kind load docker-image ceos:4.36.1F --name netclab
+docker import ./cEOS64-lab-<version>.tar ceos:<version>
+kind load docker-image ceos:<version> --name netclab
 ```
 
 Check it arrived:
@@ -50,7 +50,7 @@ docker exec netclab-control-plane crictl images | grep ceos
 ```
 
 ```console
-docker.io/library/ceos    4.36.1F    <image id>    934MB
+docker.io/library/ceos    <version>    <image id>    <size>
 ```
 
 Nothing in this project can distribute the image for you.
@@ -60,22 +60,25 @@ Nothing in this project can distribute the image for you.
     `kind load` puts the image inside the node, so deleting the cluster costs
     you the import. Pushing it to a local registry backed by a docker volume
     instead makes it survive teardown — that is what `scripts/up.sh` does, and
-    why this repository's own `scripts/topology.yaml` names
-    `localhost:5001/netclab/ceos:4.36.1F` rather than `ceos:4.36.1F`.
+    why this repository's own `scripts/topology.yaml` names the image at
+    `localhost:5001`.
 
 ## Multus and the CNI plugins
 
 netclab-chart attaches each device's interfaces through Multus, using the
-`bridge` and `host-device` plugins. Install both onto every node:
+`bridge` and `host-device` plugins. Install both onto every node, from their
+latest releases:
 
 ```bash
+CNI=$(basename "$(curl -s -o /dev/null -w '%{redirect_url}' https://github.com/containernetworking/plugins/releases/latest)")
 for node in $(kind get nodes --name netclab); do
   docker exec "$node" bash -c "curl -sSL \
-    https://github.com/containernetworking/plugins/releases/download/v1.9.1/cni-plugins-linux-amd64-v1.9.1.tgz \
+    https://github.com/containernetworking/plugins/releases/download/${CNI}/cni-plugins-linux-amd64-${CNI}.tgz \
     | tar -xz -C /opt/cni/bin ./bridge ./host-device"
 done
 
-kubectl apply -f https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/v4.3.0/deployments/multus-daemonset.yml
+MULTUS=$(basename "$(curl -s -o /dev/null -w '%{redirect_url}' https://github.com/k8snetworkplumbingwg/multus-cni/releases/latest)")
+kubectl apply -f https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/${MULTUS}/deployments/multus-daemonset.yml
 kubectl -n kube-system wait --for=jsonpath='{.status.numberReady}'=1 \
   --timeout=5m daemonset.apps/kube-multus-ds
 ```
@@ -99,7 +102,7 @@ topology:
   nodes:
   - name: ceos01
     type: ceos
-    image: ceos:4.36.1F
+    image: ceos:<version>
     memory: 2Gi
     cpu: 1000m
     interfaces:
@@ -107,7 +110,7 @@ topology:
       network: b1
   - name: ceos02
     type: ceos
-    image: ceos:4.36.1F
+    image: ceos:<version>
     memory: 2Gi
     cpu: 1000m
     interfaces:
@@ -116,7 +119,7 @@ topology:
 ```
 
 ```bash
-helm upgrade --install lab netclab/netclab --version 0.5.11 -n default -f topology.yaml
+helm upgrade --install lab netclab/netclab -n default -f topology.yaml
 ```
 
 !!! danger "The names and the namespace are load-bearing"
@@ -129,17 +132,10 @@ helm upgrade --install lab netclab/netclab --version 0.5.11 -n default -f topolo
     second one — that is the scenario with two routers and an eBGP session
     between them.
 
-`0.5.11` is a floor rather than a preference. Below it, cEOS RESTCONF either
-never came up, or came up and did not survive a container restart — so a lab on
-an older chart fails in ways that look like the package is broken.
-
 ## Wait for the devices
 
-cEOS takes roughly two minutes to boot, and **there is nothing to wait on**: a
-pod reports `Running` long before EOS has finished starting, and the chart no
-longer runs a Job whose completion you could watch.
-
-The honest signal is the device answering:
+cEOS takes roughly two minutes to boot, and a pod reports `Running` long before
+EOS has finished starting. Wait for the device itself:
 
 ```bash
 for n in ceos01 ceos02; do
