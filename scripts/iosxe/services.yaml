@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: r1
+  annotations:
+    metallb.io/loadBalancerIPs: 172.18.0.101
+spec:
+  type: LoadBalancer
+  selector:
+    kubevirt.io/domain: r1
+  ports:
+  - name: ssh
+    port: 22
+    targetPort: 22
+    protocol: TCP
+  - name: restconf
+    port: 443
+    targetPort: 443
+    protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: r2
+  annotations:
+    metallb.io/loadBalancerIPs: 172.18.0.102
+spec:
+  type: LoadBalancer
+  selector:
+    kubevirt.io/domain: r2
+  ports:
+  - name: ssh
+    port: 22
+    targetPort: 22
+    protocol: TCP
+  - name: restconf
+    port: 443
+    targetPort: 443
+    protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: r3
+  annotations:
+    metallb.io/loadBalancerIPs: 172.18.0.103
+spec:
+  type: LoadBalancer
+  selector:
+    kubevirt.io/domain: r3
+  ports:
+  - name: ssh
+    port: 22
+    targetPort: 22
+    protocol: TCP
+  - name: restconf
+    port: 443
+    targetPort: 443
+    protocol: TCP

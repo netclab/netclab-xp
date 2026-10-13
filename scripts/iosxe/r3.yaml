@@ -1,0 +1,61 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: r3
+  labels:
+    kubevirt.io/os: iosxe
+spec:
+  runStrategy: Always
+  dataVolumeTemplates:
+  - metadata:
+      name: r3
+    spec:
+      storage:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+      source:
+        http:
+          url: http://172.18.0.1:8080/c8000v-universalk9_8G_serial.17.18.02.qcow2
+  template:
+    metadata:
+      labels:
+        kubevirt.io/domain: r3
+    spec:
+      terminationGracePeriodSeconds: 30
+      domain:
+        cpu:
+          sockets: 1
+          cores: 2
+          threads: 1
+          model: host-passthrough
+        memory:
+          guest: 4Gi
+        devices:
+          autoattachGraphicsDevice: false
+          autoattachMemBalloon: false
+          interfaces:
+          - name: ge1
+            bridge: {}
+          - name: ge2
+            bridge: {}
+          disks:
+          - name: disk0
+            disk:
+              bus: virtio
+            bootOrder: 1
+      networks:
+      - name: ge1
+        multus:
+          default: true
+          networkName: kube-system/cni1
+      - name: ge2
+        multus:
+          networkName: cni3
+      volumes:
+      - name: disk0
+        dataVolume:
+          name: r3
+
