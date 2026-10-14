@@ -1,0 +1,29 @@
+apiVersion: meta.pkg.crossplane.io/v1
+kind: Configuration
+metadata:
+  name: configuration-iosxe
+  annotations:
+    meta.crossplane.io/source: https://github.com/netclab/netclab-xp
+    meta.crossplane.io/license: Apache-2.0
+    meta.crossplane.io/description: IOS XE configuration over RESTCONF.
+spec:
+  dependsOn:
+    - apiVersion: pkg.crossplane.io/v1
+      kind: Provider
+      package: ghcr.io/crossplane-contrib/provider-http
+      version: ">=v1.0.14"
+
+    # v0.12.0 is the first to pass `namespace` in an ExtraResources
+    # requirement, which is how a composition reads its Device.
+    - apiVersion: pkg.crossplane.io/v1
+      kind: Function
+      package: xpkg.upbound.io/crossplane-contrib/function-go-templating
+      version: ">=v0.12.0"
+
+    - apiVersion: pkg.crossplane.io/v1
+      kind: Function
+      package: xpkg.upbound.io/crossplane-contrib/function-auto-ready
+      version: ">=v0.5.2"
+
+  crossplane:
+    version: ">=v2.1.1"
