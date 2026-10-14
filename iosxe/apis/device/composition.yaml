@@ -1,0 +1,46 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: devices.iosxe.netclab.dev
+spec:
+  compositeTypeRef:
+    apiVersion: iosxe.netclab.dev/v1alpha1
+    kind: Device
+  mode: Pipeline
+  pipeline:
+  # A Device configures nothing. Its one Request reads the hostname, so the
+  # Device is Ready only when the router answers with these credentials.
+  - step: requests
+    functionRef:
+      name: crossplane-contrib-function-go-templating
+    input:
+      apiVersion: gotemplating.fn.crossplane.io/v1beta1
+      kind: GoTemplate
+      source: Inline
+      inline:
+        template: |
+          {{- $xr := .observed.composite.resource }}
+          {{- $ref := $xr.spec.credentialsSecretRef }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: hostname
+          spec:
+            managementPolicies: ["Observe"]
+            forProvider:
+              insecureSkipTLSVerify: {{ $xr.spec.insecureSkipTLSVerify }}
+              headers:
+                Accept: ["application/yang-data+json"]
+                Authorization: ["Basic {{ printf "{{ %s:%s:%s }}" $ref.name $xr.metadata.namespace $ref.key }}"]
+              payload:
+                baseUrl: "https://{{ $xr.spec.address }}/restconf/data/Cisco-IOS-XE-native:native/hostname"
+              mappings:
+              - action: OBSERVE
+                method: GET
+                url: .payload.baseUrl
+
+  - step: auto-ready
+    functionRef:
+      name: crossplane-contrib-function-auto-ready

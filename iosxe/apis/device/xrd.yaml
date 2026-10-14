@@ -1,0 +1,55 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: devices.iosxe.netclab.dev
+spec:
+  scope: Namespaced
+  group: iosxe.netclab.dev
+  names:
+    kind: Device
+    plural: devices
+    categories:
+    - crossplane
+    - netclab
+  defaultCompositionRef:
+    name: devices.iosxe.netclab.dev
+  versions:
+  - name: v1alpha1
+    additionalPrinterColumns:
+    - name: ADDRESS
+      type: string
+      jsonPath: .spec.address
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              address:
+                type: string
+                description: Host or host:port of the router's RESTCONF, over https.
+                minLength: 1
+              insecureSkipTLSVerify:
+                type: boolean
+                default: false
+              credentialsSecretRef:
+                type: object
+                description: >-
+                  A Secret in the Device's namespace; the key holds base64 of
+                  user:password.
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                  key:
+                    type: string
+                    minLength: 1
+                required:
+                - name
+                - key
+            required:
+            - address
+            - credentialsSecretRef
