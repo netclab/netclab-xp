@@ -1,0 +1,97 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: ikev2proposals.iosxe.netclab.dev
+spec:
+  compositeTypeRef:
+    apiVersion: iosxe.netclab.dev/v1alpha1
+    kind: Ikev2Proposal
+  mode: Pipeline
+  pipeline:
+  # One Request owns the proposal over RESTCONF. The algorithms are presence
+  # leaves in YANG, so a set in the spec is a set of leaf names on the router.
+  - step: requests
+    functionRef:
+      name: crossplane-contrib-function-go-templating
+    input:
+      apiVersion: gotemplating.fn.crossplane.io/v1beta1
+      kind: GoTemplate
+      source: Inline
+      inline:
+        template: |
+          {{- $xr := .observed.composite.resource }}
+          {{- $ns := $xr.metadata.namespace }}
+          ---
+          apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+          kind: ExtraResources
+          requirements:
+            device:
+              apiVersion: iosxe.netclab.dev/v1alpha1
+              kind: Device
+              matchName: {{ $xr.spec.deviceRef.name }}
+              namespace: {{ $ns }}
+          {{- with .extraResources }}{{ with index . "device" }}{{ with .items }}
+          {{- $dev := (index . 0).resource }}
+          {{- $cred := $dev.spec.credentialsSecretRef }}
+          {{- $auth := printf "{{ %s:%s:%s }}" $cred.name $ns $cred.key }}
+          {{- $url := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native/crypto/Cisco-IOS-XE-crypto:ikev2/proposal=%s" $dev.spec.address $xr.spec.name }}
+          {{- $leaf := dict "3des" "en-3des" "1" "one" "2" "two" "5" "five" "14" "fourteen" "15" "fifteen" "16" "sixteen" "19" "nineteen" "20" "twenty" "21" "twenty-one" "24" "twenty-four" }}
+          {{- $proposal := dict "name" $xr.spec.name }}
+          {{- $owned := dict }}
+          {{- range $field := list "encryption" "integrity" "prf" "group" }}
+            {{- $names := list }}
+            {{- range (get $xr.spec $field | default list) }}
+              {{- $names = append $names (get $leaf (toString .) | default (toString .)) }}
+            {{- end }}
+            {{- $_ := set $owned $field (sortAlpha $names) }}
+            {{- if $names }}
+              {{- $leaves := dict }}
+              {{- range $names }}{{ $_ := set $leaves . (list nil) }}{{ end }}
+              {{- $_ := set $proposal $field $leaves }}
+            {{- end }}
+          {{- end }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: proposal
+          spec:
+            forProvider:
+              insecureSkipTLSVerify: {{ $dev.spec.insecureSkipTLSVerify }}
+              headers:
+                Accept: ["application/yang-data+json"]
+                Content-Type: ["application/yang-data+json"]
+                Authorization: ["Basic {{ $auth }}"]
+              payload:
+                baseUrl: {{ $url | quote }}
+                body: {{ dict "Cisco-IOS-XE-crypto:proposal" (list $proposal) | toJson | quote }}
+              mappings:
+              - action: OBSERVE
+                method: GET
+                url: .payload.baseUrl
+              - action: CREATE
+                method: PUT
+                url: .payload.baseUrl
+                body: .payload.body
+              - action: UPDATE
+                method: PUT
+                url: .payload.baseUrl
+                body: .payload.body
+              - action: REMOVE
+                method: DELETE
+                url: .payload.baseUrl
+              expectedResponseCheck:
+                type: CUSTOM
+                logic: |
+                  if .response.statusCode != 200 then false else
+                    (.response.body["Cisco-IOS-XE-crypto:proposal"][0]
+                      | {encryption: (.encryption // {} | keys), integrity: (.integrity // {} | keys),
+                         prf: (.prf // {} | keys), group: (.group // {} | keys)})
+                    == {{ $owned | toJson }}
+                  end
+          {{- end }}{{ end }}{{ end }}
+
+  - step: auto-ready
+    functionRef:
+      name: crossplane-contrib-function-auto-ready

@@ -1,0 +1,25 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-crypto:proposal": [
+      {
+        "name": "TEST-PROPOSAL",
+        "encryption": {
+          "aes-cbc-256": [
+            null
+          ]
+        },
+        "group": {
+          "twenty": [
+            null
+          ]
+        },
+        "integrity": {
+          "sha384": [
+            null
+          ]
+        }
+      }
+    ]
+  }
+}
