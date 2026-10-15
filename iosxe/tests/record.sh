@@ -19,7 +19,7 @@ BASE=https://$ADDR/restconf
 NATIVE=$BASE/data/Cisco-IOS-XE-native:native
 
 # apply order
-KINDS=(ikev2keyring)
+KINDS=(ikev2proposal ikev2keyring)
 
 # the values the examples' Secrets hold
 PSK=TestPsk123
@@ -67,6 +67,30 @@ record() { # record <kind>/<state> <url>: the status code and the body, as the p
     '{statusCode: $code, body: ($body | try fromjson catch $body)}' > "$FIXTURES/$1.json"
   rm -f "$body"
   echo "$1: HTTP $code"
+}
+
+ikev2proposal() { # iosxe/examples/ikev2proposal/r1.yaml
+  local url=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/proposal=TEST-PROPOSAL
+  local example='{"name": "TEST-PROPOSAL", "encryption": {"aes-cbc-256": [null]},
+    "integrity": {"sha512": [null]}, "group": {"twenty": [null]}}'
+  put() { # put <jq update of the example>: one field differs per state
+    write PUT "$url" "$(jq -nc --argjson p "$example" "{\"Cisco-IOS-XE-crypto:proposal\": [\$p | $1]}")"
+  }
+  absent "$url"
+  record ikev2proposal/proposal-absent "$url"
+
+  put .
+  record ikev2proposal/proposal-applied "$url"
+  put '.encryption += {"aes-cbc-128": [null]}'
+  record ikev2proposal/proposal-extra-encryption "$url"
+  put '.integrity = {"sha384": [null]}'
+  record ikev2proposal/proposal-other-integrity "$url"
+  put '.prf = {"sha384": [null]}'
+  record ikev2proposal/proposal-with-prf "$url"
+  put '.group = {"nineteen": [null]}'
+  record ikev2proposal/proposal-other-group "$url"
+
+  write DELETE "$url"
 }
 
 ikev2keyring() { # iosxe/examples/ikev2keyring/r1.yaml

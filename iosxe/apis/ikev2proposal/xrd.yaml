@@ -1,0 +1,95 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: ikev2proposals.iosxe.netclab.dev
+spec:
+  scope: Namespaced
+  group: iosxe.netclab.dev
+  names:
+    kind: Ikev2Proposal
+    plural: ikev2proposals
+    categories:
+    - crossplane
+    - netclab
+  defaultCompositionRef:
+    name: ikev2proposals.iosxe.netclab.dev
+  versions:
+  - name: v1alpha1
+    additionalPrinterColumns:
+    - name: DEVICE
+      type: string
+      jsonPath: .spec.deviceRef.name
+    - name: PROPOSAL
+      type: string
+      jsonPath: .spec.name
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            # The router's own rule, from the `must` on a policy's proposals:
+            # a proposal a policy can use has a group and either a non-GCM
+            # cipher with an integrity algorithm, or a GCM cipher with a PRF.
+            x-kubernetes-validations:
+            - rule: >-
+                (self.encryption.exists(e, !e.startsWith('aes-gcm'))
+                  && has(self.integrity) && size(self.integrity) > 0)
+                || (self.encryption.exists(e, e.startsWith('aes-gcm'))
+                  && has(self.prf) && size(self.prf) > 0)
+              message: >-
+                a non-GCM cipher needs an integrity algorithm, a GCM cipher
+                needs a PRF
+            properties:
+              deviceRef:
+                type: object
+                description: A Device in the proposal's namespace.
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                required:
+                - name
+              name:
+                type: string
+                description: Name of the proposal on the router.
+                minLength: 1
+              encryption:
+                type: array
+                minItems: 1
+                maxItems: 7
+                x-kubernetes-list-type: set
+                items:
+                  type: string
+                  maxLength: 11
+                  enum: [3des, des, aes-cbc-128, aes-cbc-192, aes-cbc-256, aes-gcm-128, aes-gcm-256]
+              integrity:
+                type: array
+                maxItems: 5
+                x-kubernetes-list-type: set
+                items:
+                  type: string
+                  enum: [md5, sha1, sha256, sha384, sha512]
+              prf:
+                type: array
+                maxItems: 5
+                x-kubernetes-list-type: set
+                items:
+                  type: string
+                  enum: [md5, sha1, sha256, sha384, sha512]
+              group:
+                type: array
+                description: Diffie-Hellman groups.
+                minItems: 1
+                maxItems: 10
+                x-kubernetes-list-type: set
+                items:
+                  type: integer
+                  enum: [1, 2, 5, 14, 15, 16, 19, 20, 21, 24]
+            required:
+            - deviceRef
+            - name
+            - encryption
+            - group

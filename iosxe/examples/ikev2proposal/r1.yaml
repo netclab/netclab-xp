@@ -1,0 +1,11 @@
+apiVersion: iosxe.netclab.dev/v1alpha1
+kind: Ikev2Proposal
+metadata:
+  name: r1-ikev2-proposal
+spec:
+  deviceRef:
+    name: r1
+  name: TEST-PROPOSAL
+  encryption: [aes-cbc-256]
+  integrity: [sha512]
+  group: [20]
