@@ -1,0 +1,19 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-crypto:peer": [
+      {
+        "name": "R2",
+        "address": {
+          "ipv4": {
+            "ipv4-address": "10.0.12.2"
+          }
+        },
+        "description": "ppk PPK-OLD",
+        "pre-shared-key": {
+          "key": "TestPsk123"
+        }
+      }
+    ]
+  }
+}
