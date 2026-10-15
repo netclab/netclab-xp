@@ -1,0 +1,24 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-crypto:keyring": [
+      {
+        "name": "TEST-KR",
+        "peer": [
+          {
+            "name": "R2",
+            "address": {
+              "ipv4": {
+                "ipv4-address": "10.0.12.2"
+              }
+            },
+            "description": "ppk PPK-LAB",
+            "pre-shared-key": {
+              "key": "TestPsk123"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
