@@ -19,7 +19,7 @@ BASE=https://$ADDR/restconf
 NATIVE=$BASE/data/Cisco-IOS-XE-native:native
 
 # apply order
-KINDS=(ikev2proposal ikev2keyring)
+KINDS=(ikev2proposal ikev2policy ikev2keyring)
 
 # the values the examples' Secrets hold
 PSK=TestPsk123
@@ -91,6 +91,31 @@ ikev2proposal() { # iosxe/examples/ikev2proposal/r1.yaml
   record ikev2proposal/proposal-other-group "$url"
 
   write DELETE "$url"
+}
+
+ikev2policy() { # iosxe/examples/ikev2policy/r1.yaml, on the proposal of iosxe/examples/ikev2proposal/
+  local url=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/policy=TEST-POLICY
+  local proposal=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/proposal=TEST-PROPOSAL
+  local example='{"name": "TEST-POLICY", "proposal": [{"proposals": "TEST-PROPOSAL"}]}'
+  put() { # put <jq update of the example>: one field differs per state
+    write PUT "$url" "$(jq -nc --argjson p "$example" "{\"Cisco-IOS-XE-crypto:policy\": [\$p | $1]}")"
+  }
+  absent "$url"
+  record ikev2policy/policy-absent "$url"
+
+  write PUT "$proposal" '{"Cisco-IOS-XE-crypto:proposal": [{"name": "TEST-PROPOSAL",
+    "encryption": {"aes-cbc-256": [null]}, "integrity": {"sha512": [null]}, "group": {"twenty": [null]}}]}'
+  put .
+  record ikev2policy/policy-applied "$url"
+  put '.proposal += [{"proposals": "default"}]'
+  record ikev2policy/policy-extra-proposal "$url"
+  put '.proposal = [{"proposals": "default"}]'
+  record ikev2policy/policy-other-proposal "$url"
+  put '.match = {"fvrf": {"any": [null]}}'
+  record ikev2policy/policy-with-match "$url"
+
+  write DELETE "$url"
+  write DELETE "$proposal"
 }
 
 ikev2keyring() { # iosxe/examples/ikev2keyring/r1.yaml

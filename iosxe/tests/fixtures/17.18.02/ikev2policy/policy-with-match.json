@@ -1,0 +1,22 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-crypto:policy": [
+      {
+        "name": "TEST-POLICY",
+        "match": {
+          "fvrf": {
+            "any": [
+              null
+            ]
+          }
+        },
+        "proposal": [
+          {
+            "proposals": "TEST-PROPOSAL"
+          }
+        ]
+      }
+    ]
+  }
+}
