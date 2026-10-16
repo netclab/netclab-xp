@@ -1,0 +1,73 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: ipsectransformsets.iosxe.netclab.dev
+spec:
+  scope: Namespaced
+  group: iosxe.netclab.dev
+  names:
+    kind: IpsecTransformSet
+    plural: ipsectransformsets
+    categories:
+    - crossplane
+    - netclab
+  defaultCompositionRef:
+    name: ipsectransformsets.iosxe.netclab.dev
+  versions:
+  - name: v1alpha1
+    additionalPrinterColumns:
+    - name: DEVICE
+      type: string
+      jsonPath: .spec.deviceRef.name
+    - name: TRANSFORM-SET
+      type: string
+      jsonPath: .spec.name
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            # The router's own rules, from the `when` on key-bit and esp-hmac.
+            x-kubernetes-validations:
+            - rule: "!has(self.keyBits) || self.esp in ['esp-aes', 'esp-gcm', 'esp-gmac']"
+              message: keyBits goes only with esp-aes, esp-gcm and esp-gmac
+            - rule: "!has(self.espHmac) || !(self.esp in ['esp-gcm', 'esp-gmac'])"
+              message: esp-gcm and esp-gmac carry their own integrity, so no espHmac
+            properties:
+              deviceRef:
+                type: object
+                description: A Device in the transform-set's namespace.
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                required:
+                - name
+              name:
+                type: string
+                description: Name (tag) of the transform-set on the router.
+                minLength: 1
+              esp:
+                type: string
+                description: ESP encryption transform.
+                enum: [esp-3des, esp-aes, esp-des, esp-gcm, esp-gmac, esp-null, esp-seal, esp-192-aes, esp-256-aes]
+              keyBits:
+                type: integer
+                description: Key length of esp-aes, esp-gcm or esp-gmac; the router's default is 128.
+                enum: [128, 192, 256]
+              espHmac:
+                type: string
+                description: ESP integrity transform.
+                enum: [esp-md5-hmac, esp-sha-hmac, esp-sha256-hmac, esp-sha384-hmac, esp-sha512-hmac]
+              mode:
+                type: string
+                description: Encapsulation mode.
+                enum: [tunnel, transport]
+                default: tunnel
+            required:
+            - deviceRef
+            - name
+            - esp
