@@ -1,0 +1,89 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: ipsectransformsets.iosxe.netclab.dev
+spec:
+  compositeTypeRef:
+    apiVersion: iosxe.netclab.dev/v1alpha1
+    kind: IpsecTransformSet
+  mode: Pipeline
+  pipeline:
+  # One Request owns the transform-set over RESTCONF. The router leaves out a
+  # key-bit of 128, its default, so the body does too, and fills in the mode,
+  # so the body always carries one: the GET then returns the body as it is.
+  # The router refuses to delete a transform-set an IPsec profile names.
+  - step: requests
+    functionRef:
+      name: crossplane-contrib-function-go-templating
+    input:
+      apiVersion: gotemplating.fn.crossplane.io/v1beta1
+      kind: GoTemplate
+      source: Inline
+      inline:
+        template: |
+          {{- $xr := .observed.composite.resource }}
+          {{- $ns := $xr.metadata.namespace }}
+          ---
+          apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+          kind: ExtraResources
+          requirements:
+            device:
+              apiVersion: iosxe.netclab.dev/v1alpha1
+              kind: Device
+              matchName: {{ $xr.spec.deviceRef.name }}
+              namespace: {{ $ns }}
+          {{- with .extraResources }}{{ with index . "device" }}{{ with .items }}
+          {{- $dev := (index . 0).resource }}
+          {{- $cred := $dev.spec.credentialsSecretRef }}
+          {{- $auth := printf "{{ %s:%s:%s }}" $cred.name $ns $cred.key }}
+          {{- $url := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native/crypto/Cisco-IOS-XE-crypto:ipsec/transform-set=%s" $dev.spec.address $xr.spec.name }}
+          {{- $ts := dict "tag" $xr.spec.name "esp" $xr.spec.esp }}
+          {{- with $xr.spec.keyBits }}{{ if ne (toString .) "128" }}{{ $_ := set $ts "key-bit" (toString .) }}{{ end }}{{ end }}
+          {{- with $xr.spec.espHmac }}{{ $_ := set $ts "esp-hmac" . }}{{ end }}
+          {{- if eq ($xr.spec.mode | default "tunnel") "transport" }}
+            {{- $_ := set $ts "mode" (dict "transport-choice" (dict)) }}
+          {{- else }}
+            {{- $_ := set $ts "mode" (dict "tunnel-choice" (list nil)) }}
+          {{- end }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: transform-set
+          spec:
+            forProvider:
+              insecureSkipTLSVerify: {{ $dev.spec.insecureSkipTLSVerify }}
+              headers:
+                Accept: ["application/yang-data+json"]
+                Content-Type: ["application/yang-data+json"]
+                Authorization: ["Basic {{ $auth }}"]
+              payload:
+                baseUrl: {{ $url | quote }}
+                body: {{ dict "Cisco-IOS-XE-crypto:transform-set" (list $ts) | toJson | quote }}
+              mappings:
+              - action: OBSERVE
+                method: GET
+                url: .payload.baseUrl
+              - action: CREATE
+                method: PUT
+                url: .payload.baseUrl
+                body: .payload.body
+              - action: UPDATE
+                method: PUT
+                url: .payload.baseUrl
+                body: .payload.body
+              - action: REMOVE
+                method: DELETE
+                url: .payload.baseUrl
+              expectedResponseCheck:
+                type: CUSTOM
+                logic: |
+                  if .response.statusCode != 200 then false else
+                    .response.body["Cisco-IOS-XE-crypto:transform-set"][0] == {{ $ts | toJson }}
+                  end
+          {{- end }}{{ end }}{{ end }}
+
+  - step: auto-ready
+    functionRef:
+      name: crossplane-contrib-function-auto-ready

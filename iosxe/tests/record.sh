@@ -19,7 +19,7 @@ BASE=https://$ADDR/restconf
 NATIVE=$BASE/data/Cisco-IOS-XE-native:native
 
 # apply order
-KINDS=(ikev2proposal ikev2policy ikev2keyring ikev2profile)
+KINDS=(ikev2proposal ikev2policy ikev2keyring ikev2profile ipsectransformset)
 
 # the values the examples' Secrets hold
 PSK=TestPsk123
@@ -186,6 +186,27 @@ ikev2profile() { # iosxe/examples/ikev2profile/r1.yaml, on a keyring CLASSICAL-K
 
   write DELETE "$url"
   write DELETE "$keyring"
+}
+
+ipsectransformset() { # iosxe/examples/ipsectransformset/r1.yaml
+  local url=$NATIVE/crypto/Cisco-IOS-XE-crypto:ipsec/transform-set=CLASSICAL-TS
+  local example='{"tag": "CLASSICAL-TS", "esp": "esp-gcm", "key-bit": "256", "mode": {"tunnel-choice": [null]}}'
+  put() { # put <jq update of the example>: one field differs per state
+    write PUT "$url" "$(jq -nc --argjson t "$example" "{\"Cisco-IOS-XE-crypto:transform-set\": [\$t | $1]}")"
+  }
+  absent "$url"
+  record ipsectransformset/transform-set-absent "$url"
+
+  put .
+  record ipsectransformset/transform-set-applied "$url"
+  put 'del(.["key-bit"])'
+  record ipsectransformset/transform-set-key-bit-128 "$url"
+  put '.mode = {"transport-choice": {}}'
+  record ipsectransformset/transform-set-transport "$url"
+  put '.esp = "esp-aes" | .["esp-hmac"] = "esp-sha256-hmac"'
+  record ipsectransformset/transform-set-aes-with-hmac "$url"
+
+  write DELETE "$url"
 }
 
 mkdir -p "$FIXTURES"
