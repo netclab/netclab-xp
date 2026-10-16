@@ -3,7 +3,7 @@
   "body": {
     "Cisco-IOS-XE-crypto:proposal": [
       {
-        "name": "TEST-PROPOSAL",
+        "name": "CLASSICAL-PROPOSAL",
         "encryption": {
           "aes-cbc-128": [
             null

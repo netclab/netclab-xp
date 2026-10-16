@@ -3,7 +3,7 @@
   "body": {
     "Cisco-IOS-XE-crypto:policy": [
       {
-        "name": "TEST-POLICY",
+        "name": "CLASSICAL-POLICY",
         "match": {
           "fvrf": {
             "any": [
@@ -13,7 +13,7 @@
         },
         "proposal": [
           {
-            "proposals": "TEST-PROPOSAL"
+            "proposals": "CLASSICAL-PROPOSAL"
           }
         ]
       }

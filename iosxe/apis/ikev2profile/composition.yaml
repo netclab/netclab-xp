@@ -1,0 +1,145 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: ikev2profiles.iosxe.netclab.dev
+spec:
+  compositeTypeRef:
+    apiVersion: iosxe.netclab.dev/v1alpha1
+    kind: Ikev2Profile
+  mode: Pipeline
+  pipeline:
+  # One Request owns the profile over RESTCONF, with pre-shared keys both ways.
+  # With a PPK keyring, one Request owns its `keyring ppk` line over cli-rpc:
+  # 17.18's YANG has no PPK, and no read on the router returns the line. The
+  # same RPC therefore writes `description ppk <keyring>`, the mark the Request
+  # observes. A PUT of the profile drops the description and keeps the line, so
+  # after one the mark is written again, together with the clear.
+  - step: requests
+    functionRef:
+      name: crossplane-contrib-function-go-templating
+    input:
+      apiVersion: gotemplating.fn.crossplane.io/v1beta1
+      kind: GoTemplate
+      source: Inline
+      inline:
+        template: |
+          {{- $xr := .observed.composite.resource }}
+          {{- $ns := $xr.metadata.namespace }}
+          ---
+          apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+          kind: ExtraResources
+          requirements:
+            device:
+              apiVersion: iosxe.netclab.dev/v1alpha1
+              kind: Device
+              matchName: {{ $xr.spec.deviceRef.name }}
+              namespace: {{ $ns }}
+          {{- with .extraResources }}{{ with index . "device" }}{{ with .items }}
+          {{- $dev := (index . 0).resource }}
+          {{- $cred := $dev.spec.credentialsSecretRef }}
+          {{- $auth := printf "{{ %s:%s:%s }}" $cred.name $ns $cred.key }}
+          {{- $url := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native/crypto/Cisco-IOS-XE-crypto:ikev2/profile=%s" $dev.spec.address $xr.spec.name }}
+          {{- $rpc := printf "https://%s/restconf/operations/Cisco-IOS-XE-cli-rpc:config-ios-cli-rpc" $dev.spec.address }}
+          {{- $addresses := sortAlpha $xr.spec.remoteAddresses }}
+          {{- $ipv4 := list }}
+          {{- range $addresses }}{{ $ipv4 = append $ipv4 (dict "ipv4-address" . "ipv4-mask" "255.255.255.255") }}{{ end }}
+          {{- $profile := dict
+            "name" $xr.spec.name
+            "authentication" (dict "local" (dict "pre-share" (dict)) "remote" (dict "pre-share" (dict)))
+            "keyring" (dict "local" (dict "name" $xr.spec.keyring))
+            "match" (dict "identity" (dict "remote" (dict "address" (dict "ipv4" $ipv4)))) }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: profile
+          spec:
+            forProvider:
+              insecureSkipTLSVerify: {{ $dev.spec.insecureSkipTLSVerify }}
+              headers:
+                Accept: ["application/yang-data+json"]
+                Content-Type: ["application/yang-data+json"]
+                Authorization: ["Basic {{ $auth }}"]
+              payload:
+                baseUrl: {{ $url | quote }}
+                body: {{ dict "Cisco-IOS-XE-crypto:profile" (list $profile) | toJson | quote }}
+              mappings:
+              - action: OBSERVE
+                method: GET
+                url: .payload.baseUrl
+              - action: CREATE
+                method: PUT
+                url: .payload.baseUrl
+                body: .payload.body
+              - action: UPDATE
+                method: PUT
+                url: .payload.baseUrl
+                body: .payload.body
+              - action: REMOVE
+                method: DELETE
+                url: .payload.baseUrl
+              # The description is the PPK mark. The router returns a host's
+              # mask after some PUTs and leaves it out after others, and orders
+              # the addresses by number.
+              expectedResponseCheck:
+                type: CUSTOM
+                logic: |
+                  if .response.statusCode != 200 then false else
+                    (.response.body["Cisco-IOS-XE-crypto:profile"][0] | del(.description)
+                      | .match.identity.remote.address.ipv4 |= (. // [] | map(.["ipv4-mask"] //= "255.255.255.255")
+                        | sort_by(.["ipv4-address"])))
+                    == {{ $profile | toJson }}
+                  end
+          {{- with $xr.spec.ppkKeyring }}
+          {{- $mark := printf "ppk %s" . }}
+          {{- $clear := list }}
+          {{- range $addresses }}{{ $clear = append $clear (printf "do clear crypto ikev2 sa remote %s" .) }}{{ end }}
+          {{- $apply := printf "crypto ikev2 profile %s\n keyring ppk %s\n description %s\n%s" $xr.spec.name . $mark (join "\n" $clear) }}
+          {{- $remove := printf "crypto ikev2 profile %s\n no keyring ppk\n no description\n%s" $xr.spec.name (join "\n" $clear) }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: ppk
+          spec:
+            forProvider:
+              insecureSkipTLSVerify: {{ $dev.spec.insecureSkipTLSVerify }}
+              headers:
+                Accept: ["application/yang-data+json"]
+                Content-Type: ["application/yang-data+json"]
+                Authorization: ["Basic {{ $auth }}"]
+              payload:
+                baseUrl: {{ $url | quote }}
+                body: {{ dict "Cisco-IOS-XE-cli-rpc:input" (dict "config-clis" $apply) | toJson | quote }}
+              # `keyring ppk` goes in together with the clear of the peers' SAs:
+              # a live SA keeps going without the PPK until it is cleared.
+              mappings:
+              - action: OBSERVE
+                method: GET
+                url: .payload.baseUrl
+              - action: CREATE
+                method: POST
+                url: {{ $rpc | quote | quote }}
+                body: .payload.body
+              - action: REMOVE
+                method: POST
+                url: {{ $rpc | quote | quote }}
+                body: {{ dict "Cisco-IOS-XE-cli-rpc:input" (dict "config-clis" $remove) | toJson | quote }}
+              isRemovedCheck:
+                type: CUSTOM
+                logic: |
+                  if .response.statusCode == 404 then true
+                  elif .response.statusCode == 200 then
+                    (.response.body["Cisco-IOS-XE-crypto:profile"][0].description // "") != {{ $mark | quote }}
+                  else false end
+              expectedResponseCheck:
+                type: CUSTOM
+                logic: "true"
+          {{- end }}
+          {{- end }}{{ end }}{{ end }}
+
+  - step: auto-ready
+    functionRef:
+      name: crossplane-contrib-function-auto-ready

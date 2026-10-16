@@ -1,0 +1,41 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-crypto:profile": [
+      {
+        "name": "CLASSICAL-PROFILE",
+        "authentication": {
+          "local": {
+            "pre-share": {}
+          },
+          "remote": {
+            "pre-share": {}
+          }
+        },
+        "keyring": {
+          "local": {
+            "name": "CLASSICAL-KEYRING"
+          }
+        },
+        "match": {
+          "identity": {
+            "remote": {
+              "address": {
+                "ipv4": [
+                  {
+                    "ipv4-address": "10.0.12.2",
+                    "ipv4-mask": "255.255.255.255"
+                  },
+                  {
+                    "ipv4-address": "10.0.23.2",
+                    "ipv4-mask": "255.255.255.255"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

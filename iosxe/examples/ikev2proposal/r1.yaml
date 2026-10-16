@@ -5,7 +5,7 @@ metadata:
 spec:
   deviceRef:
     name: r1
-  name: TEST-PROPOSAL
+  name: CLASSICAL-PROPOSAL
   encryption: [aes-cbc-256]
   integrity: [sha512]
   group: [20]

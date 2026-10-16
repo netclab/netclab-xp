@@ -5,15 +5,15 @@ metadata:
 spec:
   deviceRef:
     name: r1
-  name: TEST-KR
+  name: CLASSICAL-KEYRING
   peers:
-  - name: R2
-    address: 10.0.12.2
+  - name: R3
+    address: 10.0.23.2
     preSharedKeySecretRef:
       name: ike-keys
       key: psk
     ppk:
-      id: PPK-LAB
+      id: PPK-R1R3
       keySecretRef:
         name: ike-keys
         key: ppk-hex
