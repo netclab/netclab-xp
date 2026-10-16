@@ -1,0 +1,15 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-crypto:policy": [
+      {
+        "name": "TEST-POLICY",
+        "proposal": [
+          {
+            "proposals": "TEST-PROPOSAL"
+          }
+        ]
+      }
+    ]
+  }
+}

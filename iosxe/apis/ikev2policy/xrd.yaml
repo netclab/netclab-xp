@@ -1,0 +1,58 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: ikev2policies.iosxe.netclab.dev
+spec:
+  scope: Namespaced
+  group: iosxe.netclab.dev
+  names:
+    kind: Ikev2Policy
+    plural: ikev2policies
+    categories:
+    - crossplane
+    - netclab
+  defaultCompositionRef:
+    name: ikev2policies.iosxe.netclab.dev
+  versions:
+  - name: v1alpha1
+    additionalPrinterColumns:
+    - name: DEVICE
+      type: string
+      jsonPath: .spec.deviceRef.name
+    - name: POLICY
+      type: string
+      jsonPath: .spec.name
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              deviceRef:
+                type: object
+                description: A Device in the policy's namespace.
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                required:
+                - name
+              name:
+                type: string
+                description: Name of the policy on the router.
+                minLength: 1
+              proposals:
+                type: array
+                description: Names of IKEv2 proposals on the router, or `default`.
+                minItems: 1
+                x-kubernetes-list-type: set
+                items:
+                  type: string
+                  minLength: 1
+            required:
+            - deviceRef
+            - name
+            - proposals
