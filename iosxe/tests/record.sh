@@ -19,7 +19,7 @@ BASE=https://$ADDR/restconf
 NATIVE=$BASE/data/Cisco-IOS-XE-native:native
 
 # apply order
-KINDS=(ikev2proposal ikev2policy ikev2keyring)
+KINDS=(ikev2proposal ikev2policy ikev2keyring ikev2profile)
 
 # the values the examples' Secrets hold
 PSK=TestPsk123
@@ -70,8 +70,8 @@ record() { # record <kind>/<state> <url>: the status code and the body, as the p
 }
 
 ikev2proposal() { # iosxe/examples/ikev2proposal/r1.yaml
-  local url=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/proposal=TEST-PROPOSAL
-  local example='{"name": "TEST-PROPOSAL", "encryption": {"aes-cbc-256": [null]},
+  local url=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/proposal=CLASSICAL-PROPOSAL
+  local example='{"name": "CLASSICAL-PROPOSAL", "encryption": {"aes-cbc-256": [null]},
     "integrity": {"sha512": [null]}, "group": {"twenty": [null]}}'
   put() { # put <jq update of the example>: one field differs per state
     write PUT "$url" "$(jq -nc --argjson p "$example" "{\"Cisco-IOS-XE-crypto:proposal\": [\$p | $1]}")"
@@ -94,16 +94,16 @@ ikev2proposal() { # iosxe/examples/ikev2proposal/r1.yaml
 }
 
 ikev2policy() { # iosxe/examples/ikev2policy/r1.yaml, on the proposal of iosxe/examples/ikev2proposal/
-  local url=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/policy=TEST-POLICY
-  local proposal=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/proposal=TEST-PROPOSAL
-  local example='{"name": "TEST-POLICY", "proposal": [{"proposals": "TEST-PROPOSAL"}]}'
+  local url=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/policy=CLASSICAL-POLICY
+  local proposal=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/proposal=CLASSICAL-PROPOSAL
+  local example='{"name": "CLASSICAL-POLICY", "proposal": [{"proposals": "CLASSICAL-PROPOSAL"}]}'
   put() { # put <jq update of the example>: one field differs per state
     write PUT "$url" "$(jq -nc --argjson p "$example" "{\"Cisco-IOS-XE-crypto:policy\": [\$p | $1]}")"
   }
   absent "$url"
   record ikev2policy/policy-absent "$url"
 
-  write PUT "$proposal" '{"Cisco-IOS-XE-crypto:proposal": [{"name": "TEST-PROPOSAL",
+  write PUT "$proposal" '{"Cisco-IOS-XE-crypto:proposal": [{"name": "CLASSICAL-PROPOSAL",
     "encryption": {"aes-cbc-256": [null]}, "integrity": {"sha512": [null]}, "group": {"twenty": [null]}}]}'
   put .
   record ikev2policy/policy-applied "$url"
@@ -119,36 +119,73 @@ ikev2policy() { # iosxe/examples/ikev2policy/r1.yaml, on the proposal of iosxe/e
 }
 
 ikev2keyring() { # iosxe/examples/ikev2keyring/r1.yaml
-  local url=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/keyring=TEST-KR
+  local url=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/keyring=CLASSICAL-KEYRING
   local body
   body() {
-    jq -nc --arg psk "$1" '{"Cisco-IOS-XE-crypto:keyring": [{name: "TEST-KR", peer: [{name: "R2",
-      address: {ipv4: {"ipv4-address": "10.0.12.2"}}, "pre-shared-key": {key: $psk}}]}]}'
+    jq -nc --arg psk "$1" '{"Cisco-IOS-XE-crypto:keyring": [{name: "CLASSICAL-KEYRING", peer: [{name: "R3",
+      address: {ipv4: {"ipv4-address": "10.0.23.2"}}, "pre-shared-key": {key: $psk}}]}]}'
   }
   absent "$url"
   record ikev2keyring/keyring-absent "$url"
-  record ikev2keyring/peer-absent "$url/peer=R2"
+  record ikev2keyring/peer-absent "$url/peer=R3"
 
   write PUT "$url" "$(body "$PSK")"
   record ikev2keyring/keyring-unmarked "$url"
-  record ikev2keyring/peer-unmarked "$url/peer=R2"
+  record ikev2keyring/peer-unmarked "$url/peer=R3"
 
-  cli "crypto ikev2 keyring TEST-KR
- peer R2
-  ppk manual id PPK-LAB key hex $PPK_HEX required
-  description ppk PPK-LAB"
+  cli "crypto ikev2 keyring CLASSICAL-KEYRING
+ peer R3
+  ppk manual id PPK-R1R3 key hex $PPK_HEX required
+  description ppk PPK-R1R3"
   record ikev2keyring/keyring-applied "$url"
-  record ikev2keyring/peer-marked "$url/peer=R2"
+  record ikev2keyring/peer-marked "$url/peer=R3"
 
-  cli "crypto ikev2 keyring TEST-KR
- peer R2
+  cli "crypto ikev2 keyring CLASSICAL-KEYRING
+ peer R3
   description ppk PPK-OLD"
-  record ikev2keyring/peer-old-mark "$url/peer=R2"
+  record ikev2keyring/peer-old-mark "$url/peer=R3"
 
   write PUT "$url" "$(body OtherPsk456)"
   record ikev2keyring/keyring-other-psk "$url"
 
   write DELETE "$url"
+}
+
+ikev2profile() { # iosxe/examples/ikev2profile/r1.yaml, on a keyring CLASSICAL-KEYRING
+  local url=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/profile=CLASSICAL-PROFILE
+  local keyring=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/keyring=CLASSICAL-KEYRING
+  local example='{"name": "CLASSICAL-PROFILE", "authentication": {"local": {"pre-share": {}}, "remote": {"pre-share": {}}},
+    "keyring": {"local": {"name": "CLASSICAL-KEYRING"}},
+    "match": {"identity": {"remote": {"address": {"ipv4": [{"ipv4-address": "10.0.23.2", "ipv4-mask": "255.255.255.255"}]}}}}}'
+  put() { # put <jq update of the example>: one field differs per state
+    write PUT "$url" "$(jq -nc --argjson p "$example" "{\"Cisco-IOS-XE-crypto:profile\": [\$p | $1]}")"
+  }
+  absent "$url"
+  record ikev2profile/profile-absent "$url"
+
+  write PUT "$keyring" "$(jq -nc --arg psk "$PSK" '{"Cisco-IOS-XE-crypto:keyring": [{name: "CLASSICAL-KEYRING", peer: [{name: "R3",
+    address: {ipv4: {"ipv4-address": "10.0.23.2"}}, "pre-shared-key": {key: $psk}}]}]}')"
+  put .
+  record ikev2profile/profile-applied "$url"
+
+  cli "crypto ikev2 profile CLASSICAL-PROFILE
+ keyring ppk CLASSICAL-KEYRING
+ description ppk CLASSICAL-KEYRING"
+  record ikev2profile/profile-marked "$url"
+  cli "crypto ikev2 profile CLASSICAL-PROFILE
+ description ppk OLD-KR"
+  record ikev2profile/profile-old-mark "$url"
+
+  put 'del(.match.identity.remote.address.ipv4[0]["ipv4-mask"])'
+  put 'del(.match.identity.remote.address.ipv4[0]["ipv4-mask"])'
+  record ikev2profile/profile-no-mask "$url"
+  put '.match.identity.remote.address.ipv4 = [{"ipv4-address": "10.0.12.9", "ipv4-mask": "255.255.255.255"}]'
+  record ikev2profile/profile-other-address "$url"
+  put '.match.identity.remote.address.ipv4 += [{"ipv4-address": "10.0.12.2", "ipv4-mask": "255.255.255.255"}]'
+  record ikev2profile/profile-extra-address "$url"
+
+  write DELETE "$url"
+  write DELETE "$keyring"
 }
 
 mkdir -p "$FIXTURES"

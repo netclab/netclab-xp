@@ -3,10 +3,10 @@
   "body": {
     "Cisco-IOS-XE-crypto:policy": [
       {
-        "name": "TEST-POLICY",
+        "name": "CLASSICAL-POLICY",
         "proposal": [
           {
-            "proposals": "TEST-PROPOSAL"
+            "proposals": "CLASSICAL-PROPOSAL"
           },
           {
             "proposals": "default"

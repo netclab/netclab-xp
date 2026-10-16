@@ -5,5 +5,5 @@ metadata:
 spec:
   deviceRef:
     name: r1
-  name: TEST-POLICY
-  proposals: [TEST-PROPOSAL]
+  name: CLASSICAL-POLICY
+  proposals: [CLASSICAL-PROPOSAL]

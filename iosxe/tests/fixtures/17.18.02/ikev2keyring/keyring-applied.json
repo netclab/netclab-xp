@@ -3,16 +3,16 @@
   "body": {
     "Cisco-IOS-XE-crypto:keyring": [
       {
-        "name": "TEST-KR",
+        "name": "CLASSICAL-KEYRING",
         "peer": [
           {
-            "name": "R2",
+            "name": "R3",
             "address": {
               "ipv4": {
-                "ipv4-address": "10.0.12.2"
+                "ipv4-address": "10.0.23.2"
               }
             },
-            "description": "ppk PPK-LAB",
+            "description": "ppk PPK-R1R3",
             "pre-shared-key": {
               "key": "TestPsk123"
             }

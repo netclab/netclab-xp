@@ -1,0 +1,67 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: ikev2profiles.iosxe.netclab.dev
+spec:
+  scope: Namespaced
+  group: iosxe.netclab.dev
+  names:
+    kind: Ikev2Profile
+    plural: ikev2profiles
+    categories:
+    - crossplane
+    - netclab
+  defaultCompositionRef:
+    name: ikev2profiles.iosxe.netclab.dev
+  versions:
+  - name: v1alpha1
+    additionalPrinterColumns:
+    - name: DEVICE
+      type: string
+      jsonPath: .spec.deviceRef.name
+    - name: PROFILE
+      type: string
+      jsonPath: .spec.name
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              deviceRef:
+                type: object
+                description: A Device in the profile's namespace.
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                required:
+                - name
+              name:
+                type: string
+                description: Name of the profile on the router.
+                minLength: 1
+              remoteAddresses:
+                type: array
+                description: IPv4 addresses of the peers the profile matches, one host each.
+                minItems: 1
+                x-kubernetes-list-type: set
+                items:
+                  type: string
+                  format: ipv4
+              keyring:
+                type: string
+                description: Name of the IKEv2 keyring on the router that holds the pre-shared keys.
+                minLength: 1
+              ppkKeyring:
+                type: string
+                description: Name of the IKEv2 keyring on the router that holds the post-quantum preshared keys.
+                minLength: 1
+            required:
+            - deviceRef
+            - name
+            - remoteAddresses
+            - keyring
