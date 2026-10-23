@@ -8,6 +8,13 @@
       "matchStrings": ["XP_VERSION=(?<currentValue>v\\d+\\.\\d+\\.\\d+)"],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "crossplane/cli"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^scripts/up\\.sh$/"],
+      "matchStrings": ["--crossplane (?<currentValue>v\\d+\\.\\d+\\.\\d+)"],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "crossplane/crossplane"
     }
   ]
 }
