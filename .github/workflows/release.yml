@@ -72,7 +72,7 @@ jobs:
       - name: Install crossplane CLI
         run: |
           set -euo pipefail
-          curl -sfL "https://cli.crossplane.io/install.sh" | XP_VERSION=v2.4.0 sh
+          curl -sfL "https://cli.crossplane.io/install.sh" | XP_VERSION=v2.5.0 sh
           sudo mv ./crossplane /usr/local/bin/crossplane
           crossplane version --client
 
@@ -121,7 +121,7 @@ jobs:
       - name: Install crossplane CLI
         run: |
           set -euo pipefail
-          curl -sfL "https://cli.crossplane.io/install.sh" | XP_VERSION=v2.4.0 sh
+          curl -sfL "https://cli.crossplane.io/install.sh" | XP_VERSION=v2.5.0 sh
           sudo mv ./crossplane /usr/local/bin/crossplane
 
       - name: Login to GHCR
