@@ -19,7 +19,7 @@ BASE=https://$ADDR/restconf
 NATIVE=$BASE/data/Cisco-IOS-XE-native:native
 
 # apply order
-KINDS=(ikev2proposal ikev2policy ikev2keyring ikev2profile ipsectransformset)
+KINDS=(ikev2proposal ikev2policy ikev2keyring ikev2profile ipsectransformset ipsecprofile)
 
 # the values the examples' Secrets hold
 PSK=TestPsk123
@@ -207,6 +207,45 @@ ipsectransformset() { # iosxe/examples/ipsectransformset/r1.yaml
   record ipsectransformset/transform-set-aes-with-hmac "$url"
 
   write DELETE "$url"
+}
+
+ipsecprofile() { # iosxe/examples/ipsecprofile/r1.yaml, on transform-sets and an IKEv2 profile
+  local url=$NATIVE/crypto/Cisco-IOS-XE-crypto:ipsec/profile=CLASSICAL-IPSEC
+  local ts=$NATIVE/crypto/Cisco-IOS-XE-crypto:ipsec/transform-set
+  local keyring=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/keyring=CLASSICAL-KEYRING
+  local profile=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/profile=CLASSICAL-PROFILE
+  local example='{"name": "CLASSICAL-IPSEC", "set": {"transform-set": ["CLASSICAL-TS"], "ikev2-profile": "CLASSICAL-PROFILE"}}'
+  put() { # put <jq update of the example>: one field differs per state
+    write PUT "$url" "$(jq -nc --argjson p "$example" "{\"Cisco-IOS-XE-crypto:profile\": [\$p | $1]}")"
+  }
+  absent "$url"
+  record ipsecprofile/profile-absent "$url"
+
+  for tag in CLASSICAL-TS OTHER-TS; do
+    write PUT "$ts=$tag" "{\"Cisco-IOS-XE-crypto:transform-set\": [{\"tag\": \"$tag\", \"esp\": \"esp-gcm\",
+      \"key-bit\": \"256\", \"mode\": {\"tunnel-choice\": [null]}}]}"
+  done
+  write PUT "$keyring" "$(jq -nc --arg psk "$PSK" '{"Cisco-IOS-XE-crypto:keyring": [{name: "CLASSICAL-KEYRING", peer: [{name: "R3",
+    address: {ipv4: {"ipv4-address": "10.0.23.2"}}, "pre-shared-key": {key: $psk}}]}]}')"
+  write PUT "$profile" '{"Cisco-IOS-XE-crypto:profile": [{"name": "CLASSICAL-PROFILE",
+    "authentication": {"local": {"pre-share": {}}, "remote": {"pre-share": {}}},
+    "keyring": {"local": {"name": "CLASSICAL-KEYRING"}},
+    "match": {"identity": {"remote": {"address": {"ipv4": [{"ipv4-address": "10.0.23.2", "ipv4-mask": "255.255.255.255"}]}}}}}]}'
+  put .
+  record ipsecprofile/profile-applied "$url"
+  put '.set["transform-set"] = ["OTHER-TS", "CLASSICAL-TS"]'
+  record ipsecprofile/profile-extra-transform-set "$url"
+  put '.set["transform-set"] = ["OTHER-TS"]'
+  record ipsecprofile/profile-other-transform-set "$url"
+  put 'del(.set["ikev2-profile"])'
+  record ipsecprofile/profile-no-ikev2-profile "$url"
+  put '.set.pfs = {"group": "group20"}'
+  record ipsecprofile/profile-with-pfs "$url"
+
+  write DELETE "$url"
+  write DELETE "$profile"
+  write DELETE "$keyring"
+  for tag in CLASSICAL-TS OTHER-TS; do write DELETE "$ts=$tag"; done
 }
 
 mkdir -p "$FIXTURES"
