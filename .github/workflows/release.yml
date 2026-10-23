@@ -72,7 +72,6 @@ jobs:
       - name: Install crossplane CLI
         run: |
           set -euo pipefail
-          # renovate: datasource=github-releases depName=crossplane/crossplane
           curl -sfL "https://cli.crossplane.io/install.sh" | XP_VERSION=v2.4.0 sh
           sudo mv ./crossplane /usr/local/bin/crossplane
           crossplane version --client
@@ -122,7 +121,6 @@ jobs:
       - name: Install crossplane CLI
         run: |
           set -euo pipefail
-          # renovate: datasource=github-releases depName=crossplane/crossplane
           curl -sfL "https://cli.crossplane.io/install.sh" | XP_VERSION=v2.4.0 sh
           sudo mv ./crossplane /usr/local/bin/crossplane
 

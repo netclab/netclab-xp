@@ -56,7 +56,6 @@ jobs:
           set -euo pipefail
           # XP_VERSION pins the CLI: install.sh otherwise takes whatever is
           # current, so this job would drift onto a different CLI with no commit.
-          # renovate: datasource=github-releases depName=crossplane/crossplane
           curl -sfL "https://cli.crossplane.io/install.sh" | XP_VERSION=v2.4.0 sh
           sudo mv ./crossplane /usr/local/bin/crossplane
           crossplane version --client
