@@ -1,0 +1,83 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: tunnelinterfaces.iosxe.netclab.dev
+spec:
+  scope: Namespaced
+  group: iosxe.netclab.dev
+  names:
+    kind: TunnelInterface
+    plural: tunnelinterfaces
+    categories:
+    - crossplane
+    - netclab
+  defaultCompositionRef:
+    name: tunnelinterfaces.iosxe.netclab.dev
+  versions:
+  - name: v1alpha1
+    additionalPrinterColumns:
+    - name: DEVICE
+      type: string
+      jsonPath: .spec.deviceRef.name
+    - name: TUNNEL
+      type: integer
+      jsonPath: .spec.number
+    - name: MODE
+      type: string
+      jsonPath: .spec.mode
+    - name: ADDRESS
+      type: string
+      jsonPath: .spec.ipv4Address
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              deviceRef:
+                type: object
+                description: A Device in the tunnel's namespace.
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                required:
+                - name
+              number:
+                type: integer
+                description: Number of the tunnel interface on the router, 0 for Tunnel0.
+                minimum: 0
+                maximum: 2147483647
+              mode:
+                type: string
+                description: Tunnel mode, `ipsec-ipv4` for `tunnel mode ipsec ipv4`.
+                enum: [ipsec-ipv4]
+              ipv4Address:
+                type: string
+                description: IPv4 address of the tunnel interface and its prefix length.
+                x-kubernetes-validations:
+                - rule: isCIDR(self) && cidr(self).ip().family() == 4
+                  message: an IPv4 address and its prefix length, such as 192.168.100.1/24
+              source:
+                type: string
+                description: Interface, or IPv4 address, the tunnel's packets leave from.
+                minLength: 1
+              destination:
+                type: string
+                description: IPv4 address of the far end of the tunnel.
+                format: ipv4
+              ipsecProfile:
+                type: string
+                description: Name of the IPsec profile on the router that protects the tunnel.
+                minLength: 1
+            required:
+            - deviceRef
+            - number
+            - mode
+            - ipv4Address
+            - source
+            - destination
+            - ipsecProfile

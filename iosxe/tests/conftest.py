@@ -41,7 +41,10 @@ spec:
 SECRET_REF = re.compile(r"\{\{\s*([^:\s{}]+):([^:\s{}]+):([^:\s{}]+)\s*\}\}")
 
 
-def _in_namespace(path):
+EXAMPLES = sorted((IOSXE / "examples").glob("*/*.yaml"))
+
+
+def in_namespace(path):
     """An example as applied: examples name no namespace, the lab's XRs live in one."""
     doc = yaml.safe_load(path.read_text())
     doc["metadata"]["namespace"] = NAMESPACE
@@ -49,32 +52,29 @@ def _in_namespace(path):
 
 
 @pytest.fixture(scope="session")
-def rendered(tmp_path_factory):
-    """Each example's composed resources by XR name, then by composition-resource-name."""
+def render(tmp_path_factory):
+    """Renders an XR with the composition of its directory under apis/, the example Devices
+    beside it: its composed resources by composition-resource-name."""
     tmp = tmp_path_factory.mktemp("render")
     functions = tmp / "functions.yaml"
     functions.write_text(FUNCTIONS)
-    examples = sorted((IOSXE / "examples").glob("*/*.yaml"))
     devices = tmp / "devices.yaml"
     devices.write_text(
         yaml.safe_dump_all(
-            _in_namespace(p) for p in examples if p.parent.name == "device"
+            in_namespace(p) for p in EXAMPLES if p.parent.name == "device"
         )
     )
 
-    out = {}
-    for example in examples:
-        if example.parent.name == "device":
-            continue
-        xr = tmp / f"{example.parent.name}-{example.name}"
-        xr.write_text(yaml.safe_dump(_in_namespace(example)))
+    def _render(directory, xr):
+        path = tmp / f"{directory}-{xr['metadata']['name']}.yaml"
+        path.write_text(yaml.safe_dump(xr))
         result = subprocess.run(
             [
                 "crossplane",
                 "composition",
                 "render",
-                str(xr),
-                str(IOSXE / "apis" / example.parent.name / "composition.yaml"),
+                str(path),
+                str(IOSXE / "apis" / directory / "composition.yaml"),
                 str(functions),
                 f"--required-resources={devices}",
             ],
@@ -83,11 +83,23 @@ def rendered(tmp_path_factory):
             check=True,
         )
         docs = [d for d in yaml.safe_load_all(result.stdout) if d]
-        name = docs[0]["metadata"]["name"]
-        out[name] = {
+        return {
             d["metadata"]["annotations"]["crossplane.io/composition-resource-name"]: d
             for d in docs[1:]
         }
+
+    return _render
+
+
+@pytest.fixture(scope="session")
+def rendered(render):
+    """Each example's composed resources by XR name, then by composition-resource-name."""
+    out = {}
+    for example in EXAMPLES:
+        if example.parent.name == "device":
+            continue
+        xr = in_namespace(example)
+        out[xr["metadata"]["name"]] = render(example.parent.name, xr)
     return out
 
 

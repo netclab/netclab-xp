@@ -19,7 +19,7 @@ BASE=https://$ADDR/restconf
 NATIVE=$BASE/data/Cisco-IOS-XE-native:native
 
 # apply order
-KINDS=(ikev2proposal ikev2policy ikev2keyring ikev2profile ipsectransformset ipsecprofile)
+KINDS=(ikev2proposal ikev2policy ikev2keyring ikev2profile ipsectransformset ipsecprofile tunnelinterface)
 
 # the values the examples' Secrets hold
 PSK=TestPsk123
@@ -246,6 +246,49 @@ ipsecprofile() { # iosxe/examples/ipsecprofile/r1.yaml, on transform-sets and an
   write DELETE "$profile"
   write DELETE "$keyring"
   for tag in CLASSICAL-TS OTHER-TS; do write DELETE "$ts=$tag"; done
+}
+
+tunnelinterface() { # iosxe/examples/tunnelinterface/r1.yaml, on part 9's IPsec profile
+  local url=$NATIVE/interface/Tunnel=0
+  local crypto=$NATIVE/crypto/Cisco-IOS-XE-crypto
+  local example='{"name": 0, "ip": {"address": {"primary": {"address": "192.168.100.1", "mask": "255.255.255.0"}}},
+    "Cisco-IOS-XE-tunnel:tunnel": {"source": "GigabitEthernet2", "destination-config": {"ipv4": "10.0.23.2"},
+    "mode": {"ipsec": {"ipv4-mode": {}, "ipv4": {}}},
+    "protection": {"Cisco-IOS-XE-crypto:ipsec": {"profile-option": {"name": "CLASSICAL-IPSEC"}}}}}'
+  put() { # put <jq update of the example>: one field differs per state
+    write PUT "$url" "$(jq -nc --argjson t "$example" "{\"Cisco-IOS-XE-native:Tunnel\": [\$t | $1]}")"
+  }
+  absent "$url"
+  record tunnelinterface/tunnel-absent "$url"
+
+  write PUT "$crypto:ipsec/transform-set=CLASSICAL-TS" '{"Cisco-IOS-XE-crypto:transform-set": [{"tag": "CLASSICAL-TS",
+    "esp": "esp-gcm", "key-bit": "256", "mode": {"tunnel-choice": [null]}}]}'
+  write PUT "$crypto:ikev2/keyring=CLASSICAL-KEYRING" "$(jq -nc --arg psk "$PSK" '{"Cisco-IOS-XE-crypto:keyring": [{name: "CLASSICAL-KEYRING",
+    peer: [{name: "R3", address: {ipv4: {"ipv4-address": "10.0.23.2"}}, "pre-shared-key": {key: $psk}}]}]}')"
+  write PUT "$crypto:ikev2/profile=CLASSICAL-PROFILE" '{"Cisco-IOS-XE-crypto:profile": [{"name": "CLASSICAL-PROFILE",
+    "authentication": {"local": {"pre-share": {}}, "remote": {"pre-share": {}}},
+    "keyring": {"local": {"name": "CLASSICAL-KEYRING"}},
+    "match": {"identity": {"remote": {"address": {"ipv4": [{"ipv4-address": "10.0.23.2", "ipv4-mask": "255.255.255.255"}]}}}}}]}'
+  write PUT "$crypto:ipsec/profile=CLASSICAL-IPSEC" '{"Cisco-IOS-XE-crypto:profile": [{"name": "CLASSICAL-IPSEC",
+    "set": {"transform-set": ["CLASSICAL-TS"], "ikev2-profile": "CLASSICAL-PROFILE"}}]}'
+  put .
+  record tunnelinterface/tunnel-applied "$url"
+  put '.ip.address.primary.mask = "255.255.255.255"'
+  record tunnelinterface/tunnel-host-mask "$url"
+  put '.["Cisco-IOS-XE-tunnel:tunnel"]["destination-config"].ipv4 = "10.0.23.9"'
+  record tunnelinterface/tunnel-other-destination "$url"
+  put 'del(.["Cisco-IOS-XE-tunnel:tunnel"].mode)'
+  record tunnelinterface/tunnel-gre "$url"
+  put 'del(.["Cisco-IOS-XE-tunnel:tunnel"].protection)'
+  record tunnelinterface/tunnel-no-protection "$url"
+  put '.shutdown = [null]'
+  record tunnelinterface/tunnel-shutdown "$url"
+
+  write DELETE "$url"
+  write DELETE "$crypto:ipsec/profile=CLASSICAL-IPSEC"
+  write DELETE "$crypto:ikev2/profile=CLASSICAL-PROFILE"
+  write DELETE "$crypto:ikev2/keyring=CLASSICAL-KEYRING"
+  write DELETE "$crypto:ipsec/transform-set=CLASSICAL-TS"
 }
 
 mkdir -p "$FIXTURES"

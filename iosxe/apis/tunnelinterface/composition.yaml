@@ -1,0 +1,102 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: tunnelinterfaces.iosxe.netclab.dev
+spec:
+  compositeTypeRef:
+    apiVersion: iosxe.netclab.dev/v1alpha1
+    kind: TunnelInterface
+  mode: Pipeline
+  pipeline:
+  # One Request owns the tunnel interface over RESTCONF. The body always
+  # carries the mode: without one the router makes a GRE tunnel. The router
+  # returns `ipsec ipv4` as both `ipv4-mode` and `ipv4`, so the body carries
+  # both. A PATCH keeps lines the body leaves out, hence PUT, which also drops
+  # lines set on the router. The router refuses a tunnel naming a missing IPsec
+  # profile, and the profile's delete while a tunnel names it.
+  - step: requests
+    functionRef:
+      name: crossplane-contrib-function-go-templating
+    input:
+      apiVersion: gotemplating.fn.crossplane.io/v1beta1
+      kind: GoTemplate
+      source: Inline
+      inline:
+        template: |
+          {{- $xr := .observed.composite.resource }}
+          {{- $ns := $xr.metadata.namespace }}
+          ---
+          apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+          kind: ExtraResources
+          requirements:
+            device:
+              apiVersion: iosxe.netclab.dev/v1alpha1
+              kind: Device
+              matchName: {{ $xr.spec.deviceRef.name }}
+              namespace: {{ $ns }}
+          {{- with .extraResources }}{{ with index . "device" }}{{ with .items }}
+          {{- $dev := (index . 0).resource }}
+          {{- $cred := $dev.spec.credentialsSecretRef }}
+          {{- $auth := printf "{{ %s:%s:%s }}" $cred.name $ns $cred.key }}
+          {{- $number := int $xr.spec.number }}
+          {{- $url := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native/interface/Tunnel=%d" $dev.spec.address $number }}
+          {{- $modes := dict "ipsec-ipv4" (dict "ipsec" (dict "ipv4-mode" (dict) "ipv4" (dict))) }}
+          {{- /* The router takes a mask. Each octet holds 0 to 8 bits of the
+                 prefix, and an octet of n bits is the n-th of these values. */}}
+          {{- $cidr := splitList "/" $xr.spec.ipv4Address }}
+          {{- $length := atoi (index $cidr 1) }}
+          {{- $octets := list }}
+          {{- range $i := until 4 }}
+            {{- $bits := max 0 (min 8 (sub $length (mul 8 $i))) }}
+            {{- $octets = append $octets (index (list 0 128 192 224 240 248 252 254 255) $bits) }}
+          {{- end }}
+          {{- $tunnel := dict
+            "name" $number
+            "ip" (dict "address" (dict "primary" (dict "address" (index $cidr 0) "mask" (join "." $octets))))
+            "Cisco-IOS-XE-tunnel:tunnel" (dict
+              "source" $xr.spec.source
+              "destination-config" (dict "ipv4" $xr.spec.destination)
+              "mode" (index $modes $xr.spec.mode)
+              "protection" (dict "Cisco-IOS-XE-crypto:ipsec" (dict "profile-option" (dict "name" $xr.spec.ipsecProfile)))) }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: tunnel
+          spec:
+            forProvider:
+              insecureSkipTLSVerify: {{ $dev.spec.insecureSkipTLSVerify }}
+              headers:
+                Accept: ["application/yang-data+json"]
+                Content-Type: ["application/yang-data+json"]
+                Authorization: ["Basic {{ $auth }}"]
+              payload:
+                baseUrl: {{ $url | quote }}
+                body: {{ dict "Cisco-IOS-XE-native:Tunnel" (list $tunnel) | toJson | quote }}
+              mappings:
+              - action: OBSERVE
+                method: GET
+                url: .payload.baseUrl
+              - action: CREATE
+                method: PUT
+                url: .payload.baseUrl
+                body: .payload.body
+              - action: UPDATE
+                method: PUT
+                url: .payload.baseUrl
+                body: .payload.body
+              - action: REMOVE
+                method: DELETE
+                url: .payload.baseUrl
+              expectedResponseCheck:
+                type: CUSTOM
+                logic: |
+                  if .response.statusCode != 200 then false else
+                    .response.body["Cisco-IOS-XE-native:Tunnel"][0] == {{ $tunnel | toJson }}
+                  end
+          {{- end }}{{ end }}{{ end }}
+
+  - step: auto-ready
+    functionRef:
+      name: crossplane-contrib-function-auto-ready
