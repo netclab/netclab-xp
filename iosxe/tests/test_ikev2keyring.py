@@ -1,9 +1,10 @@
-"""Ikev2Keyring: the checks its Requests observe with, on the router's recorded answers."""
+"""Ikev2Keyring: the checks its Requests observe with, on the router's recorded answers,
+and the RPC composed after the keyring."""
 
 import json
 
 import pytest
-from conftest import check, recorded
+from conftest import IOSXE, check, in_namespace, observed, recorded
 
 KIND = "ikev2keyring"
 XR = "r1-ikev2-keyring"
@@ -55,3 +56,21 @@ def test_ppk_mark_follows_the_key_and_the_clear_comes_last(rendered):
     key = next(i for i, line in enumerate(lines) if line.startswith("ppk manual"))
     assert lines.index("description ppk PPK-R1R3") == key + 1
     assert lines[-1] == "do clear crypto ikev2 sa remote 10.0.23.2"
+
+
+@pytest.mark.parametrize(
+    ("before", "composed"),
+    [
+        # Nothing composed yet, or the keyring not Ready: the keyring alone.
+        ({}, ["keyring"]),
+        ({"keyring": False}, ["keyring"]),
+        # The keyring Ready: the RPC with it.
+        ({"keyring": True}, ["keyring", "ppk-r3"]),
+        # An RPC composed before stays, whatever the keyring does.
+        ({"keyring": False, "ppk-r3": False}, ["keyring", "ppk-r3"]),
+    ],
+)
+def test_rpc_waits_for_the_keyring(rendered, render, before, composed):
+    xr = in_namespace(IOSXE / "examples" / KIND / "r1.yaml")
+    seen = [observed(rendered[XR][name], ready) for name, ready in before.items()]
+    assert sorted(render(KIND, xr, seen).resources) == sorted(composed)

@@ -1,9 +1,10 @@
-"""Ikev2Profile: the checks its Requests observe with, on the router's recorded answers."""
+"""Ikev2Profile: the checks its Requests observe with, on the router's recorded answers,
+and the RPC composed after the profile."""
 
 import json
 
 import pytest
-from conftest import check, recorded
+from conftest import IOSXE, check, in_namespace, observed, recorded
 
 KIND = "ikev2profile"
 XR = "r1-ikev2-profile"
@@ -56,3 +57,21 @@ def test_ppk_clears_the_peers_sas_with_the_line(rendered):
         " description ppk CLASSICAL-KEYRING",
         "do clear crypto ikev2 sa remote 10.0.23.2",
     ]
+
+
+@pytest.mark.parametrize(
+    ("before", "composed"),
+    [
+        # Nothing composed yet, or the profile not Ready: the profile alone.
+        ({}, ["profile"]),
+        ({"profile": False}, ["profile"]),
+        # The profile Ready: the RPC with it.
+        ({"profile": True}, ["profile", "ppk"]),
+        # An RPC composed before stays, whatever the profile does.
+        ({"profile": False, "ppk": False}, ["profile", "ppk"]),
+    ],
+)
+def test_rpc_waits_for_the_profile(rendered, render, before, composed):
+    xr = in_namespace(IOSXE / "examples" / KIND / "r1.yaml")
+    seen = [observed(rendered[XR][name], ready) for name, ready in before.items()]
+    assert sorted(render(KIND, xr, seen).resources) == sorted(composed)

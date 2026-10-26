@@ -9,6 +9,8 @@ import copy
 import json
 import re
 import subprocess
+from collections import namedtuple
+from itertools import count
 from pathlib import Path
 
 import jq
@@ -51,10 +53,14 @@ def in_namespace(path):
     return doc
 
 
+Rendered = namedtuple("Rendered", "composite resources")
+
+
 @pytest.fixture(scope="session")
 def render(tmp_path_factory):
     """Renders an XR with the composition of its directory under apis/, the example Devices
-    beside it: its composed resources by composition-resource-name."""
+    beside it, and `observed` as the resources it composed before: the XR as rendered, and
+    its composed resources by composition-resource-name."""
     tmp = tmp_path_factory.mktemp("render")
     functions = tmp / "functions.yaml"
     functions.write_text(FUNCTIONS)
@@ -64,10 +70,17 @@ def render(tmp_path_factory):
             in_namespace(p) for p in EXAMPLES if p.parent.name == "device"
         )
     )
+    renders = count()
 
-    def _render(directory, xr):
-        path = tmp / f"{directory}-{xr['metadata']['name']}.yaml"
+    def _render(directory, xr, observed=()):
+        n = next(renders)
+        path = tmp / f"xr-{n}.yaml"
         path.write_text(yaml.safe_dump(xr))
+        observed_path = tmp / f"observed-{n}.yaml"
+        observed_path.write_text(yaml.safe_dump_all(observed))
+        # A Device among the required resources would stand in for the Device rendered,
+        # and a Device's composition requires none.
+        required = [] if xr["kind"] == "Device" else [f"--required-resources={devices}"]
         result = subprocess.run(
             [
                 "crossplane",
@@ -76,30 +89,56 @@ def render(tmp_path_factory):
                 str(path),
                 str(IOSXE / "apis" / directory / "composition.yaml"),
                 str(functions),
-                f"--required-resources={devices}",
+                *required,
+                f"--observed-resources={observed_path}",
             ],
             capture_output=True,
             text=True,
             check=True,
         )
         docs = [d for d in yaml.safe_load_all(result.stdout) if d]
-        return {
-            d["metadata"]["annotations"]["crossplane.io/composition-resource-name"]: d
-            for d in docs[1:]
-        }
+        name = "crossplane.io/composition-resource-name"
+        return Rendered(
+            docs[0], {d["metadata"]["annotations"][name]: d for d in docs[1:]}
+        )
 
     return _render
 
 
+def observed(resource, ready):
+    """A resource composed before, as Crossplane observes it, Ready or not."""
+    out = copy.deepcopy(resource)
+    out["status"] = {
+        "conditions": [
+            {
+                "type": "Ready",
+                "status": "True" if ready else "False",
+                "reason": "Available" if ready else "Creating",
+                "lastTransitionTime": "2024-01-01T00:00:00Z",
+            }
+        ]
+    }
+    return out
+
+
 @pytest.fixture(scope="session")
 def rendered(render):
-    """Each example's composed resources by XR name, then by composition-resource-name."""
+    """Each example's composed resources by XR name, then by composition-resource-name:
+    all of them, rendered again with what the last render composed Ready until that
+    composes nothing more."""
     out = {}
     for example in EXAMPLES:
         if example.parent.name == "device":
             continue
         xr = in_namespace(example)
-        out[xr["metadata"]["name"]] = render(example.parent.name, xr)
+        resources = {}
+        while True:
+            before = [observed(r, True) for r in resources.values()]
+            again = render(example.parent.name, xr, before).resources
+            if again.keys() == resources.keys():
+                break
+            resources = again
+        out[xr["metadata"]["name"]] = resources
     return out
 
 

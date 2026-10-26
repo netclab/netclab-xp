@@ -12,7 +12,9 @@ spec:
   # owns its `ppk manual` line over cli-rpc: 17.18's YANG has no PPK, and no
   # read on the router returns the line. The same RPC therefore writes
   # `description ppk <id>` on the peer, and that mark is what the Request
-  # observes: without it the PPK counts as absent and is applied again.
+  # observes: without it the PPK counts as absent and is applied again. The RPCs
+  # are composed once the keyring's Request is Ready: sent together, the PUT and
+  # the RPCs undo each other's mark and peer until each has been retried.
   - step: requests
     functionRef:
       name: crossplane-contrib-function-go-templating
@@ -88,7 +90,14 @@ spec:
                       | sort_by(.name))
                     == ({{ $owned | toJson }} | sort_by(.name))
                   end
-          {{- range $xr.spec.peers }}{{ if .ppk }}
+          {{- $observed := default (dict) $.observed.resources }}
+          {{- $keyringReady := false }}
+          {{- with index $observed "keyring" }}
+          {{- range .resource.status.conditions }}
+          {{- if and (eq .type "Ready") (eq .status "True") }}{{ $keyringReady = true }}{{ end }}
+          {{- end }}
+          {{- end }}
+          {{- range $xr.spec.peers }}{{ if and .ppk (or $keyringReady (hasKey $observed (printf "ppk-%s" (lower .name)))) }}
           {{- $mark := printf "ppk %s" .ppk.id }}
           {{- $key := printf "{{ %s:%s:%s }}" .ppk.keySecretRef.name $ns .ppk.keySecretRef.key }}
           {{- $apply := printf "crypto ikev2 keyring %s\n peer %s\n  ppk manual id %s key hex %s required\n  description %s\ndo clear crypto ikev2 sa remote %s" $xr.spec.name .name .ppk.id $key $mark .address }}

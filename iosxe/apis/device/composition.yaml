@@ -8,8 +8,13 @@ spec:
     kind: Device
   mode: Pipeline
   pipeline:
-  # A Device configures nothing. Its one Request reads the hostname, so the
-  # Device is Ready only when the router answers with these credentials.
+  # The Device's own Request reads the hostname, so the Device is Ready only when
+  # the router answers with these credentials. Each object of spec.config is an XR
+  # of its kind with this Device as deviceRef, composed once every one above it is
+  # Ready, since the router refuses an object naming one that does not exist yet.
+  # One the Device already composes stays composed whatever happens above it. An
+  # object is known by its kind and its name on the router, not by its place in
+  # the list, so inserting one moves no other.
   - step: requests
     functionRef:
       name: crossplane-contrib-function-go-templating
@@ -40,6 +45,51 @@ spec:
               - action: OBSERVE
                 method: GET
                 url: .payload.baseUrl
+          {{- $kinds := dict
+            "ikev2Proposal" "Ikev2Proposal"
+            "ikev2Policy" "Ikev2Policy"
+            "ikev2Keyring" "Ikev2Keyring"
+            "ikev2Profile" "Ikev2Profile"
+            "ipsecTransformSet" "IpsecTransformSet"
+            "ipsecProfile" "IpsecProfile"
+            "tunnelInterface" "TunnelInterface" }}
+          {{- $observed := default (dict) .observed.resources }}
+          {{- $config := default (list) $xr.spec.config }}
+          {{- $seen := dict }}
+          {{- $open := true }}
+          {{- $ready := 0 }}
+          {{- range $item := $config }}
+          {{- range $key, $spec := $item }}
+          {{- $kind := index $kinds $key }}
+          {{- $name := $spec.name }}
+          {{- if eq $kind "TunnelInterface" }}{{ $name = printf "Tunnel%d" (int $spec.number) }}{{ end }}
+          {{- $id := printf "%s-%s" (lower $kind) (regexReplaceAll "[^a-z0-9]+" (lower $name) "-") }}
+          {{- if hasKey $seen $id }}{{ fail (printf "spec.config lists %s %s twice" $kind $name) }}{{ end }}
+          {{- $_ := set $seen $id true }}
+          {{- $composed := index $observed $id }}
+          {{- if or $open $composed }}
+          ---
+          apiVersion: iosxe.netclab.dev/v1alpha1
+          kind: {{ $kind }}
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: {{ $id }}
+          spec: {{ merge (dict "deviceRef" (dict "name" $xr.metadata.name)) $spec | toJson }}
+          {{- end }}
+          {{- $isReady := false }}
+          {{- if $composed }}
+          {{- range $composed.resource.status.conditions }}
+          {{- if and (eq .type "Ready") (eq .status "True") }}{{ $isReady = true }}{{ end }}
+          {{- end }}
+          {{- end }}
+          {{- if $isReady }}{{ $ready = add1 $ready }}{{ else }}{{ $open = false }}{{ end }}
+          {{- end }}
+          {{- end }}
+          ---
+          apiVersion: iosxe.netclab.dev/v1alpha1
+          kind: Device
+          status:
+            config: {{ printf "%d/%d" $ready (len $config) | quote }}
 
   - step: auto-ready
     functionRef:

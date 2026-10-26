@@ -54,7 +54,7 @@ def masks(render):
         xr = in_namespace(IOSXE / "examples" / KIND / "r1.yaml")
         xr["metadata"]["name"] = f"{XR}-{length}"
         xr["spec"]["ipv4Address"] = f"192.168.100.1/{length}"
-        tunnel = render(KIND, xr)["tunnel"]["spec"]["forProvider"]
+        tunnel = render(KIND, xr).resources["tunnel"]["spec"]["forProvider"]
         body = json.loads(tunnel["payload"]["body"])["Cisco-IOS-XE-native:Tunnel"][0]
         out[length] = body["ip"]["address"]["primary"]["mask"]
     return out
