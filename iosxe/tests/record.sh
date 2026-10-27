@@ -2,11 +2,13 @@
 # Records the router's answers to the GETs the compositions observe with, in each state
 # the objects of iosxe/examples/ can be in.
 #
-#   iosxe/tests/record.sh <router-address> <ios-xe-version> [kind...]
+#   PEER=<address> iosxe/tests/record.sh <router-address> <ios-xe-version> [kind...]
 #
 # Writes iosxe/tests/fixtures/<ios-xe-version>/<kind>/, and secrets.json with the values
 # the router held, which the tests put in place of {{ name:namespace:key }}. Kinds run in
 # apply order, all of them when none is named. Leaves nothing behind on the router.
+# PEER, which tunnelinterface needs, is the router at the tunnel's destination, its
+# GigabitEthernet2 at 10.0.23.2: it gets the far end for the tunnel's state while it is up.
 # Credentials: IOSXE_USER and IOSXE_PASSWORD, cisco/cisco by default.
 set -euo pipefail
 
@@ -55,6 +57,19 @@ cli() { # cli <lines>: config-ios-cli-rpc, fails unless the RPC succeeds
   curl_ -X POST "$BASE/operations/Cisco-IOS-XE-cli-rpc:config-ios-cli-rpc" \
     --data-binary "$(jq -nc --arg c "$1" '{"Cisco-IOS-XE-cli-rpc:input":{"config-clis":$c}}')" \
     | jq -e '.["Cisco-IOS-XE-cli-rpc:output"].result == "RPC request successful"' > /dev/null
+}
+
+until_() { # until_ <what> <command>...: until the command succeeds, for at most 180 s
+  local what=$1 t0=$SECONDS; shift
+  until "$@"; do
+    [ $((SECONDS - t0)) -lt 180 ] || { echo "not $what after 180 s" >&2; exit 1; }
+    sleep 2
+  done
+}
+
+onpeer() { # onpeer <command>...: the command's writes and waits on PEER
+  local BASE=https://$PEER/restconf
+  "$@"
 }
 
 record() { # record <kind>/<state> <url>: the status code and the body, as the provider sees them
@@ -250,7 +265,8 @@ ipsecprofile() { # iosxe/examples/ipsecprofile/r1.yaml, on transform-sets and an
 
 tunnelinterface() { # iosxe/examples/tunnelinterface/r1.yaml, on part 9's IPsec profile
   local url=$NATIVE/interface/Tunnel=0
-  local crypto=$NATIVE/crypto/Cisco-IOS-XE-crypto
+  local oper=$BASE/data/Cisco-IOS-XE-interfaces-oper:interfaces/interface=Tunnel0/oper-status
+  local sa="$BASE/data/Cisco-IOS-XE-crypto-oper:crypto-oper-data/crypto-ikev2-sa?fields=sa-data(sa-status;remote-ip-addr)"
   local example='{"name": 0, "ip": {"address": {"primary": {"address": "192.168.100.1", "mask": "255.255.255.0"}}},
     "Cisco-IOS-XE-tunnel:tunnel": {"source": "GigabitEthernet2", "destination-config": {"ipv4": "10.0.23.2"},
     "mode": {"ipsec": {"ipv4-mode": {}, "ipv4": {}}},
@@ -258,21 +274,63 @@ tunnelinterface() { # iosxe/examples/tunnelinterface/r1.yaml, on part 9's IPsec 
   put() { # put <jq update of the example>: one field differs per state
     write PUT "$url" "$(jq -nc --argjson t "$example" "{\"Cisco-IOS-XE-native:Tunnel\": [\$t | $1]}")"
   }
+  stack() { # stack <native url> <peer name> <peer address>: the IPsec profile and what it names
+    local crypto=$1/crypto/Cisco-IOS-XE-crypto
+    write PUT "$crypto:ipsec/transform-set=CLASSICAL-TS" '{"Cisco-IOS-XE-crypto:transform-set": [{"tag": "CLASSICAL-TS",
+      "esp": "esp-gcm", "key-bit": "256", "mode": {"tunnel-choice": [null]}}]}'
+    write PUT "$crypto:ikev2/keyring=CLASSICAL-KEYRING" "$(jq -nc --arg psk "$PSK" --arg n "$2" --arg a "$3" \
+      '{"Cisco-IOS-XE-crypto:keyring": [{name: "CLASSICAL-KEYRING",
+      peer: [{name: $n, address: {ipv4: {"ipv4-address": $a}}, "pre-shared-key": {key: $psk}}]}]}')"
+    write PUT "$crypto:ikev2/profile=CLASSICAL-PROFILE" "$(jq -nc --arg a "$3" '{"Cisco-IOS-XE-crypto:profile": [{name: "CLASSICAL-PROFILE",
+      authentication: {local: {"pre-share": {}}, remote: {"pre-share": {}}},
+      keyring: {local: {name: "CLASSICAL-KEYRING"}},
+      match: {identity: {remote: {address: {ipv4: [{"ipv4-address": $a, "ipv4-mask": "255.255.255.255"}]}}}}}]}')"
+    write PUT "$crypto:ipsec/profile=CLASSICAL-IPSEC" '{"Cisco-IOS-XE-crypto:profile": [{"name": "CLASSICAL-IPSEC",
+      "set": {"transform-set": ["CLASSICAL-TS"], "ikev2-profile": "CLASSICAL-PROFILE"}}]}'
+  }
+  unstack() { # unstack <native url>
+    local crypto=$1/crypto/Cisco-IOS-XE-crypto
+    write DELETE "$crypto:ipsec/profile=CLASSICAL-IPSEC"
+    write DELETE "$crypto:ikev2/profile=CLASSICAL-PROFILE"
+    write DELETE "$crypto:ikev2/keyring=CLASSICAL-KEYRING"
+    write DELETE "$crypto:ipsec/transform-set=CLASSICAL-TS"
+  }
+  sa_is() { # sa_is <state>: the SA to 10.0.23.2 is in it
+    curl_ "$sa" | jq -e --arg s "crypto-sa-status-$1" \
+      '[.["Cisco-IOS-XE-crypto-oper:crypto-ikev2-sa"][]?["sa-data"] | select(.["remote-ip-addr"] == "10.0.23.2")
+        | .["sa-status"]] | index($s) != null' > /dev/null
+  }
+  oper_is() { # oper_is <state>: Tunnel0's oper-status
+    curl_ "$oper" | jq -e --arg s "if-oper-state-$1" '.["Cisco-IOS-XE-interfaces-oper:oper-status"] == $s' > /dev/null
+  }
+  : "${PEER:?the router at 10.0.23.2, for the state of the tunnel}"
+  local peer=https://$PEER/restconf/data/Cisco-IOS-XE-native:native
   absent "$url"
   record tunnelinterface/tunnel-absent "$url"
+  record tunnelinterface/oper-absent "$oper"
+  record tunnelinterface/sa-none "$sa"
 
-  write PUT "$crypto:ipsec/transform-set=CLASSICAL-TS" '{"Cisco-IOS-XE-crypto:transform-set": [{"tag": "CLASSICAL-TS",
-    "esp": "esp-gcm", "key-bit": "256", "mode": {"tunnel-choice": [null]}}]}'
-  write PUT "$crypto:ikev2/keyring=CLASSICAL-KEYRING" "$(jq -nc --arg psk "$PSK" '{"Cisco-IOS-XE-crypto:keyring": [{name: "CLASSICAL-KEYRING",
-    peer: [{name: "R3", address: {ipv4: {"ipv4-address": "10.0.23.2"}}, "pre-shared-key": {key: $psk}}]}]}')"
-  write PUT "$crypto:ikev2/profile=CLASSICAL-PROFILE" '{"Cisco-IOS-XE-crypto:profile": [{"name": "CLASSICAL-PROFILE",
-    "authentication": {"local": {"pre-share": {}}, "remote": {"pre-share": {}}},
-    "keyring": {"local": {"name": "CLASSICAL-KEYRING"}},
-    "match": {"identity": {"remote": {"address": {"ipv4": [{"ipv4-address": "10.0.23.2", "ipv4-mask": "255.255.255.255"}]}}}}}]}'
-  write PUT "$crypto:ipsec/profile=CLASSICAL-IPSEC" '{"Cisco-IOS-XE-crypto:profile": [{"name": "CLASSICAL-IPSEC",
-    "set": {"transform-set": ["CLASSICAL-TS"], "ikev2-profile": "CLASSICAL-PROFILE"}}]}'
+  stack "$NATIVE" R3 10.0.23.2
   put .
   record tunnelinterface/tunnel-applied "$url"
+  until_ "lower-layer-down" oper_is lower-layer-down
+  until_ "pending" sa_is pending
+  record tunnelinterface/oper-lower-layer-down "$oper"
+  record tunnelinterface/sa-pending "$sa"
+
+  onpeer stack "$peer" R1 10.0.12.1
+  onpeer write PUT "$peer/interface/Tunnel=0" '{"Cisco-IOS-XE-native:Tunnel": [{"name": 0,
+    "ip": {"address": {"primary": {"address": "192.168.100.2", "mask": "255.255.255.0"}}},
+    "Cisco-IOS-XE-tunnel:tunnel": {"source": "GigabitEthernet2", "destination-config": {"ipv4": "10.0.12.1"},
+    "mode": {"ipsec": {"ipv4-mode": {}, "ipv4": {}}},
+    "protection": {"Cisco-IOS-XE-crypto:ipsec": {"profile-option": {"name": "CLASSICAL-IPSEC"}}}}}]}'
+  until_ "ready" oper_is ready
+  until_ "active" sa_is active
+  record tunnelinterface/oper-ready "$oper"
+  record tunnelinterface/sa-active "$sa"
+  onpeer write DELETE "$peer/interface/Tunnel=0"
+  onpeer unstack "$peer"
+
   put '.ip.address.primary.mask = "255.255.255.255"'
   record tunnelinterface/tunnel-host-mask "$url"
   put '.["Cisco-IOS-XE-tunnel:tunnel"]["destination-config"].ipv4 = "10.0.23.9"'
@@ -285,10 +343,7 @@ tunnelinterface() { # iosxe/examples/tunnelinterface/r1.yaml, on part 9's IPsec 
   record tunnelinterface/tunnel-shutdown "$url"
 
   write DELETE "$url"
-  write DELETE "$crypto:ipsec/profile=CLASSICAL-IPSEC"
-  write DELETE "$crypto:ikev2/profile=CLASSICAL-PROFILE"
-  write DELETE "$crypto:ikev2/keyring=CLASSICAL-KEYRING"
-  write DELETE "$crypto:ipsec/transform-set=CLASSICAL-TS"
+  unstack "$NATIVE"
 }
 
 mkdir -p "$FIXTURES"

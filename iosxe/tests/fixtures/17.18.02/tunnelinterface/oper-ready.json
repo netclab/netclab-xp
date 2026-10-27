@@ -1,0 +1,6 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-interfaces-oper:oper-status": "if-oper-state-ready"
+  }
+}

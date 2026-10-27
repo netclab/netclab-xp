@@ -14,6 +14,10 @@ spec:
   # both. A PATCH keeps lines the body leaves out, hence PUT, which also drops
   # lines set on the router. The router refuses a tunnel naming a missing IPsec
   # profile, and the profile's delete while a tunnel names it.
+  # Once the tunnel's Request exists, two Requests only read the router: the
+  # interface's oper-status and the IKEv2 SAs, of which the one to the tunnel's
+  # destination counts; the XR's status carries both as of their last poll.
+  # They are always Ready, so the tunnel's state never holds back the XR's.
   # Once every object in `after` is Ready the Requests are composed, and they
   # stay composed whatever happens to those objects; until then none is, and the
   # XR is not Ready, where Crossplane would call an XR composing nothing Ready. A
@@ -144,6 +148,66 @@ spec:
                   if .response.statusCode != 200 then false else
                     .response.body["Cisco-IOS-XE-native:Tunnel"][0] == {{ $tunnel | toJson }}
                   end
+          {{- $observed := default (dict) $.observed.resources }}
+          {{- if hasKey $observed "tunnel" }}
+          {{- range $name, $path := dict
+                "oper" (printf "Cisco-IOS-XE-interfaces-oper:interfaces/interface=Tunnel%d/oper-status" $number)
+                "ike-sa" "Cisco-IOS-XE-crypto-oper:crypto-oper-data/crypto-ikev2-sa?fields=sa-data(sa-status;remote-ip-addr)" }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: {{ $name }}
+              gotemplating.fn.crossplane.io/ready: "True"
+          spec:
+            managementPolicies: ["Observe"]
+            forProvider:
+              insecureSkipTLSVerify: {{ $dev.spec.insecureSkipTLSVerify }}
+              headers:
+                Accept: ["application/yang-data+json"]
+                Authorization: ["Basic {{ $auth }}"]
+              payload:
+                baseUrl: {{ printf "https://%s/restconf/data/%s" $dev.spec.address $path | quote }}
+              mappings:
+              - action: OBSERVE
+                method: GET
+                url: .payload.baseUrl
+          {{- end }}
+          {{- end }}
+          {{- /* A Request's last answer: 200 with a body, or 204 for no SA at all. */}}
+          {{- $oper := dict }}
+          {{- with index $observed "oper" }}{{ with .resource.status }}{{ with .response }}
+          {{- if eq (int .statusCode) 200 }}
+          {{- $_ := set $oper "interface" (trimPrefix "if-oper-state-" (index (fromYaml .body) "Cisco-IOS-XE-interfaces-oper:oper-status")) }}
+          {{- end }}
+          {{- end }}{{ end }}{{ end }}
+          {{- with index $observed "ike-sa" }}{{ with .resource.status }}{{ with .response }}
+          {{- $state := "" }}
+          {{- if eq (int .statusCode) 204 }}{{ $state = "none" }}{{ end }}
+          {{- if eq (int .statusCode) 200 }}
+          {{- $state = "none" }}
+          {{- range index (fromYaml .body) "Cisco-IOS-XE-crypto-oper:crypto-ikev2-sa" }}
+          {{- if and (eq (index . "sa-data" "remote-ip-addr") $xr.spec.destination) (ne $state "active") }}
+          {{- $state = trimPrefix "crypto-sa-status-" (index . "sa-data" "sa-status") }}
+          {{- end }}
+          {{- end }}
+          {{- end }}
+          {{- if $state }}
+          {{- $peers := list (dict "address" $xr.spec.destination "ikeSA" $state) }}
+          {{- $active := 0 }}
+          {{- range $peers }}{{ if eq .ikeSA "active" }}{{ $active = add1 $active }}{{ end }}{{ end }}
+          {{- $_ := set $oper "peers" $peers }}
+          {{- $_ := set $oper "activePeers" (printf "%d/%d" $active (len $peers)) }}
+          {{- end }}
+          {{- end }}{{ end }}{{ end }}
+          {{- if $oper }}
+          ---
+          apiVersion: {{ $xr.apiVersion }}
+          kind: {{ $xr.kind }}
+          status:
+            oper: {{ $oper | toJson }}
+          {{- end }}
           {{- end }}{{ end }}{{ end }}
           {{- end }}
 

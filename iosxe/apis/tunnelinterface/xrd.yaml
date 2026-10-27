@@ -28,6 +28,12 @@ spec:
     - name: ADDRESS
       type: string
       jsonPath: .spec.ipv4Address
+    - name: OPER
+      type: string
+      jsonPath: .status.oper.interface
+    - name: IKE-SA
+      type: string
+      jsonPath: .status.oper.activePeers
     served: true
     referenceable: true
     schema:
@@ -102,3 +108,27 @@ spec:
             - source
             - destination
             - ipsecProfile
+          status:
+            type: object
+            properties:
+              oper:
+                type: object
+                description: The tunnel as the router reported it at the provider's last poll.
+                properties:
+                  interface:
+                    type: string
+                    description: Operational state of the interface, such as ready or lower-layer-down.
+                  activePeers:
+                    type: string
+                    description: Peers with an active IKEv2 SA, of all the tunnel's peers, such as 1/1.
+                  peers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        address:
+                          type: string
+                          description: IPv4 address of the peer.
+                        ikeSA:
+                          type: string
+                          description: State of the IKEv2 SA with the peer, such as active or pending; none without one.
