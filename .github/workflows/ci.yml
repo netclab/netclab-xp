@@ -94,3 +94,46 @@ jobs:
           path: netclab-xp-ci.xpkg
           if-no-files-found: error
           retention-days: 7
+
+  # configuration-iosxe is its own package, with its own root and examples under
+  # iosxe/ and its own tag (release-iosxe.yml). Its tests render every example
+  # with `crossplane composition render`, which runs the functions of the
+  # package's floors in Docker, and run the compositions' own checks against the
+  # router's answers recorded in iosxe/tests/fixtures/.
+  iosxe:
+    name: configuration-iosxe
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: iosxe
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Install crossplane CLI
+        run: |
+          set -euo pipefail
+          curl -sfL "https://cli.crossplane.io/install.sh" | XP_VERSION=v2.5.0 sh
+          sudo mv ./crossplane /usr/local/bin/crossplane
+          crossplane version --client
+
+      - name: Build the package
+        run: |
+          set -euo pipefail
+          crossplane xpkg build \
+            --package-root=apis \
+            --examples-root=./examples \
+            -o configuration-iosxe-ci.xpkg
+
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: iosxe/uv.lock
+
+      - name: Ruff
+        run: uvx ruff check && uvx ruff format --check
+
+      - name: Tests
+        run: uv run pytest
