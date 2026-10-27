@@ -46,6 +46,26 @@ spec:
                     minLength: 1
                 required:
                 - name
+              after:
+                type: array
+                description: >-
+                  Objects in the transform-set's namespace that are Ready before the
+                  transform-set is applied.
+                maxItems: 8
+                x-kubernetes-list-type: map
+                x-kubernetes-list-map-keys: [kind, name]
+                items:
+                  type: object
+                  properties:
+                    kind:
+                      type: string
+                      enum: [Ikev2Proposal, Ikev2Policy, Ikev2Keyring, Ikev2Profile, IpsecTransformSet, IpsecProfile, TunnelInterface]
+                    name:
+                      type: string
+                      minLength: 1
+                  required:
+                  - kind
+                  - name
               name:
                 type: string
                 description: Name (tag) of the transform-set on the router.

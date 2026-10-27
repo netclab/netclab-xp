@@ -5,6 +5,8 @@ metadata:
 spec:
   deviceRef:
     name: r1
+  after:
+  - {kind: IpsecProfile, name: r1-ipsec-profile}
   number: 0
   mode: ipsec-ipv4
   ipv4Address: 192.168.100.1/24

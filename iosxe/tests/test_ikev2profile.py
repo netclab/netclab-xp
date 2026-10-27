@@ -74,4 +74,7 @@ def test_ppk_clears_the_peers_sas_with_the_line(rendered):
 def test_rpc_waits_for_the_profile(rendered, render, before, composed):
     xr = in_namespace(IOSXE / "examples" / KIND / "r1.yaml")
     seen = [observed(rendered[XR][name], ready) for name, ready in before.items()]
-    assert sorted(render(KIND, xr, seen).resources) == sorted(composed)
+    resources = render(KIND, xr, seen).resources
+    # The Usage of the keyring the example waits on comes with them.
+    requests = [r for r in resources if not r.startswith("after-")]
+    assert sorted(requests) == sorted(composed)

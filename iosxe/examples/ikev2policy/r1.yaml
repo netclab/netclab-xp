@@ -5,5 +5,7 @@ metadata:
 spec:
   deviceRef:
     name: r1
+  after:
+  - {kind: Ikev2Proposal, name: r1-ikev2-proposal}
   name: CLASSICAL-POLICY
   proposals: [CLASSICAL-PROPOSAL]

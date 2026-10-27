@@ -15,6 +15,10 @@ spec:
   # observes: without it the PPK counts as absent and is applied again. The RPCs
   # are composed once the keyring's Request is Ready: sent together, the PUT and
   # the RPCs undo each other's mark and peer until each has been retried.
+  # Once every object in `after` is Ready the Requests are composed, and they
+  # stay composed whatever happens to those objects; until then none is, and the
+  # XR is not Ready, where Crossplane would call an XR composing nothing Ready. A
+  # Usage of each object in `after` holds back its delete until this XR is gone.
   - step: requests
     functionRef:
       name: crossplane-contrib-function-go-templating
@@ -26,6 +30,7 @@ spec:
         template: |
           {{- $xr := .observed.composite.resource }}
           {{- $ns := $xr.metadata.namespace }}
+          {{- $after := default (list) $xr.spec.after }}
           ---
           apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
           kind: ExtraResources
@@ -35,6 +40,50 @@ spec:
               kind: Device
               matchName: {{ $xr.spec.deviceRef.name }}
               namespace: {{ $ns }}
+            {{- range $i, $a := $after }}
+            after-{{ $i }}:
+              apiVersion: iosxe.netclab.dev/v1alpha1
+              kind: {{ $a.kind }}
+              matchName: {{ $a.name }}
+              namespace: {{ $ns }}
+            {{- end }}
+          {{- $extra := default (dict) .extraResources }}
+          {{- $waiting := false }}
+          {{- range $i, $a := $after }}
+          {{- $ready := false }}
+          {{- with index $extra (printf "after-%d" $i) }}{{ with .items }}
+          {{- range (index . 0).resource.status.conditions }}
+          {{- if and (eq .type "Ready") (eq .status "True") }}{{ $ready = true }}{{ end }}
+          {{- end }}
+          ---
+          apiVersion: protection.crossplane.io/v1beta1
+          kind: Usage
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: after-{{ lower $a.kind }}-{{ $a.name }}
+          spec:
+            of:
+              apiVersion: iosxe.netclab.dev/v1alpha1
+              kind: {{ $a.kind }}
+              resourceRef:
+                name: {{ $a.name }}
+            by:
+              apiVersion: {{ $xr.apiVersion }}
+              kind: {{ $xr.kind }}
+              resourceRef:
+                name: {{ $xr.metadata.name }}
+            replayDeletion: true
+          {{- end }}{{ end }}
+          {{- if not $ready }}{{ $waiting = true }}{{ end }}
+          {{- end }}
+          {{- if and $waiting (not (index (default (dict) .observed.resources) "keyring")) }}
+          ---
+          apiVersion: {{ $xr.apiVersion }}
+          kind: {{ $xr.kind }}
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/ready: "False"
+          {{- else }}
           {{- with .extraResources }}{{ with index . "device" }}{{ with .items }}
           {{- $dev := (index . 0).resource }}
           {{- $cred := $dev.spec.credentialsSecretRef }}
@@ -144,6 +193,7 @@ spec:
                 logic: "true"
           {{- end }}{{ end }}
           {{- end }}{{ end }}{{ end }}
+          {{- end }}
 
   - step: auto-ready
     functionRef:

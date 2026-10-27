@@ -58,29 +58,30 @@ Rendered = namedtuple("Rendered", "composite resources")
 
 @pytest.fixture(scope="session")
 def render(tmp_path_factory):
-    """Renders an XR with the composition of its directory under apis/, the example Devices
-    beside it, and `observed` as the resources it composed before: the XR as rendered, and
-    its composed resources by composition-resource-name."""
+    """Renders an XR with the composition of its directory under apis/, `required` as the
+    resources it requires (unless given, the other examples, all Ready), and `observed` as
+    the resources it composed before: the XR as rendered, and its composed resources by
+    composition-resource-name."""
     tmp = tmp_path_factory.mktemp("render")
     functions = tmp / "functions.yaml"
     functions.write_text(FUNCTIONS)
-    devices = tmp / "devices.yaml"
-    devices.write_text(
-        yaml.safe_dump_all(
-            in_namespace(p) for p in EXAMPLES if p.parent.name == "device"
-        )
-    )
+    examples = [observed(in_namespace(p), True) for p in EXAMPLES]
     renders = count()
 
-    def _render(directory, xr, observed=()):
+    def _render(directory, xr, observed=(), required=None):
         n = next(renders)
         path = tmp / f"xr-{n}.yaml"
         path.write_text(yaml.safe_dump(xr))
         observed_path = tmp / f"observed-{n}.yaml"
         observed_path.write_text(yaml.safe_dump_all(observed))
-        # A Device among the required resources would stand in for the Device rendered,
-        # and a Device's composition requires none.
-        required = [] if xr["kind"] == "Device" else [f"--required-resources={devices}"]
+        if required is None:
+            # The XR among them would stand in for the XR rendered.
+            same = (xr["kind"], xr["metadata"]["name"])
+            required = [
+                e for e in examples if (e["kind"], e["metadata"]["name"]) != same
+            ]
+        required_path = tmp / f"required-{n}.yaml"
+        required_path.write_text(yaml.safe_dump_all(required))
         result = subprocess.run(
             [
                 "crossplane",
@@ -89,7 +90,7 @@ def render(tmp_path_factory):
                 str(path),
                 str(IOSXE / "apis" / directory / "composition.yaml"),
                 str(functions),
-                *required,
+                f"--required-resources={required_path}",
                 f"--observed-resources={observed_path}",
             ],
             capture_output=True,
