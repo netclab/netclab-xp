@@ -1,0 +1,134 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: tunnelinterfaces.iosxe.netclab.dev
+spec:
+  scope: Namespaced
+  group: iosxe.netclab.dev
+  names:
+    kind: TunnelInterface
+    plural: tunnelinterfaces
+    categories:
+    - crossplane
+    - netclab
+  defaultCompositionRef:
+    name: tunnelinterfaces.iosxe.netclab.dev
+  versions:
+  - name: v1alpha1
+    additionalPrinterColumns:
+    - name: DEVICE
+      type: string
+      jsonPath: .spec.deviceRef.name
+    - name: TUNNEL
+      type: integer
+      jsonPath: .spec.number
+    - name: MODE
+      type: string
+      jsonPath: .spec.mode
+    - name: ADDRESS
+      type: string
+      jsonPath: .spec.ipv4Address
+    - name: OPER
+      type: string
+      jsonPath: .status.oper.interface
+    - name: IKE-SA
+      type: string
+      jsonPath: .status.oper.activePeers
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              deviceRef:
+                type: object
+                description: A Device in the tunnel's namespace.
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                required:
+                - name
+              after:
+                type: array
+                description: >-
+                  Objects in the tunnel's namespace that are Ready before the
+                  tunnel is applied.
+                maxItems: 8
+                x-kubernetes-list-type: map
+                x-kubernetes-list-map-keys: [kind, name]
+                items:
+                  type: object
+                  properties:
+                    kind:
+                      type: string
+                      enum: [Ikev2Proposal, Ikev2Policy, Ikev2Keyring, Ikev2Profile, IpsecTransformSet, IpsecProfile, TunnelInterface]
+                    name:
+                      type: string
+                      minLength: 1
+                  required:
+                  - kind
+                  - name
+              number:
+                type: integer
+                description: Number of the tunnel interface on the router, 0 for Tunnel0.
+                minimum: 0
+                maximum: 2147483647
+              mode:
+                type: string
+                description: Tunnel mode, `ipsec-ipv4` for `tunnel mode ipsec ipv4`.
+                enum: [ipsec-ipv4]
+              ipv4Address:
+                type: string
+                description: IPv4 address of the tunnel interface and its prefix length.
+                maxLength: 18
+                x-kubernetes-validations:
+                - rule: isCIDR(self) && cidr(self).ip().family() == 4
+                  message: an IPv4 address and its prefix length, such as 192.168.100.1/24
+              source:
+                type: string
+                description: Interface, or IPv4 address, the tunnel's packets leave from.
+                minLength: 1
+              destination:
+                type: string
+                description: IPv4 address of the far end of the tunnel.
+                format: ipv4
+              ipsecProfile:
+                type: string
+                description: Name of the IPsec profile on the router that protects the tunnel.
+                minLength: 1
+            required:
+            - deviceRef
+            - number
+            - mode
+            - ipv4Address
+            - source
+            - destination
+            - ipsecProfile
+          status:
+            type: object
+            properties:
+              oper:
+                type: object
+                description: The tunnel as the router reported it at the provider's last poll.
+                properties:
+                  interface:
+                    type: string
+                    description: Operational state of the interface, such as ready or lower-layer-down.
+                  activePeers:
+                    type: string
+                    description: Peers with an active IKEv2 SA, of all the tunnel's peers, such as 1/1.
+                  peers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        address:
+                          type: string
+                          description: IPv4 address of the peer.
+                        ikeSA:
+                          type: string
+                          description: State of the IKEv2 SA with the peer, such as active or pending; none without one.

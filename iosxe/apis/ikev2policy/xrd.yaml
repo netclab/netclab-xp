@@ -1,0 +1,78 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: ikev2policies.iosxe.netclab.dev
+spec:
+  scope: Namespaced
+  group: iosxe.netclab.dev
+  names:
+    kind: Ikev2Policy
+    plural: ikev2policies
+    categories:
+    - crossplane
+    - netclab
+  defaultCompositionRef:
+    name: ikev2policies.iosxe.netclab.dev
+  versions:
+  - name: v1alpha1
+    additionalPrinterColumns:
+    - name: DEVICE
+      type: string
+      jsonPath: .spec.deviceRef.name
+    - name: POLICY
+      type: string
+      jsonPath: .spec.name
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              deviceRef:
+                type: object
+                description: A Device in the policy's namespace.
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                required:
+                - name
+              after:
+                type: array
+                description: >-
+                  Objects in the policy's namespace that are Ready before the
+                  policy is applied.
+                maxItems: 8
+                x-kubernetes-list-type: map
+                x-kubernetes-list-map-keys: [kind, name]
+                items:
+                  type: object
+                  properties:
+                    kind:
+                      type: string
+                      enum: [Ikev2Proposal, Ikev2Policy, Ikev2Keyring, Ikev2Profile, IpsecTransformSet, IpsecProfile, TunnelInterface]
+                    name:
+                      type: string
+                      minLength: 1
+                  required:
+                  - kind
+                  - name
+              name:
+                type: string
+                description: Name of the policy on the router.
+                minLength: 1
+              proposals:
+                type: array
+                description: Names of IKEv2 proposals on the router, or `default`.
+                minItems: 1
+                x-kubernetes-list-type: set
+                items:
+                  type: string
+                  minLength: 1
+            required:
+            - deviceRef
+            - name
+            - proposals

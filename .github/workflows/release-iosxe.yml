@@ -1,0 +1,136 @@
+name: Release configuration-iosxe
+
+# Publishes configuration-iosxe, the package under iosxe/, on a tag of its own so
+# that its versions and netclab-xp's do not move together:
+#
+#   tag iosxe/v0.1.0  ->  ghcr.io/netclab/configuration-iosxe:v0.1.0
+#                         xpkg.upbound.io/netclab/configuration-iosxe:v0.1.0
+#
+# The same shape as release.yml, which says why each step is what it is: the
+# tag is the version, the build is the one CI runs, and both pushes go through
+# `crossplane xpkg push` with plain docker credentials.
+
+on:
+  push:
+    tags: ['iosxe/v*']
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: xpkg build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Resolve the version to publish
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.ref_type }}" != "tag" ]]; then
+            echo "::error::${{ github.ref_name }} is a ${{ github.ref_type }}, not a tag." \
+                 "The tag is the version; dispatch this workflow against a tag."
+            exit 1
+          fi
+
+          version="${{ github.ref_name }}"
+          version="${version#iosxe/}"
+          if ! [[ "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'${{ github.ref_name }}' is not iosxe/<semver>; xpkg push would reject it."
+            exit 1
+          fi
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "publishing ${version}"
+
+      - name: Install crossplane CLI
+        run: |
+          set -euo pipefail
+          curl -sfL "https://cli.crossplane.io/install.sh" | XP_VERSION=v2.5.0 sh
+          sudo mv ./crossplane /usr/local/bin/crossplane
+          crossplane version --client
+
+      - name: Build the package
+        run: |
+          set -euo pipefail
+          crossplane xpkg build \
+            --package-root=iosxe/apis \
+            --examples-root=./iosxe/examples \
+            -o "configuration-iosxe-${{ steps.version.outputs.version }}.xpkg"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: xpkg
+          path: configuration-iosxe-*.xpkg
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: push to GHCR + Upbound
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      UP_TOKEN: ${{ secrets.UPBOUND_TOKEN }}
+      UP_USER: ${{ secrets.UPBOUND_USER }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: xpkg
+
+      - name: Install crossplane CLI
+        run: |
+          set -euo pipefail
+          curl -sfL "https://cli.crossplane.io/install.sh" | XP_VERSION=v2.5.0 sh
+          sudo mv ./crossplane /usr/local/bin/crossplane
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push to GHCR
+        run: |
+          set -euo pipefail
+          crossplane xpkg push -f "configuration-iosxe-${VERSION}.xpkg" \
+            "ghcr.io/netclab/configuration-iosxe:${VERSION}"
+
+      - name: Login to the Upbound registry
+        if: env.UP_TOKEN != '' && env.UP_USER != ''
+        uses: docker/login-action@v4
+        with:
+          registry: xpkg.upbound.io
+          username: ${{ secrets.UPBOUND_USER }}
+          password: ${{ secrets.UPBOUND_TOKEN }}
+
+      # The repository has to exist on Upbound before the first push: there is
+      # no --create, and the robot needs write on it.
+      - name: Push to the Upbound Marketplace
+        if: env.UP_TOKEN != '' && env.UP_USER != ''
+        run: |
+          set -euo pipefail
+          crossplane xpkg push -f "configuration-iosxe-${VERSION}.xpkg" \
+            "xpkg.upbound.io/netclab/configuration-iosxe:${VERSION}"
+
+      - name: Note a skipped Upbound push
+        if: env.UP_TOKEN == '' || env.UP_USER == ''
+        run: |
+          echo "::warning::UPBOUND_TOKEN or UPBOUND_USER is not set -- pushed to" \
+               "GHCR only. The Marketplace listing will not move until both are set."

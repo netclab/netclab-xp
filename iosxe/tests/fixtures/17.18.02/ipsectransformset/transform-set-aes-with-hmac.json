@@ -1,0 +1,18 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-crypto:transform-set": [
+      {
+        "tag": "CLASSICAL-TS",
+        "esp": "esp-aes",
+        "key-bit": "256",
+        "esp-hmac": "esp-sha256-hmac",
+        "mode": {
+          "tunnel-choice": [
+            null
+          ]
+        }
+      }
+    ]
+  }
+}

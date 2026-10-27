@@ -1,0 +1,40 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-native:Tunnel": [
+      {
+        "name": 0,
+        "shutdown": [
+          null
+        ],
+        "ip": {
+          "address": {
+            "primary": {
+              "address": "192.168.100.1",
+              "mask": "255.255.255.0"
+            }
+          }
+        },
+        "Cisco-IOS-XE-tunnel:tunnel": {
+          "source": "GigabitEthernet2",
+          "destination-config": {
+            "ipv4": "10.0.23.2"
+          },
+          "mode": {
+            "ipsec": {
+              "ipv4-mode": {},
+              "ipv4": {}
+            }
+          },
+          "protection": {
+            "Cisco-IOS-XE-crypto:ipsec": {
+              "profile-option": {
+                "name": "CLASSICAL-IPSEC"
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-crypto-oper:crypto-ikev2-sa": [
+      {
+        "sa-data": {
+          "sa-status": "crypto-sa-status-pending",
+          "remote-ip-addr": "10.0.23.2"
+        }
+      }
+    ]
+  }
+}

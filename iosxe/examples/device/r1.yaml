@@ -1,0 +1,10 @@
+apiVersion: iosxe.netclab.dev/v1alpha1
+kind: Device
+metadata:
+  name: r1
+spec:
+  address: 172.18.0.101
+  insecureSkipTLSVerify: true
+  credentialsSecretRef:
+    name: iosxe-creds
+    key: basic

@@ -1,0 +1,24 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-crypto:keyring": [
+      {
+        "name": "CLASSICAL-KEYRING",
+        "peer": [
+          {
+            "name": "R3",
+            "address": {
+              "ipv4": {
+                "ipv4-address": "10.0.23.2"
+              }
+            },
+            "description": "ppk PPK-R1R3",
+            "pre-shared-key": {
+              "key": "TestPsk123"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

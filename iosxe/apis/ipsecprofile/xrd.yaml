@@ -1,0 +1,84 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: ipsecprofiles.iosxe.netclab.dev
+spec:
+  scope: Namespaced
+  group: iosxe.netclab.dev
+  names:
+    kind: IpsecProfile
+    plural: ipsecprofiles
+    categories:
+    - crossplane
+    - netclab
+  defaultCompositionRef:
+    name: ipsecprofiles.iosxe.netclab.dev
+  versions:
+  - name: v1alpha1
+    additionalPrinterColumns:
+    - name: DEVICE
+      type: string
+      jsonPath: .spec.deviceRef.name
+    - name: PROFILE
+      type: string
+      jsonPath: .spec.name
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              deviceRef:
+                type: object
+                description: A Device in the profile's namespace.
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                required:
+                - name
+              after:
+                type: array
+                description: >-
+                  Objects in the profile's namespace that are Ready before the
+                  profile is applied.
+                maxItems: 8
+                x-kubernetes-list-type: map
+                x-kubernetes-list-map-keys: [kind, name]
+                items:
+                  type: object
+                  properties:
+                    kind:
+                      type: string
+                      enum: [Ikev2Proposal, Ikev2Policy, Ikev2Keyring, Ikev2Profile, IpsecTransformSet, IpsecProfile, TunnelInterface]
+                    name:
+                      type: string
+                      minLength: 1
+                  required:
+                  - kind
+                  - name
+              name:
+                type: string
+                description: Name of the IPsec profile on the router.
+                minLength: 1
+              transformSets:
+                type: array
+                description: Names (tags) of IPsec transform-sets on the router.
+                minItems: 1
+                maxItems: 6
+                x-kubernetes-list-type: set
+                items:
+                  type: string
+                  minLength: 1
+              ikev2Profile:
+                type: string
+                description: Name of the IKEv2 profile on the router.
+                minLength: 1
+            required:
+            - deviceRef
+            - name
+            - transformSets
+            - ikev2Profile

@@ -1,0 +1,15 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-crypto:profile": [
+      {
+        "name": "CLASSICAL-IPSEC",
+        "set": {
+          "transform-set": [
+            "CLASSICAL-TS"
+          ]
+        }
+      }
+    ]
+  }
+}

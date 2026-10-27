@@ -1,0 +1,19 @@
+apiVersion: iosxe.netclab.dev/v1alpha1
+kind: Ikev2Keyring
+metadata:
+  name: r1-ikev2-keyring
+spec:
+  deviceRef:
+    name: r1
+  name: CLASSICAL-KEYRING
+  peers:
+  - name: R3
+    address: 10.0.23.2
+    preSharedKeySecretRef:
+      name: ike-keys
+      key: psk
+    ppk:
+      id: PPK-R1R3
+      keySecretRef:
+        name: ike-keys
+        key: ppk-hex

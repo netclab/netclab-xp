@@ -1,0 +1,15 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-crypto:transform-set": [
+      {
+        "tag": "CLASSICAL-TS",
+        "esp": "esp-gcm",
+        "key-bit": "256",
+        "mode": {
+          "transport-choice": {}
+        }
+      }
+    ]
+  }
+}

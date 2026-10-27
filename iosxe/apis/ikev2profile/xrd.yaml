@@ -1,0 +1,87 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: ikev2profiles.iosxe.netclab.dev
+spec:
+  scope: Namespaced
+  group: iosxe.netclab.dev
+  names:
+    kind: Ikev2Profile
+    plural: ikev2profiles
+    categories:
+    - crossplane
+    - netclab
+  defaultCompositionRef:
+    name: ikev2profiles.iosxe.netclab.dev
+  versions:
+  - name: v1alpha1
+    additionalPrinterColumns:
+    - name: DEVICE
+      type: string
+      jsonPath: .spec.deviceRef.name
+    - name: PROFILE
+      type: string
+      jsonPath: .spec.name
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              deviceRef:
+                type: object
+                description: A Device in the profile's namespace.
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                required:
+                - name
+              after:
+                type: array
+                description: >-
+                  Objects in the profile's namespace that are Ready before the
+                  profile is applied.
+                maxItems: 8
+                x-kubernetes-list-type: map
+                x-kubernetes-list-map-keys: [kind, name]
+                items:
+                  type: object
+                  properties:
+                    kind:
+                      type: string
+                      enum: [Ikev2Proposal, Ikev2Policy, Ikev2Keyring, Ikev2Profile, IpsecTransformSet, IpsecProfile, TunnelInterface]
+                    name:
+                      type: string
+                      minLength: 1
+                  required:
+                  - kind
+                  - name
+              name:
+                type: string
+                description: Name of the profile on the router.
+                minLength: 1
+              remoteAddresses:
+                type: array
+                description: IPv4 addresses of the peers the profile matches, one host each.
+                minItems: 1
+                x-kubernetes-list-type: set
+                items:
+                  type: string
+                  format: ipv4
+              keyring:
+                type: string
+                description: Name of the IKEv2 keyring on the router that holds the pre-shared keys.
+                minLength: 1
+              ppkKeyring:
+                type: string
+                description: Name of the IKEv2 keyring on the router that holds the post-quantum preshared keys.
+                minLength: 1
+            required:
+            - deviceRef
+            - name
+            - remoteAddresses
+            - keyring

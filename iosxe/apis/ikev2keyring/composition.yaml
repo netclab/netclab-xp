@@ -1,0 +1,200 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: ikev2keyrings.iosxe.netclab.dev
+spec:
+  compositeTypeRef:
+    apiVersion: iosxe.netclab.dev/v1alpha1
+    kind: Ikev2Keyring
+  mode: Pipeline
+  pipeline:
+  # One Request owns the keyring over RESTCONF. One Request per peer with a PPK
+  # owns its `ppk manual` line over cli-rpc: 17.18's YANG has no PPK, and no
+  # read on the router returns the line. The same RPC therefore writes
+  # `description ppk <id>` on the peer, and that mark is what the Request
+  # observes: without it the PPK counts as absent and is applied again. The RPCs
+  # are composed once the keyring's Request is Ready: sent together, the PUT and
+  # the RPCs undo each other's mark and peer until each has been retried.
+  # Once every object in `after` is Ready the Requests are composed, and they
+  # stay composed whatever happens to those objects; until then none is, and the
+  # XR is not Ready, where Crossplane would call an XR composing nothing Ready. A
+  # Usage of each object in `after` holds back its delete until this XR is gone.
+  - step: requests
+    functionRef:
+      name: crossplane-contrib-function-go-templating
+    input:
+      apiVersion: gotemplating.fn.crossplane.io/v1beta1
+      kind: GoTemplate
+      source: Inline
+      inline:
+        template: |
+          {{- $xr := .observed.composite.resource }}
+          {{- $ns := $xr.metadata.namespace }}
+          {{- $after := default (list) $xr.spec.after }}
+          ---
+          apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+          kind: ExtraResources
+          requirements:
+            device:
+              apiVersion: iosxe.netclab.dev/v1alpha1
+              kind: Device
+              matchName: {{ $xr.spec.deviceRef.name }}
+              namespace: {{ $ns }}
+            {{- range $i, $a := $after }}
+            after-{{ $i }}:
+              apiVersion: iosxe.netclab.dev/v1alpha1
+              kind: {{ $a.kind }}
+              matchName: {{ $a.name }}
+              namespace: {{ $ns }}
+            {{- end }}
+          {{- $extra := default (dict) .extraResources }}
+          {{- $waiting := false }}
+          {{- range $i, $a := $after }}
+          {{- $ready := false }}
+          {{- with index $extra (printf "after-%d" $i) }}{{ with .items }}
+          {{- range (index . 0).resource.status.conditions }}
+          {{- if and (eq .type "Ready") (eq .status "True") }}{{ $ready = true }}{{ end }}
+          {{- end }}
+          ---
+          apiVersion: protection.crossplane.io/v1beta1
+          kind: Usage
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: after-{{ lower $a.kind }}-{{ $a.name }}
+          spec:
+            of:
+              apiVersion: iosxe.netclab.dev/v1alpha1
+              kind: {{ $a.kind }}
+              resourceRef:
+                name: {{ $a.name }}
+            by:
+              apiVersion: {{ $xr.apiVersion }}
+              kind: {{ $xr.kind }}
+              resourceRef:
+                name: {{ $xr.metadata.name }}
+            replayDeletion: true
+          {{- end }}{{ end }}
+          {{- if not $ready }}{{ $waiting = true }}{{ end }}
+          {{- end }}
+          {{- if and $waiting (not (index (default (dict) .observed.resources) "keyring")) }}
+          ---
+          apiVersion: {{ $xr.apiVersion }}
+          kind: {{ $xr.kind }}
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/ready: "False"
+          {{- else }}
+          {{- with .extraResources }}{{ with index . "device" }}{{ with .items }}
+          {{- $dev := (index . 0).resource }}
+          {{- $cred := $dev.spec.credentialsSecretRef }}
+          {{- $auth := printf "{{ %s:%s:%s }}" $cred.name $ns $cred.key }}
+          {{- $keyring := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native/crypto/Cisco-IOS-XE-crypto:ikev2/keyring=%s" $dev.spec.address $xr.spec.name }}
+          {{- $rpc := printf "https://%s/restconf/operations/Cisco-IOS-XE-cli-rpc:config-ios-cli-rpc" $dev.spec.address }}
+          {{- $peers := list }}
+          {{- $owned := list }}
+          {{- range $xr.spec.peers }}
+            {{- $psk := printf "{{ %s:%s:%s }}" .preSharedKeySecretRef.name $ns .preSharedKeySecretRef.key }}
+            {{- $peers = append $peers (dict "name" .name "address" (dict "ipv4" (dict "ipv4-address" .address)) "pre-shared-key" (dict "key" $psk)) }}
+            {{- $owned = append $owned (dict "name" .name "address" .address "psk" $psk) }}
+          {{- end }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: keyring
+          spec:
+            forProvider:
+              insecureSkipTLSVerify: {{ $dev.spec.insecureSkipTLSVerify }}
+              headers:
+                Accept: ["application/yang-data+json"]
+                Content-Type: ["application/yang-data+json"]
+                Authorization: ["Basic {{ $auth }}"]
+              payload:
+                baseUrl: {{ $keyring | quote }}
+                body: {{ dict "Cisco-IOS-XE-crypto:keyring" (list (dict "name" $xr.spec.name "peer" $peers)) | toJson | quote }}
+              mappings:
+              - action: OBSERVE
+                method: GET
+                url: .payload.baseUrl
+              - action: CREATE
+                method: PUT
+                url: .payload.baseUrl
+                body: .payload.body
+              - action: UPDATE
+                method: PUT
+                url: .payload.baseUrl
+                body: .payload.body
+              - action: REMOVE
+                method: DELETE
+                url: .payload.baseUrl
+              # Only the fields this Request sets: the peers also carry the
+              # PPK mark, which a full comparison would see as drift.
+              expectedResponseCheck:
+                type: CUSTOM
+                logic: |
+                  if .response.statusCode != 200 then false else
+                    ([.response.body["Cisco-IOS-XE-crypto:keyring"][0].peer[]?
+                      | {name, address: .address.ipv4["ipv4-address"], psk: .["pre-shared-key"].key}]
+                      | sort_by(.name))
+                    == ({{ $owned | toJson }} | sort_by(.name))
+                  end
+          {{- $observed := default (dict) $.observed.resources }}
+          {{- $keyringReady := false }}
+          {{- with index $observed "keyring" }}
+          {{- range .resource.status.conditions }}
+          {{- if and (eq .type "Ready") (eq .status "True") }}{{ $keyringReady = true }}{{ end }}
+          {{- end }}
+          {{- end }}
+          {{- range $xr.spec.peers }}{{ if and .ppk (or $keyringReady (hasKey $observed (printf "ppk-%s" (lower .name)))) }}
+          {{- $mark := printf "ppk %s" .ppk.id }}
+          {{- $key := printf "{{ %s:%s:%s }}" .ppk.keySecretRef.name $ns .ppk.keySecretRef.key }}
+          {{- $apply := printf "crypto ikev2 keyring %s\n peer %s\n  ppk manual id %s key hex %s required\n  description %s\ndo clear crypto ikev2 sa remote %s" $xr.spec.name .name .ppk.id $key $mark .address }}
+          {{- $remove := printf "crypto ikev2 keyring %s\n peer %s\n  no ppk manual id %s\n  no description\ndo clear crypto ikev2 sa remote %s" $xr.spec.name .name .ppk.id .address }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: ppk-{{ lower .name }}
+          spec:
+            forProvider:
+              insecureSkipTLSVerify: {{ $dev.spec.insecureSkipTLSVerify }}
+              headers:
+                Accept: ["application/yang-data+json"]
+                Content-Type: ["application/yang-data+json"]
+                Authorization: ["Basic {{ $auth }}"]
+              payload:
+                baseUrl: {{ printf "%s/peer=%s" $keyring .name | quote }}
+                body: {{ dict "Cisco-IOS-XE-cli-rpc:input" (dict "config-clis" $apply) | toJson | quote }}
+              # The key goes in together with the clear of this peer's SA: a
+              # live SA renews itself without checking a changed key.
+              mappings:
+              - action: OBSERVE
+                method: GET
+                url: .payload.baseUrl
+              - action: CREATE
+                method: POST
+                url: {{ $rpc | quote | quote }}
+                body: .payload.body
+              - action: REMOVE
+                method: POST
+                url: {{ $rpc | quote | quote }}
+                body: {{ dict "Cisco-IOS-XE-cli-rpc:input" (dict "config-clis" $remove) | toJson | quote }}
+              isRemovedCheck:
+                type: CUSTOM
+                logic: |
+                  if .response.statusCode == 404 then true
+                  elif .response.statusCode == 200 then
+                    (.response.body["Cisco-IOS-XE-crypto:peer"][0].description // "") != {{ $mark | quote }}
+                  else false end
+              expectedResponseCheck:
+                type: CUSTOM
+                logic: "true"
+          {{- end }}{{ end }}
+          {{- end }}{{ end }}{{ end }}
+          {{- end }}
+
+  - step: auto-ready
+    functionRef:
+      name: crossplane-contrib-function-auto-ready

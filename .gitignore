@@ -1,4 +1,8 @@
 .claude/
 
+# Left by pytest in iosxe/tests.
+__pycache__/
+.pytest_cache/
+
 # MkDocs output. `mkdocs build` writes here; the site is published from CI.
 site/
