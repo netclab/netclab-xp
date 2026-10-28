@@ -1,13 +1,17 @@
-name: Release
+name: Release configuration-eos
 
-# Publishes the Configuration package so it is installable straight from a
-# registry, instead of the hand-run script in the *private* repo that releasing
-# used to mean (netclab-xp-priv/scripts/crossplane-xpkg-build-and-push.sh --
-# a script that built the public repo from the private one, so a release needed
-# both checkouts and a hand-edited VERSION=):
+# Publishes configuration-eos, the package under eos/, on a tag of its own, so it
+# is installable straight from a registry, instead of the hand-run script in the
+# *private* repo that releasing used to mean
+# (netclab-xp-priv/scripts/crossplane-xpkg-build-and-push.sh -- a script that
+# built the public repo from the private one, so a release needed both checkouts
+# and a hand-edited VERSION=):
 #
-#   ghcr.io/netclab/netclab-xp:<version>      (always)
-#   xpkg.upbound.io/netclab/netclab-xp:<ver>  (when the Upbound secrets are set)
+#   tag eos/v0.6.0  ->  ghcr.io/netclab/configuration-eos:v0.6.0          always
+#                       xpkg.upbound.io/netclab/configuration-eos:v0.6.0  when the Upbound secrets are set
+#
+# Until v0.5.0 the package was netclab-xp, tagged v<semver>; those tags and
+# images stay as they are.
 #
 # The Upbound push is what puts the Configuration on
 # https://marketplace.upbound.io/configurations/netclab -- the Marketplace
@@ -24,7 +28,7 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    tags: ['eos/v*']
   # Re-run a release whose publish leg failed (an expired UPBOUND_TOKEN, say)
   # without moving the tag. Select the tag as the ref when dispatching; the
   # version check below rejects a branch, since a branch has no version.
@@ -61,8 +65,9 @@ jobs:
           fi
 
           version="${{ github.ref_name }}"
+          version="${version#eos/}"
           if ! [[ "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::'${version}' is not a semver; xpkg push would reject it."
+            echo "::error::'${{ github.ref_name }}' is not eos/<semver>; xpkg push would reject it."
             exit 1
           fi
 
@@ -89,12 +94,12 @@ jobs:
           crossplane xpkg build \
             --package-root=eos/apis \
             --examples-root=./eos/examples \
-            -o "netclab-xp-${{ steps.version.outputs.version }}.xpkg"
+            -o "configuration-eos-${{ steps.version.outputs.version }}.xpkg"
 
       - uses: actions/upload-artifact@v7
         with:
           name: xpkg
-          path: netclab-xp-*.xpkg
+          path: configuration-eos-*.xpkg
           if-no-files-found: error
           retention-days: 7
 
@@ -134,8 +139,8 @@ jobs:
       - name: Push to GHCR
         run: |
           set -euo pipefail
-          repo="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
-          crossplane xpkg push -f "netclab-xp-${VERSION}.xpkg" "ghcr.io/${repo}:${VERSION}"
+          crossplane xpkg push -f "configuration-eos-${VERSION}.xpkg" \
+            "ghcr.io/netclab/configuration-eos:${VERSION}"
 
       # The up CLI is deliberately not used here. Its whole `up xpkg` group,
       # push included, is deprecated: "To work with non-project Crossplane
@@ -150,14 +155,14 @@ jobs:
           username: ${{ secrets.UPBOUND_USER }}
           password: ${{ secrets.UPBOUND_TOKEN }}
 
-      # No --create equivalent, and none needed: netclab/netclab-xp already
-      # exists on Upbound -- v0.2.13 is published and anonymously pullable.
+      # The repository has to exist on Upbound before the first push: there is
+      # no --create, and the robot needs write on it.
       - name: Push to the Upbound Marketplace
         if: env.UP_TOKEN != '' && env.UP_USER != ''
         run: |
           set -euo pipefail
-          crossplane xpkg push -f "netclab-xp-${VERSION}.xpkg" \
-            "xpkg.upbound.io/netclab/netclab-xp:${VERSION}"
+          crossplane xpkg push -f "configuration-eos-${VERSION}.xpkg" \
+            "xpkg.upbound.io/netclab/configuration-eos:${VERSION}"
 
       - name: Note a skipped Upbound push
         if: env.UP_TOKEN == '' || env.UP_USER == ''

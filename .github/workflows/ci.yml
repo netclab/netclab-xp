@@ -69,7 +69,7 @@ jobs:
           crossplane xpkg build \
             --package-root=eos/apis \
             --examples-root=./eos/examples \
-            -o netclab-xp-ci.xpkg
+            -o configuration-eos-ci.xpkg
 
       # The install snippet used to carry a hard-coded tag that was hand-synced
       # with the release script -- and went stale every time someone forgot.
@@ -81,8 +81,8 @@ jobs:
       - name: Check no pinned version in README or docs
         run: |
           set -euo pipefail
-          if grep -rn 'netclab-xp:v[0-9]' README.md docs/; then
-            echo "::error::A netclab-xp version is pinned above. The git tag is" \
+          if grep -rnE '(configuration-eos|configuration-iosxe|netclab-xp):v[0-9]' README.md docs/; then
+            echo "::error::A package version is pinned above. The git tag is" \
                  "the version; leave the install snippet's \${VERSION}" \
                  "placeholder alone."
             exit 1
@@ -106,7 +106,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: xpkg-ci
-          path: netclab-xp-ci.xpkg
+          path: configuration-eos-ci.xpkg
           if-no-files-found: error
           retention-days: 7
 
