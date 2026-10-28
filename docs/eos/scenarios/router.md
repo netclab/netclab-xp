@@ -11,7 +11,7 @@ describes one device. This scenario uses both lab devices.
 ## Running it
 
 ```bash
-kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/router \
+kubectl kustomize --load-restrictor LoadRestrictionsNone eos/scenarios/router \
   | kubectl apply -f -
 ```
 
@@ -73,7 +73,7 @@ configuration that merely matched.
 ## Teardown
 
 ```bash
-kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/router \
+kubectl kustomize --load-restrictor LoadRestrictionsNone eos/scenarios/router \
   | yq 'select(.kind != "Namespace")' \
   | kubectl delete -f -
 ```

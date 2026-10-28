@@ -52,7 +52,7 @@ They live in the repository, so clone it — this is the first step that needs
 git clone https://github.com/netclab/netclab-xp
 cd netclab-xp
 
-kubectl apply -k scenarios/prerequisites
+kubectl apply -k eos/scenarios/prerequisites
 ```
 
 All three are cluster-wide — the `ClusterProviderConfig` and `EnvironmentConfig`

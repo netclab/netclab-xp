@@ -17,7 +17,7 @@ intended state lives.
 Underneath, RESTCONF carries structured data and reaches what OpenConfig models;
 eAPI carries CLI commands over JSON-RPC, so it reaches whatever the CLI can say
 — including plenty that OpenConfig does not model. The two overlap heavily, and
-the [scenarios](scenarios/index.md) are organised around that split.
+the [scenarios](eos/scenarios/index.md) are organised around that split.
 
 Where they overlap, the mechanism is a choice you can make **without changing
 the resource**. `BgpGlobal` has one composition per mechanism, selected by a
@@ -62,20 +62,20 @@ box is a low-level resource; standing up a fabric is not.
 
 <div class="grid cards" markdown>
 
-- **[Set up a lab](lab.md)**
+- **[Set up a lab](eos/lab.md)**
 
     Two cEOS devices on Kubernetes, which every scenario here is written
     against.
 
-- **[Install the package](install.md)**
+- **[Install the package](eos/install.md)**
 
     The Configuration and its prerequisites.
 
-- **[Your first resource](first-resource.md)**
+- **[Your first resource](eos/first-resource.md)**
 
     One interface, then one router, then a BGP session between two devices.
 
-- **[Scenarios](scenarios/index.md)**
+- **[Scenarios](eos/scenarios/index.md)**
 
     Each mechanism the package offers, with manifests you can apply and what
     they do to a real device.

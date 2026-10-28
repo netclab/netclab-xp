@@ -1,4 +1,4 @@
-# The same BgpGlobal kind as examples/eos/restconf/bgpglobal.yaml, over eAPI
+# The same BgpGlobal kind as eos/examples/eos/restconf/bgpglobal.yaml, over eAPI
 # instead of RESTCONF.
 #
 # `compositionSelector` is what picks the mechanism. Without it the XRD's

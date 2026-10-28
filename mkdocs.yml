@@ -52,18 +52,31 @@ markdown_extensions:
   - pymdownx.tabbed:
       alternate_style: true
 
+plugins:
+  - search
+  - redirects:
+      redirect_maps:
+        lab.md: eos/lab.md
+        install.md: eos/install.md
+        first-resource.md: eos/first-resource.md
+        scenarios/index.md: eos/scenarios/index.md
+        scenarios/restconf.md: eos/scenarios/restconf.md
+        scenarios/jsonrpc.md: eos/scenarios/jsonrpc.md
+        scenarios/eapi.md: eos/scenarios/eapi.md
+        scenarios/router.md: eos/scenarios/router.md
+
 nav:
   - Home: index.md
-  - Getting started:
-      - Set up a lab: lab.md
-      - Install the package: install.md
-      - Your first resource: first-resource.md
-  - Scenarios:
-      - Overview: scenarios/index.md
-      - RESTCONF: scenarios/restconf.md
-      - JSON-RPC: scenarios/jsonrpc.md
-      - eAPI: scenarios/eapi.md
-      - Router: scenarios/router.md
+  - EOS:
+      - Set up a lab: eos/lab.md
+      - Install the package: eos/install.md
+      - Your first resource: eos/first-resource.md
+      - Scenarios:
+          - Overview: eos/scenarios/index.md
+          - RESTCONF: eos/scenarios/restconf.md
+          - JSON-RPC: eos/scenarios/jsonrpc.md
+          - eAPI: eos/scenarios/eapi.md
+          - Router: eos/scenarios/router.md
 
 extra:
   social:

@@ -2,7 +2,11 @@
 # part of the site. Pinned so a deploy cannot break on an upstream release; bump
 # deliberately.
 #
-# Only Material is pinned: it declares `mkdocs<2,>=1.6`, so MkDocs 2.0 -- which
-# its own maintainers describe as having no migration path -- cannot be pulled
-# in by resolution. Checked, not assumed.
+# MkDocs itself is not pinned: Material declares `mkdocs<2,>=1.6`, so MkDocs 2.0
+# -- which its own maintainers describe as having no migration path -- cannot be
+# pulled in by resolution. Checked, not assumed.
 mkdocs-material==9.7.7
+# The pages under eos/ moved there from the root; their old addresses redirect.
+# Held at 1.2.2: from 1.2.3 the plugin is ProperDocs', depends on the properdocs
+# fork of MkDocs and asks every build to switch to it. renovate.json holds it too.
+mkdocs-redirects==1.2.2
