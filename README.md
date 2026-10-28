@@ -10,6 +10,9 @@ versioned, reviewable, and reconciled like anything else in a cluster. It
 targets devices that speak RESTCONF or JSON-RPC; Arista EOS is what it is built
 and tested against today.
 
+The EOS package is `configuration-eos`, tagged `eos/v*`. Until `v0.5.0` it was
+published as `netclab-xp`; those releases stay where they are.
+
 ## 📖 Documentation
 
 **[netclab.dev/netclab-xp](https://netclab.dev/netclab-xp/)**
@@ -52,7 +55,7 @@ configuration.
 The bottom three layers are this package's own — twelve resource types in
 `eos.netclab.dev`, installed together. `Fabric` is
 [function-avd](https://github.com/netclab/function-avd)'s, and not installed
-with netclab-xp.
+with configuration-eos.
 
 ## Scenarios
 
