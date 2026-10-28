@@ -43,7 +43,7 @@ permissions:
 
 jobs:
   package:
-    name: xpkg build
+    name: configuration-eos
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
