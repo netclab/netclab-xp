@@ -59,8 +59,8 @@ Nothing in this project can distribute the image for you.
 
     `kind load` puts the image inside the node, so deleting the cluster costs
     you the import. Pushing it to a local registry backed by a docker volume
-    instead makes it survive teardown — that is what `scripts/up.sh` does, and
-    why this repository's own `scripts/topology.yaml` names the image at
+    instead makes it survive teardown — that is what `eos/scripts/up.sh` does, and
+    why this repository's own `eos/scripts/topology.yaml` names the image at
     `localhost:5001`.
 
 ## Multus and the CNI plugins
@@ -158,7 +158,7 @@ Server: running on port 6020, in default VRF
 
 !!! tip "Working on the package itself?"
 
-    `scripts/up.sh` in the repository builds everything above in one command —
+    `eos/scripts/up.sh` in the repository builds everything above in one command —
     registry, cluster, Crossplane, Multus, devices — and installs the package
     **built from your working tree** rather than a published release. That makes
     it a contributor tool, not the path described here.

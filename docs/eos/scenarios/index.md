@@ -1,7 +1,7 @@
 # Scenarios
 
 The package offers several mechanisms for configuring the same device. Each one
-is a directory under [`scenarios/`](https://github.com/netclab/netclab-xp/tree/main/scenarios)
+is a directory under [`eos/scenarios/`](https://github.com/netclab/netclab-xp/tree/main/eos/scenarios)
 holding manifests you can apply as they are.
 
 | scenario | mechanism | what it configures |
@@ -40,11 +40,11 @@ that changes. Substitute any row of the table above for `router` here and in the
 teardown below.
 
 ```bash
-kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/router \
+kubectl kustomize --load-restrictor LoadRestrictionsNone eos/scenarios/router \
   | kubectl apply -f -
 ```
 
-The flag is needed because the overlays reach into `examples/`, so that every
+The flag is needed because the overlays reach into `eos/examples/`, so that every
 manifest exists in exactly one place. To use a different namespace, change
 `namespace:` in that scenario's `kustomization.yaml` — the `Namespace` object
 follows it.
@@ -54,7 +54,7 @@ follows it.
 Filter the `Namespace` out of the delete:
 
 ```bash
-kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/router \
+kubectl kustomize --load-restrictor LoadRestrictionsNone eos/scenarios/router \
   | yq 'select(.kind != "Namespace")' \
   | kubectl delete -f -
 ```

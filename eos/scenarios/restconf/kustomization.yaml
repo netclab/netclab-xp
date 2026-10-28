@@ -4,10 +4,10 @@
 # paths, one XR per resource. This is the layer that builds the base config:
 # interfaces, addressing, `ip routing`, and `router bgp 65001` itself.
 #
-#   kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/restconf \
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone eos/scenarios/restconf \
 #     | kubectl apply -f -
 #
-#   kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/restconf \
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone eos/scenarios/restconf \
 #     | yq 'select(.kind != "Namespace")' \
 #     | kubectl delete -f -
 #

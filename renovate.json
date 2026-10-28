@@ -1,6 +1,13 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "description": "Held at 1.2.2: from 1.2.3 mkdocs-redirects is ProperDocs' and depends on the properdocs fork. See requirements-docs.txt.",
+      "matchPackageNames": ["mkdocs-redirects"],
+      "enabled": false
+    }
+  ],
   "customManagers": [
     {
       "customType": "regex",
@@ -11,7 +18,7 @@
     },
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^scripts/up\\.sh$/"],
+      "managerFilePatterns": ["/^eos/scripts/up\\.sh$/"],
       "matchStrings": ["--crossplane (?<currentValue>v\\d+\\.\\d+\\.\\d+)"],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "crossplane/crossplane"

@@ -16,10 +16,10 @@ and tested against today.
 
 | | |
 |---|---|
-| [Set up a lab](https://netclab.dev/netclab-xp/lab/) | two cEOS devices on Kubernetes |
-| [Install the package](https://netclab.dev/netclab-xp/install/) | the Configuration and its prerequisites |
-| [Your first resource](https://netclab.dev/netclab-xp/first-resource/) | one interface, then a BGP session between two devices |
-| [Scenarios](https://netclab.dev/netclab-xp/scenarios/) | every mechanism the package offers |
+| [Set up a lab](https://netclab.dev/netclab-xp/eos/lab/) | two cEOS devices on Kubernetes |
+| [Install the package](https://netclab.dev/netclab-xp/eos/install/) | the Configuration and its prerequisites |
+| [Your first resource](https://netclab.dev/netclab-xp/eos/first-resource/) | one interface, then a BGP session between two devices |
+| [Scenarios](https://netclab.dev/netclab-xp/eos/scenarios/) | every mechanism the package offers |
 
 ## What you get
 
@@ -57,18 +57,18 @@ with netclab-xp.
 ## Scenarios
 
 The repository carries runnable manifests for every mechanism, under
-[`scenarios/`](scenarios/):
+[`eos/scenarios/`](eos/scenarios/):
 
 | scenario | mechanism |
 |---|---|
-| [`restconf`](scenarios/restconf/) | OpenConfig over RESTCONF — the base config |
-| [`jsonrpc`](scenarios/jsonrpc/) | eAPI over JSON-RPC — settings OpenConfig does not model |
-| [`eapi`](scenarios/eapi/) | raw EOS CLI through `function-eapi` |
-| [`router`](scenarios/router/) | the `Router` abstraction |
+| [`restconf`](eos/scenarios/restconf/) | OpenConfig over RESTCONF — the base config |
+| [`jsonrpc`](eos/scenarios/jsonrpc/) | eAPI over JSON-RPC — settings OpenConfig does not model |
+| [`eapi`](eos/scenarios/eapi/) | raw EOS CLI through `function-eapi` |
+| [`router`](eos/scenarios/router/) | the `Router` abstraction |
 
 `restconf`, `eapi` and `router` are alternatives to one another — each becomes
 an owner of the same device configuration. See
-[Scenarios](https://netclab.github.io/netclab-xp/scenarios/) for how to apply
+[Scenarios](https://netclab.dev/netclab-xp/eos/scenarios/) for how to apply
 and remove them.
 
 ## Contributing & extending

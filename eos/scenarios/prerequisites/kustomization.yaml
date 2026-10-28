@@ -3,7 +3,7 @@
 # it cannot create the ProviderConfig, EnvironmentConfig or Secret that the
 # compositions then reference by name. Apply this once, before any scenario:
 #
-#   kubectl apply -k scenarios/prerequisites
+#   kubectl apply -k eos/scenarios/prerequisites
 #
 # No --load-restrictor needed here: every resource is a local file. The
 # scenario overlays are the ones that reach into ../../examples.

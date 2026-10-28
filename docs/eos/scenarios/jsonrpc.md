@@ -10,7 +10,7 @@ commands, but sent as resources like everything else here.
 ## Running it
 
 ```bash
-kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/jsonrpc \
+kubectl kustomize --load-restrictor LoadRestrictionsNone eos/scenarios/jsonrpc \
   | kubectl apply -f -
 ```
 
@@ -57,7 +57,7 @@ route-map. You asked for the export.
 ## Teardown
 
 ```bash
-kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/jsonrpc \
+kubectl kustomize --load-restrictor LoadRestrictionsNone eos/scenarios/jsonrpc \
   | yq 'select(.kind != "Namespace")' \
   | kubectl delete -f -
 ```

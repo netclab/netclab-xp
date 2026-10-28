@@ -11,7 +11,7 @@ peer group.
 ## Running it
 
 ```bash
-kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/restconf \
+kubectl kustomize --load-restrictor LoadRestrictionsNone eos/scenarios/restconf \
   | kubectl apply -f -
 ```
 
@@ -68,7 +68,7 @@ device's own model.
 ## Teardown
 
 ```bash
-kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/restconf \
+kubectl kustomize --load-restrictor LoadRestrictionsNone eos/scenarios/restconf \
   | yq 'select(.kind != "Namespace")' \
   | kubectl delete -f -
 ```

@@ -13,7 +13,7 @@ the scenario shows is the shape of the commands, not a fabric that comes up.
 ## Running it
 
 ```bash
-kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/eapi \
+kubectl kustomize --load-restrictor LoadRestrictionsNone eos/scenarios/eapi \
   | kubectl apply -f -
 ```
 
@@ -68,7 +68,7 @@ a command the device rejects, not a manifest the cluster refuses.
 ## Teardown
 
 ```bash
-kubectl kustomize --load-restrictor LoadRestrictionsNone scenarios/eapi \
+kubectl kustomize --load-restrictor LoadRestrictionsNone eos/scenarios/eapi \
   | yq 'select(.kind != "Namespace")' \
   | kubectl delete -f -
 ```

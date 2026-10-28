@@ -10,7 +10,7 @@ name: CI
 # is a real statement about every XRD, composition and example that ships --
 # which is why it is the gate here and the first job of the release.
 #
-# The package root is `apis/`, and the meta file lives there with it -- xpkg
+# The package root is `eos/apis/`, and the meta file lives there with it -- xpkg
 # requires the meta in the root it is given. This is what makes the build need
 # no --ignore at all: it collects every .yml and .yaml under --package-root
 # recursively, so with the repo root as package root, every workflow file,
@@ -19,13 +19,13 @@ name: CI
 # own -- meaning a new sub-directory anywhere silently required an edit in three
 # places, and broke the build when it did not get one.
 #
-# Narrowing the root inverts that: anything outside apis/ is excluded by
+# Narrowing the root inverts that: anything outside eos/apis/ is excluded by
 # construction, and no directory added later can affect this build. Verified
 # when it changed: the package is byte-identical to the one the globs produced.
 #
-# `examples/` is passed separately and is not collected here. Note --ignore
-# never reached --examples-root either, so anything placed under examples/
-# ships with no way to filter it -- which is why examples/ holds XR manifests
+# `eos/examples/` is passed separately and is not collected here. Note --ignore
+# never reached --examples-root either, so anything placed under eos/examples/
+# ships with no way to filter it -- which is why eos/examples/ holds XR manifests
 # and nothing else, and why the scenario overlays live outside it and reach in.
 
 on:
@@ -67,8 +67,8 @@ jobs:
         run: |
           set -euo pipefail
           crossplane xpkg build \
-            --package-root=apis \
-            --examples-root=./examples \
+            --package-root=eos/apis \
+            --examples-root=./eos/examples \
             -o netclab-xp-ci.xpkg
 
       # The install snippet used to carry a hard-coded tag that was hand-synced
@@ -87,6 +87,21 @@ jobs:
                  "placeholder alone."
             exit 1
           fi
+
+      # The docs tell the reader to kustomize directories of this repository, and
+      # mkdocs --strict checks links, not the commands in a page. So every
+      # directory a page names after `-k` or `LoadRestrictionsNone` is built
+      # here, from the repository root where the docs run it: a moved directory,
+      # or an overlay whose path into eos/examples/ broke, fails the PR.
+      - name: Build the kustomizations the docs name
+        run: |
+          set -euo pipefail
+          dirs=$(grep -rhoE '(-k|LoadRestrictionsNone) [^ ]+' docs/ | awk '{print $2}' | sort -u)
+          test -n "$dirs"
+          for d in $dirs; do
+            echo "--- $d"
+            kubectl kustomize --load-restrictor LoadRestrictionsNone "$d" > /dev/null
+          done
 
       - uses: actions/upload-artifact@v7
         with:
