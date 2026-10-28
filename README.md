@@ -27,7 +27,7 @@ where they are.
 | [Install the package](https://netclab.dev/netclab-xp/eos/install/) | the Configuration and its prerequisites |
 | [Your first resource](https://netclab.dev/netclab-xp/eos/first-resource/) | one interface, then a BGP session between two devices |
 | [Scenarios](https://netclab.dev/netclab-xp/eos/scenarios/) | every mechanism the package offers |
-| [Post-quantum IPsec on IOS XE](https://netclab.dev/netclab-xp/iosxe/) | part 9 of Cisco's IPsec series, kept on the routers |
+| [Post-quantum IPsec on IOS XE](https://netclab.dev/netclab-xp/iosxe/) | an IPsec tunnel with a post-quantum preshared key, kept on the routers |
 
 ## Arista EOS
 
@@ -86,8 +86,9 @@ One resource type per router setting in `iosxe.netclab.dev`, over RESTCONF:
 preshared key), `Ikev2Profile`, `IpsecTransformSet`, `IpsecProfile` and
 `TunnelInterface`. Each waits for the objects it names, so a set applies at once.
 
-[`iosxe/scenarios/part9/`](iosxe/scenarios/part9/) is part 9 of Cisco's IPsec
-series: Tunnel0 between two routers, with a PPK mixed into IKEv2. See
+[`iosxe/scenarios/part9/`](iosxe/scenarios/part9/) is part 9 of
+[Cisco's IPsec series](https://blogs.cisco.com/developer/post-quantum-key-exchange-on-cisco-routers-ipsec-series-part-9):
+Tunnel0 between two routers, with a PPK mixed into IKEv2. See
 [Post-quantum IPsec on IOS XE](https://netclab.dev/netclab-xp/iosxe/).
 
 ## Contributing & extending

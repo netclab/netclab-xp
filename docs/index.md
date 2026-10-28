@@ -20,7 +20,7 @@ run in one cluster.
 
 - **[Post-quantum IPsec on IOS XE](iosxe/index.md)**
 
-    Part 9 of Cisco's IPsec series as Kubernetes objects: an IKEv2 tunnel with a
-    post-quantum preshared key, kept on the routers.
+    An IPsec tunnel between Cisco routers with a post-quantum preshared key mixed
+    into IKEv2, as Kubernetes objects kept on the routers by reconcile.
 
 </div>
