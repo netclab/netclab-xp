@@ -1,12 +1,12 @@
 name: Release configuration-iosxe
 
 # Publishes configuration-iosxe, the package under iosxe/, on a tag of its own so
-# that its versions and netclab-xp's do not move together:
+# that its versions and configuration-eos's do not move together:
 #
 #   tag iosxe/v0.1.0  ->  ghcr.io/netclab/configuration-iosxe:v0.1.0
 #                         xpkg.upbound.io/netclab/configuration-iosxe:v0.1.0
 #
-# The same shape as release.yml, which says why each step is what it is: the
+# The same shape as release-eos.yml, which says why each step is what it is: the
 # tag is the version, the build is the one CI runs, and both pushes go through
 # `crossplane xpkg push` with plain docker credentials.
 

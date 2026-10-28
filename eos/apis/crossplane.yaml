@@ -1,14 +1,14 @@
 apiVersion: meta.pkg.crossplane.io/v1
 kind: Configuration
 metadata:
-  name: netclab-xp
+  name: configuration-eos
   annotations:
     meta.crossplane.io/source: https://github.com/netclab/netclab-xp
     meta.crossplane.io/license: Apache-2.0
-    meta.crossplane.io/description: Declarative router configuration and lifecycle management.
+    meta.crossplane.io/description: Arista EOS configuration over RESTCONF, JSON-RPC and eAPI.
     meta.crossplane.io/readme: |
       GitOps-driven lifecycle management for physical, virtual, and containerized routers.
-      netclab-xp abstracts device-specific complexities, enabling consistent and reproducible network configuration.
+      configuration-eos abstracts device-specific complexities, enabling consistent and reproducible network configuration.
 spec:
   dependsOn:
     # ghcr.io, not xpkg.upbound.io, and the reason is discoverability rather
