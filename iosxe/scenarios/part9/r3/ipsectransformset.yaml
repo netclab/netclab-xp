@@ -1,0 +1,11 @@
+apiVersion: iosxe.netclab.dev/v1alpha1
+kind: IpsecTransformSet
+metadata:
+  name: r3-ipsec-transform-set
+spec:
+  deviceRef:
+    name: r3
+  name: CLASSICAL-TS
+  esp: esp-gcm
+  keyBits: 256
+  mode: tunnel

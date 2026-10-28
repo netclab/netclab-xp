@@ -3,15 +3,18 @@
 > ***Extend Kubernetes to manage any resource anywhere***
 > <br>Powered by [crossplane.io](https://www.crossplane.io)
 
-**A Crossplane Configuration package for router configuration management.**
+**Crossplane Configuration packages for router configuration management.**
 
-`netclab-xp` turns router configuration into Kubernetes resources — declarative,
-versioned, reviewable, and reconciled like anything else in a cluster. It
-targets devices that speak RESTCONF or JSON-RPC; Arista EOS is what it is built
-and tested against today.
+They turn router configuration into Kubernetes resources: declarative, versioned,
+reviewable, and reconciled like anything else in a cluster.
 
-The EOS package is `configuration-eos`, tagged `eos/v*`. Until `v0.5.0` it was
-published as `netclab-xp`; those releases stay where they are.
+| package | devices | over | tags |
+|---|---|---|---|
+| `configuration-eos` | Arista EOS | RESTCONF, JSON-RPC (eAPI) | `eos/v*` |
+| `configuration-iosxe` | Cisco IOS XE | RESTCONF | `iosxe/v*` |
+
+Until `v0.5.0` the EOS package was published as `netclab-xp`; those releases stay
+where they are.
 
 ## 📖 Documentation
 
@@ -19,12 +22,14 @@ published as `netclab-xp`; those releases stay where they are.
 
 | | |
 |---|---|
+| [Arista EOS](https://netclab.dev/netclab-xp/eos/) | one API over several mechanisms |
 | [Set up a lab](https://netclab.dev/netclab-xp/eos/lab/) | two cEOS devices on Kubernetes |
 | [Install the package](https://netclab.dev/netclab-xp/eos/install/) | the Configuration and its prerequisites |
 | [Your first resource](https://netclab.dev/netclab-xp/eos/first-resource/) | one interface, then a BGP session between two devices |
 | [Scenarios](https://netclab.dev/netclab-xp/eos/scenarios/) | every mechanism the package offers |
+| [Post-quantum IPsec on IOS XE](https://netclab.dev/netclab-xp/iosxe/) | part 9 of Cisco's IPsec series, kept on the routers |
 
-## What you get
+## Arista EOS
 
 **One API for you, several mechanisms for the device.** Everything is a
 Kubernetes resource, applied and reviewed the same way whatever the device
@@ -57,7 +62,7 @@ The bottom three layers are this package's own — twelve resource types in
 [function-avd](https://github.com/netclab/function-avd)'s, and not installed
 with configuration-eos.
 
-## Scenarios
+### Scenarios
 
 The repository carries runnable manifests for every mechanism, under
 [`eos/scenarios/`](eos/scenarios/):
@@ -73,6 +78,17 @@ The repository carries runnable manifests for every mechanism, under
 an owner of the same device configuration. See
 [Scenarios](https://netclab.dev/netclab-xp/eos/scenarios/) for how to apply
 and remove them.
+
+## Cisco IOS XE
+
+One resource type per router setting in `iosxe.netclab.dev`, over RESTCONF:
+`Device`, `Ikev2Proposal`, `Ikev2Policy`, `Ikev2Keyring` (with a post-quantum
+preshared key), `Ikev2Profile`, `IpsecTransformSet`, `IpsecProfile` and
+`TunnelInterface`. Each waits for the objects it names, so a set applies at once.
+
+[`iosxe/scenarios/part9/`](iosxe/scenarios/part9/) is part 9 of Cisco's IPsec
+series: Tunnel0 between two routers, with a PPK mixed into IKEv2. See
+[Post-quantum IPsec on IOS XE](https://netclab.dev/netclab-xp/iosxe/).
 
 ## Contributing & extending
 

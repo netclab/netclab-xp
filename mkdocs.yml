@@ -68,6 +68,7 @@ plugins:
 nav:
   - Home: index.md
   - EOS:
+      - Overview: eos/index.md
       - Set up a lab: eos/lab.md
       - Install the package: eos/install.md
       - Your first resource: eos/first-resource.md
@@ -77,6 +78,8 @@ nav:
           - JSON-RPC: eos/scenarios/jsonrpc.md
           - eAPI: eos/scenarios/eapi.md
           - Router: eos/scenarios/router.md
+  - IOS XE:
+      - Post-quantum IPsec: iosxe/index.md
 
 extra:
   social:

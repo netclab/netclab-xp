@@ -1,0 +1,18 @@
+# What configuration-iosxe needs but cannot ship inside itself: the ClusterProviderConfig
+# its Requests resolve, and the namespace of part 9 with the Secrets its objects name.
+# Apply this once, before the scenario:
+#
+#   kubectl apply -k iosxe/scenarios/prerequisites
+#
+# The Secrets are here, not in part9/, so that deleting the scenario leaves them: the
+# Requests read the credentials until each has removed what it configured.
+#
+# No `namespace:` transformer: the ClusterProviderConfig is cluster scoped, and the
+# Secrets name `lab`, the namespace part9/ puts its objects in.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - clusterproviderconfig.yaml
+  - namespace.yaml
+  - secrets.yaml
