@@ -1,0 +1,13 @@
+apiVersion: iosxe.netclab.dev/v1alpha1
+kind: Ikev2Profile
+metadata:
+  name: r3-ikev2-profile
+spec:
+  deviceRef:
+    name: r3
+  after:
+  - {kind: Ikev2Keyring, name: r3-ikev2-keyring}
+  name: CLASSICAL-PROFILE
+  remoteAddresses: [10.0.12.1]
+  keyring: CLASSICAL-KEYRING
+  ppkKeyring: CLASSICAL-KEYRING

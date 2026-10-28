@@ -1,0 +1,11 @@
+# provider-http's ClusterProviderConfig, which every composed Request resolves by default.
+# The same object as eos/scenarios/prerequisites/clusterproviderconfig.yaml, so the two
+# packages share one cluster. `source: None`: each Request carries its own Authorization
+# header, from the Device's credentials Secret.
+apiVersion: http.m.crossplane.io/v1alpha2
+kind: ClusterProviderConfig
+metadata:
+  name: default
+spec:
+  credentials:
+    source: None

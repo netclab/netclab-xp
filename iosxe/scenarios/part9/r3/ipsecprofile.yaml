@@ -1,0 +1,13 @@
+apiVersion: iosxe.netclab.dev/v1alpha1
+kind: IpsecProfile
+metadata:
+  name: r3-ipsec-profile
+spec:
+  deviceRef:
+    name: r3
+  after:
+  - {kind: IpsecTransformSet, name: r3-ipsec-transform-set}
+  - {kind: Ikev2Profile, name: r3-ikev2-profile}
+  name: CLASSICAL-IPSEC
+  transformSets: [CLASSICAL-TS]
+  ikev2Profile: CLASSICAL-PROFILE

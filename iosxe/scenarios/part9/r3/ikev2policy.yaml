@@ -1,0 +1,11 @@
+apiVersion: iosxe.netclab.dev/v1alpha1
+kind: Ikev2Policy
+metadata:
+  name: r3-ikev2-policy
+spec:
+  deviceRef:
+    name: r3
+  after:
+  - {kind: Ikev2Proposal, name: r3-ikev2-proposal}
+  name: CLASSICAL-POLICY
+  proposals: [CLASSICAL-PROPOSAL]

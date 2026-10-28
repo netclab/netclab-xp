@@ -1,0 +1,36 @@
+# Scenario: part 9 of Cisco's IPsec series, the post-quantum preshared key.
+#
+# Tunnel0 between r1 and r3, with a PPK mixed into IKEv2; r2 only routes between them.
+# r1's objects are the package's examples; r3's mirror them in r3/.
+#
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone iosxe/scenarios/part9 \
+#     | kubectl apply -f -
+#
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone iosxe/scenarios/part9 \
+#     | kubectl delete -f -
+#
+# The flag is required because `resources` reaches into ../../examples, which holds
+# XR manifests only: they are what the Marketplace shows under each XRD.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: lab
+
+resources:
+  - ../../examples/device/r1.yaml
+  - ../../examples/ikev2proposal/r1.yaml
+  - ../../examples/ikev2policy/r1.yaml
+  - ../../examples/ikev2keyring/r1.yaml
+  - ../../examples/ikev2profile/r1.yaml
+  - ../../examples/ipsectransformset/r1.yaml
+  - ../../examples/ipsecprofile/r1.yaml
+  - ../../examples/tunnelinterface/r1.yaml
+
+  - r3/device.yaml
+  - r3/ikev2proposal.yaml
+  - r3/ikev2policy.yaml
+  - r3/ikev2keyring.yaml
+  - r3/ikev2profile.yaml
+  - r3/ipsectransformset.yaml
+  - r3/ipsecprofile.yaml
+  - r3/tunnelinterface.yaml
