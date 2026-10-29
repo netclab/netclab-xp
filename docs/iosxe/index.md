@@ -73,12 +73,12 @@ The configuration is kept, not pushed: a change made by hand is put back, and th
 tunnel's state is read back into its object rather than into a report of one run.
 
 - Applied at once, in any order: each object waits until the ones it names are Ready.
-- The PSK and the PPK stay in a Secret, never in the objects.
+- The objects name a Secret for the PSK and the PPK, so they can go to Git without the keys.
 - A new PPK goes with a new id, and the SA is renegotiated on it.
-- A change made by hand on Tunnel0, a `shutdown` or a description, is put back within a
-  minute.
-- The tunnel reports its interface state and its IKEv2 SA to the peer: `active`,
-  `pending` or `none`.
+- What the objects configure is put back within a minute after a change by hand: a
+  `shutdown` or a description on Tunnel0, for one.
+- The tunnel's object shows its interface state, and its IKEv2 SA with the other router:
+  `active`, `pending` or `none`.
 - Deleting the objects removes everything they configured; each router is left with its
   underlay.
 
@@ -116,8 +116,10 @@ curl -sk -u cisco:cisco -H 'Accept: application/yang-data+json' \
 
 ### 2. The cluster and the package
 
-A kind cluster with Crossplane and the package, in one command. The cluster has to reach
-the routers' RESTCONF addresses.
+A kind cluster with Crossplane and the package, in one command. `netclab up` needs the
+[prerequisites of netclab](https://github.com/netclab/netclab-chart#-prerequisites):
+Docker, kind, kubectl, Helm, and uv for `uvx`. The cluster has to reach the routers'
+RESTCONF addresses.
 
 ```bash
 CROSSPLANE=<release>   # a Crossplane v2 release
