@@ -142,7 +142,7 @@ jobs:
             --examples-root=./examples \
             -o configuration-iosxe-ci.xpkg
 
-      - uses: astral-sh/setup-uv@v10.3.2
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
           cache-dependency-glob: iosxe/uv.lock
