@@ -1,11 +1,11 @@
-# netclab-xp
+# netclab-xp, routers operated from Kubernetes
 
 > ***Extend Kubernetes to manage any resource anywhere***
 > <br>Powered by [crossplane.io](https://www.crossplane.io)
 
-**Crossplane Configuration packages for router configuration management.**
+**Crossplane Configuration packages that operate routers from Kubernetes.**
 
-They turn router configuration into Kubernetes resources: declarative, versioned,
+They turn router settings into Kubernetes resources: declarative, versioned,
 reviewable, and reconciled like anything else in a cluster.
 
 | package | devices | over | tags |
@@ -49,6 +49,38 @@ r3-tunnel0   r3       0        ipsec-ipv4   192.168.100.2/24   ready   1/1      
 ```
 
 See [Post-quantum IPsec on IOS XE](https://netclab.dev/netclab-xp/iosxe/).
+
+### Installation
+
+Needs the [prerequisites of netclab](https://github.com/netclab/netclab-chart#-prerequisites):
+Docker, kind, kubectl, Helm, and uv. A kind cluster with Crossplane and the package:
+
+```bash
+CROSSPLANE=<release>   # a Crossplane v2 release
+VERSION=<version>      # the newest iosxe/v* tag, without iosxe/
+
+uvx netclab up --cluster xp --crossplane ${CROSSPLANE} \
+  --configuration xpkg.upbound.io/netclab/configuration-iosxe:${VERSION}
+```
+
+The routers need RESTCONF and a user it accepts:
+[Quick start](https://netclab.dev/netclab-xp/iosxe/#quick-start).
+
+### Usage
+
+Set each `Device`'s `address` to its router's RESTCONF address,
+`iosxe/examples/device/r1.yaml` and `iosxe/scenarios/part9/r3/device.yaml`, then:
+
+```bash
+git clone https://github.com/netclab/netclab-xp
+cd netclab-xp
+kubectl apply -k iosxe/scenarios/prerequisites
+kubectl kustomize --load-restrictor LoadRestrictionsNone iosxe/scenarios/part9 \
+  | kubectl apply -f -
+kubectl get device,tunnelinterface -n lab
+```
+
+Teardown and the rest: [Quick start](https://netclab.dev/netclab-xp/iosxe/#quick-start).
 
 ## Arista EOS
 
