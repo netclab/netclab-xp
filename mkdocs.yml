@@ -80,6 +80,7 @@ nav:
           - Router: eos/scenarios/router.md
   - IOS XE:
       - Post-quantum IPsec: iosxe/index.md
+      - Brownfield with GitOps: iosxe/brownfield.md
 
 extra:
   social:
