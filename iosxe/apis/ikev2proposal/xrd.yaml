@@ -102,12 +102,12 @@ spec:
               encryption:
                 type: array
                 minItems: 1
-                maxItems: 7
+                maxItems: 5
                 x-kubernetes-list-type: set
                 items:
                   type: string
                   maxLength: 11
-                  enum: [3des, des, aes-cbc-128, aes-cbc-192, aes-cbc-256, aes-gcm-128, aes-gcm-256]
+                  enum: [aes-cbc-128, aes-cbc-192, aes-cbc-256, aes-gcm-128, aes-gcm-256]
               integrity:
                 type: array
                 maxItems: 5
