@@ -14,10 +14,11 @@ Every object has `spec.managementPolicy`:
 | mode | on the router | deleting the object |
 |---|---|---|
 | `Observe` (default) | reads the block, writes nothing | leaves the block |
-| `Manage` | writes the block, and puts it back after a change by hand | leaves the block |
-| `FullControl` | as `Manage` | removes the block |
+| `Manage` | writes the fields of its spec, and puts them back after a change by hand; the rest of the block stays | leaves the block |
+| `FullControl` | makes the block its spec: what the spec lacks is removed | removes the block |
 
-`Observe` is the default, so an object that leaves the field out only reads.
+`Observe` is the default, so an object that leaves the field out only reads. Keys follow
+their own rules, in [Keys](#keys).
 
 ## Prerequisites
 
@@ -167,7 +168,8 @@ If the object was Ready before the pull request, the router does not change: its
 already matches the block. `Manage` needs every field the router needs, so a thin object
 is refused here.
 
-From now on a change by hand is put back at the next poll, within a minute, and recorded:
+From now on a change by hand to a field of the spec is put back at the next poll, within a
+minute, and recorded:
 
 ```yaml
 status:
@@ -181,14 +183,98 @@ status:
 
 A change to the block is a pull request to its spec.
 
+`Manage` adds and corrects, and never removes. A field the spec leaves out is not compared.
+A list in the spec has to be on the router, and what the router has beyond it stays: a
+second group added by hand, or a group a pull request removes from the spec. It shows in
+`status.extra` and leaves the object Ready:
+
+```yaml
+status:
+  drift: []
+  extra:
+  - field: group
+    device: ["20"]
+```
+
+Removing it from the router takes `FullControl`.
+
 ## Step 6: Full control
 
-Optional. With `FullControl`, deleting the object also removes the block from the router:
+Optional. With `FullControl` the block on the router is the spec: what the spec lacks is
+removed at the next poll, so `status.extra` empties, and deleting the object removes the
+block from the router. The object is Ready when the block is its spec.
 
 ```diff
  spec:
 -  managementPolicy: Manage
 +  managementPolicy: FullControl
+```
+
+`FullControl` writes the block's keys from their Secrets with every write of the block, so
+the Secrets have to hold the keys the router has; see [Keys](#keys).
+
+## Keys
+
+A pre-shared key or a PPK is held in a Secret in the namespace, and the spec names the
+Secret and its key. Status never shows a key, and the router does not give one back in a
+form that can be compared, so a key is never part of `status.drift`.
+
+`status.observed` shows only whether a key is there. On IOS XE 17.18 a PPK is not shown at
+all:
+
+```yaml
+# r1/ikev2keyring/r1--classical-keyring--<hash>.yaml, status after Step 3
+status:
+  observed:
+    peers:
+    - name: R3
+      address: 10.0.23.2
+      preSharedKey: {present: true, encryption: "6"}
+```
+
+In Step 4 the key becomes a reference to a Secret, which the same pull request adds with
+the value the router holds:
+
+```diff
+ spec:
+   deviceRef:
+     name: r1
+   name: CLASSICAL-KEYRING
++  peers:
++  - name: R3
++    address: 10.0.23.2
++    preSharedKeySecretRef:
++      name: ike-keys
++      key: psk
+```
+
+A Secret that the spec names and the namespace lacks is listed, and nothing is written for
+the object until it exists:
+
+```yaml
+status:
+  missingSecrets: [ike-keys/psk]
+```
+
+When a key is written:
+
+| event | the key on the router |
+|---|---|
+| Step 5, taking over a block that exists | not written |
+| the key's value changes in its Secret | written, on every router whose object names it |
+| `FullControl`, any write of the block | written |
+| the annotation `iosxe.netclab.dev/rewrite-keys` changes | written once |
+
+Taking over writes no key, so a wrong value in the Secret does not reach the router. A
+rotation is a pull request that changes the value in the Secret, and both ends of a tunnel
+that name the same Secret get the new key. Writing a PPK renews the tunnel's SA.
+
+To tell which value it wrote, the package keeps a mark of each key, never the key, in an
+EEM environment variable on the router named `netclab-` and 8 hex digits:
+
+```console
+r1#show running-config | include ^event manager environment netclab-
+event manager environment netclab-5c1e07aa "3f2a9c01 Ikev2Keyring/CLASSICAL-KEYRING/peers/R3/preSharedKey"
 ```
 
 ## Going back
