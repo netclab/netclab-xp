@@ -64,7 +64,7 @@ $ kubectl get device r1 -n lab -o yaml
 
 ```yaml
 status:
-  sections:
+  config:
   - kind: Ikev2Proposal
     name: CLASSICAL-PROPOSAL
     xr: r1--classical-proposal--3a16aab3
@@ -75,13 +75,13 @@ status:
     exists: false
 ```
 
-Each section is a block on the router of a kind the package knows: `name` as on the
+Each entry is a block on the router of a kind the package knows: `name` as on the
 router, `xr` the name its object must have, and `exists` whether that object is in the
 namespace. Blocks of other kinds, such as BGP or ACLs, are not listed.
 
 ## Step 3: Import
 
-Pull request with one thin object per section, copied from `status.sections`:
+Pull request with one thin object per block, copied from `status.config`:
 
 ```yaml
 # r1/ikev2proposal/r1--classical-proposal--3a16aab3.yaml
@@ -99,11 +99,11 @@ A thin object has only `deviceRef` and `name`, and no mode, so it observes. For 
 blocks, the objects come from the Device's status in one command:
 
 ```bash
-kubectl get device r1 -n lab -o json | jq -r '.status.sections[] | select(.exists | not) |
+kubectl get device r1 -n lab -o json | jq -r '.status.config[] | select(.exists | not) |
   "---\napiVersion: iosxe.netclab.dev/v1alpha1\nkind: \(.kind)\nmetadata:\n  name: \(.xr)\nspec:\n  deviceRef:\n    name: r1\n  name: \(.name | @json)"'
 ```
 
-Cluster, after the sync: every section has `exists: true`. Router: unchanged.
+Cluster, after the sync: every entry has `exists: true`. Router: unchanged.
 
 ## Step 4: Catch up with the router
 
@@ -120,6 +120,7 @@ status:
     integrity: [sha512]
     group: [19]
   drift: []
+  extra: []
 ```
 
 Pull request: `status.observed` copied into `spec`.
@@ -134,7 +135,8 @@ Pull request: `status.observed` copied into `spec`.
 +  group: [19]
 ```
 
-After a change by hand, the object shows where its spec is behind:
+After a change by hand, group 20 in place of 19, the object shows what of its spec the
+router lacks, and what the router has beyond it:
 
 ```yaml
 status:
@@ -142,6 +144,9 @@ status:
   - field: group
     device: ["20"]
     spec: ["19"]
+  extra:
+  - field: group
+    device: ["20"]
 ```
 
 The object is not Ready while `drift` has an entry. While the router is still changed by
@@ -168,32 +173,32 @@ If the object was Ready before the pull request, the router does not change: its
 already matches the block. `Manage` needs every field the router needs, so a thin object
 is refused here.
 
-From now on a change by hand to a field of the spec is put back at the next poll, within a
-minute, and recorded:
-
-```yaml
-status:
-  reverted:
-    time: "2026-11-02T11:57:13Z"
-    drift:
-    - field: group
-      device: ["20"]
-      spec: ["19"]
-```
-
-A change to the block is a pull request to its spec.
+From now on a change by hand to a field of the spec is put back at the next poll, and
+recorded. A change to the block is a pull request to its spec.
 
 `Manage` adds and corrects, and never removes. A field the spec leaves out is not compared.
-A list in the spec has to be on the router, and what the router has beyond it stays: a
-second group added by hand, or a group a pull request removes from the spec. It shows in
-`status.extra` and leaves the object Ready:
+A list in the spec has to be on the router, and what the router has beyond it stays, such
+as a group a pull request removes from the spec. The same change by hand as in Step 4,
+group 20 in place of 19, under `Manage`: 19 is put back, 20 stays and shows in
+`status.extra`, and the object is Ready:
 
 ```yaml
 status:
+  observed:
+    encryption: [aes-cbc-256]
+    integrity: [sha512]
+    group: [19, 20]
   drift: []
   extra:
   - field: group
     device: ["20"]
+  reverted:
+    time: "2026-11-03T15:29:53Z"
+    drift:
+    - field: group
+      device: ["20"]
+      spec: ["19"]
+    extra: []
 ```
 
 Removing it from the router takes `FullControl`.
@@ -208,6 +213,24 @@ block from the router. The object is Ready when the block is its spec.
  spec:
 -  managementPolicy: Manage
 +  managementPolicy: FullControl
+```
+
+At the next poll group 20 is taken off the router:
+
+```yaml
+status:
+  observed:
+    encryption: [aes-cbc-256]
+    integrity: [sha512]
+    group: [19]
+  drift: []
+  extra: []
+  reverted:
+    time: "2026-11-03T15:31:14Z"
+    drift: []
+    extra:
+    - field: group
+      device: ["20"]
 ```
 
 `FullControl` writes the block's keys from their Secrets with every write of the block, so
@@ -296,12 +319,12 @@ its block on the router as it is.
 An object's name is `<device>--<slug>--<hash>`:
 
 - `slug`: the name on the router in lower case; any character other than a letter or a
-  digit becomes `-`, a run of them one `-`, and the slug is cut so that the whole name
-  fits 63 characters;
+  digit becomes `-`, a run of them one `-`, none at either end, and the slug is cut so
+  that the whole name fits 63 characters;
 - `hash`: the first 8 hex digits of the SHA-256 of the name on the router.
 
 The hash keeps names apart that differ only in case or punctuation, and the name fits the
-63 characters Kubernetes allows whatever the router accepts. `status.sections` gives the
+63 characters Kubernetes allows whatever the router accepts. `status.config` gives the
 name, so it never has to be worked out by hand.
 
 A second object for the same block has the same name, so kustomize and the API server

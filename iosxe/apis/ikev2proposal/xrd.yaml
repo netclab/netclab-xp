@@ -22,6 +22,12 @@ spec:
     - name: PROPOSAL
       type: string
       jsonPath: .spec.name
+    - name: MODE
+      type: string
+      jsonPath: .spec.managementPolicy
+    - name: WANTS-NAME
+      type: string
+      jsonPath: .status.wantsName
     served: true
     referenceable: true
     schema:
@@ -30,22 +36,36 @@ spec:
         properties:
           spec:
             type: object
-            # The router's own rule, from the `must` on a policy's proposals:
-            # a proposal a policy can use has a group and either a non-GCM
-            # cipher with an integrity algorithm, or a GCM cipher with a PRF.
+            # A thin object (deviceRef and name) only observes. To write, the
+            # router's own rule, from the `must` on a policy's proposals: a
+            # proposal a policy can use has a group and either a non-GCM cipher
+            # with an integrity algorithm, or a GCM cipher with a PRF.
             x-kubernetes-validations:
             - rule: >-
-                (self.encryption.exists(e, !e.startsWith('aes-gcm'))
-                  && has(self.integrity) && size(self.integrity) > 0)
-                || (self.encryption.exists(e, e.startsWith('aes-gcm'))
-                  && has(self.prf) && size(self.prf) > 0)
+                self.managementPolicy == 'Observe'
+                || (has(self.encryption) && has(self.group)
+                  && ((self.encryption.exists(e, !e.startsWith('aes-gcm'))
+                    && has(self.integrity) && size(self.integrity) > 0)
+                  || (self.encryption.exists(e, e.startsWith('aes-gcm'))
+                    && has(self.prf) && size(self.prf) > 0)))
               message: >-
-                a non-GCM cipher needs an integrity algorithm, a GCM cipher
-                needs a PRF
+                to write, a proposal needs encryption and group, a non-GCM
+                cipher an integrity algorithm, and a GCM cipher a PRF
             properties:
+              managementPolicy:
+                type: string
+                description: >-
+                  Observe reads the proposal on the router; Manage writes the
+                  fields of the spec; FullControl makes the proposal the spec,
+                  and removes it with the object.
+                enum: [Observe, Manage, FullControl]
+                default: Observe
               deviceRef:
                 type: object
                 description: A Device in the proposal's namespace.
+                x-kubernetes-validations:
+                - rule: self == oldSelf
+                  message: deviceRef cannot change
                 properties:
                   name:
                     type: string
@@ -76,6 +96,9 @@ spec:
                 type: string
                 description: Name of the proposal on the router.
                 minLength: 1
+                x-kubernetes-validations:
+                - rule: self == oldSelf
+                  message: name cannot change
               encryption:
                 type: array
                 minItems: 1
@@ -111,5 +134,91 @@ spec:
             required:
             - deviceRef
             - name
-            - encryption
-            - group
+          status:
+            type: object
+            properties:
+              wantsName:
+                type: string
+                description: The name the object needs, when it has another.
+              observed:
+                type: object
+                description: The proposal on the router, in the shape of the spec.
+                properties:
+                  encryption:
+                    type: array
+                    items:
+                      type: string
+                  integrity:
+                    type: array
+                    items:
+                      type: string
+                  prf:
+                    type: array
+                    items:
+                      type: string
+                  group:
+                    type: array
+                    items:
+                      type: integer
+              drift:
+                type: array
+                description: Fields whose values in the spec the router lacks.
+                items:
+                  type: object
+                  properties:
+                    field:
+                      type: string
+                    device:
+                      type: array
+                      items:
+                        type: string
+                    spec:
+                      type: array
+                      items:
+                        type: string
+              extra:
+                type: array
+                description: >-
+                  Values the router has beyond the spec, in the fields the spec
+                  sets; in FullControl, in every field.
+                items:
+                  type: object
+                  properties:
+                    field:
+                      type: string
+                    device:
+                      type: array
+                      items:
+                        type: string
+              reverted:
+                type: object
+                description: The drift and extra values the last write put back.
+                properties:
+                  time:
+                    type: string
+                  drift:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        field:
+                          type: string
+                        device:
+                          type: array
+                          items:
+                            type: string
+                        spec:
+                          type: array
+                          items:
+                            type: string
+                  extra:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        field:
+                          type: string
+                        device:
+                          type: array
+                          items:
+                            type: string

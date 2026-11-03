@@ -6,6 +6,6 @@ spec:
   deviceRef:
     name: r3
   after:
-  - {kind: Ikev2Proposal, name: r3-ikev2-proposal}
+  - {kind: Ikev2Proposal, name: r3--classical-proposal--3a16aab3}
   name: CLASSICAL-POLICY
   proposals: [CLASSICAL-PROPOSAL]
