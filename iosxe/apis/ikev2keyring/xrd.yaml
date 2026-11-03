@@ -94,9 +94,8 @@ spec:
                       type: object
                       description: >-
                         Manual post-quantum pre-shared key (RFC 8784), always
-                        required: the tunnel does not come up without it. A new
-                        key goes with a new id; a key changed under the same id
-                        is not applied.
+                        required: the tunnel does not come up without it. Both
+                        ends of a tunnel have the same id.
                       properties:
                         id:
                           type: string
@@ -127,3 +126,25 @@ spec:
             - deviceRef
             - name
             - peers
+          status:
+            type: object
+            properties:
+              missingSecrets:
+                type: array
+                description: >-
+                  Secrets and keys the spec names that the namespace lacks, as
+                  <secret>/<key>.
+                items:
+                  type: string
+              keys:
+                type: array
+                description: The keys of the spec, never their values.
+                items:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                      description: The key on the router, such as peers[R3].preSharedKey.
+                    written:
+                      type: boolean
+                      description: The router holds the mark of the key's value in its Secret.

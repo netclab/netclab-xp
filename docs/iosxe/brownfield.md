@@ -263,18 +263,26 @@ When a key is written:
 | Step 5, taking over a block that exists | not written |
 | the key's value changes in its Secret | written, on every router whose object names it |
 | `FullControl`, any write of the block | written |
+| the Secret is deleted and made again | written once |
 | the annotation `iosxe.netclab.dev/rewrite-keys` changes | written once |
 
 Taking over writes no key, so a wrong value in the Secret does not reach the router. A
 rotation is a pull request that changes the value in the Secret, and both ends of a tunnel
-that name the same Secret get the new key. Writing a PPK renews the tunnel's SA.
+that name the same Secret get the new key within seconds. Writing a key clears the peer's
+IKEv2 SA, since an SA in place would go on without the new key. The tunnel interface goes
+line protocol down and carries no traffic until IKEv2 sets up a new SA on the new key;
+`kubectl get tunnelinterface` shows it in `OPER` and `IKE-SA`.
+
+While a Secret the spec names is missing, the object is not Ready, nothing is taken off the
+router, and nothing new is written.
 
 To tell which value it wrote, the package keeps a mark of each key, never the key, in an
 EEM environment variable on the router named `netclab-` and 8 hex digits:
 
 ```console
 r1#show running-config | include ^event manager environment netclab-
-event manager environment netclab-5c1e07aa "3f2a9c01 Ikev2Keyring/CLASSICAL-KEYRING/peers/R3/preSharedKey"
+event manager environment netclab-e535a9a3 "f0bb7682 Ikev2Keyring/CLASSICAL-KEYRING/R3/psk"
+event manager environment netclab-0fb93954 "6b3dbe6d Ikev2Keyring/CLASSICAL-KEYRING/R3/ppk"
 ```
 
 ## Going back

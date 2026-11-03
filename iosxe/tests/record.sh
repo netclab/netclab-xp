@@ -23,9 +23,12 @@ NATIVE=$BASE/data/Cisco-IOS-XE-native:native
 # apply order
 KINDS=(ikev2proposal ikev2policy ikev2keyring ikev2profile ipsectransformset ipsecprofile tunnelinterface)
 
-# the values the examples' Secrets hold
+# the values the examples' Secrets hold, and their uid in the tests (conftest.py)
 PSK=TestPsk123
 PPK_HEX=48656C6C6F506F737451756172746E756D   # "HelloPostQuartnum"
+SECRET_UID=00000000-0000-4000-8000-000000000001
+b64() { printf %s "$1" | base64 -w0; }
+sha8() { printf %s "$1" | sha256sum | cut -c1-8; }
 
 curl_() { curl -sk -m 60 -u "$AUTH" -H 'Accept: application/yang-data+json' \
   -H 'Content-Type: application/yang-data+json' "$@"; }
@@ -135,33 +138,41 @@ ikev2policy() { # iosxe/examples/ikev2policy/r1.yaml, on the proposal of iosxe/e
 
 ikev2keyring() { # iosxe/examples/ikev2keyring/r1.yaml
   local url=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/keyring=CLASSICAL-KEYRING
-  local body
-  body() {
-    jq -nc --arg psk "$1" '{"Cisco-IOS-XE-crypto:keyring": [{name: "CLASSICAL-KEYRING", peer: [{name: "R3",
-      address: {ipv4: {"ipv4-address": "10.0.23.2"}}, "pre-shared-key": {key: $psk}}]}]}'
+  local eem=$NATIVE/event/Cisco-IOS-XE-eem:manager/environment
+  body() { # body [psk]: the example's keyring, without a PSK when none is given
+    jq -nc --arg psk "${1:-}" '{"Cisco-IOS-XE-crypto:keyring": [{name: "CLASSICAL-KEYRING", peer: [{name: "R3",
+      address: {ipv4: {"ipv4-address": "10.0.23.2"}}} + if $psk == "" then {} else {"pre-shared-key": {key: $psk}} end]}]}'
   }
   absent "$url"
   record ikev2keyring/keyring-absent "$url"
-  record ikev2keyring/peer-absent "$url/peer=R3"
 
   write PUT "$url" "$(body "$PSK")"
-  record ikev2keyring/keyring-unmarked "$url"
-  record ikev2keyring/peer-unmarked "$url/peer=R3"
-
+  record ikev2keyring/keyring-applied "$url"
   cli "crypto ikev2 keyring CLASSICAL-KEYRING
  peer R3
   ppk manual id PPK-R1R3 key hex $PPK_HEX required
-  description ppk PPK-R1R3"
-  record ikev2keyring/keyring-applied "$url"
-  record ikev2keyring/peer-marked "$url/peer=R3"
-
-  cli "crypto ikev2 keyring CLASSICAL-KEYRING
- peer R3
-  description ppk PPK-OLD"
-  record ikev2keyring/peer-old-mark "$url/peer=R3"
-
+  description made by hand"
+  record ikev2keyring/keyring-described "$url"
   write PUT "$url" "$(body OtherPsk456)"
   record ikev2keyring/keyring-other-psk "$url"
+  write PUT "$url" "$(body)"
+  record ikev2keyring/keyring-no-psk "$url"
+
+  # The marks of the examples' keys, as the composition makes them from SECRET_UID.
+  local key place var mark
+  for key in psk ppk; do
+    place=Ikev2Keyring/CLASSICAL-KEYRING/R3/$key
+    var=netclab-$(sha8 "$place")
+    if [ $key = psk ]; then mark=$(sha8 "$SECRET_UID/$(b64 "$PSK")")
+    else mark=$(sha8 "$SECRET_UID/$(b64 "$PPK_HEX")/PPK-R1R3"); fi
+    absent "$eem=$var"
+    record ikev2keyring/$key-mark-absent "$eem=$var"
+    write PUT "$eem=$var" "$(jq -nc --arg n "$var" --arg v "$mark $place" '{"Cisco-IOS-XE-eem:environment": [{name: $n, value: $v}]}')"
+    record ikev2keyring/$key-mark-applied "$eem=$var"
+    write PUT "$eem=$var" "$(jq -nc --arg n "$var" --arg v "00000000 $place" '{"Cisco-IOS-XE-eem:environment": [{name: $n, value: $v}]}')"
+    record ikev2keyring/$key-mark-other "$eem=$var"
+    write DELETE "$eem=$var"
+  done
 
   write DELETE "$url"
 }

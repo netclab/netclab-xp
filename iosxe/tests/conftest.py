@@ -5,6 +5,7 @@ and they see what provider-http gives them: the Request's `forProvider` with `re
 beside it, and Secret values in place of `{{ name:namespace:key }}`.
 """
 
+import base64
 import copy
 import json
 import re
@@ -45,6 +46,24 @@ SECRET_REF = re.compile(r"\{\{\s*([^:\s{}]+):([^:\s{}]+):([^:\s{}]+)\s*\}\}")
 
 EXAMPLES = sorted((IOSXE / "examples").glob("*/*.yaml"))
 
+# The uid of every Secret below; record.sh writes the marks it gives.
+SECRET_UID = "00000000-0000-4000-8000-000000000001"
+
+
+def secrets(values=None):
+    """The examples' Secrets, holding what secrets.json holds unless given `values`."""
+    if values is None:
+        values = json.loads((FIXTURES / "secrets.json").read_text())
+    return [
+        {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {"name": name, "namespace": NAMESPACE, "uid": SECRET_UID},
+            "data": {k: base64.b64encode(v.encode()).decode() for k, v in data.items()},
+        }
+        for name, data in values.items()
+    ]
+
 
 def in_namespace(path):
     """An example as applied: examples name no namespace, the lab's XRs live in one."""
@@ -59,7 +78,8 @@ Rendered = namedtuple("Rendered", "composite resources")
 @pytest.fixture(scope="session")
 def render(tmp_path_factory):
     """Renders an XR with the composition of its directory under apis/, `required` as the
-    resources it requires (unless given, the other examples, all Ready), and `observed` as
+    resources it requires (unless given, the other examples, all Ready, and the Secrets),
+    and `observed` as
     the resources it composed before: the XR as rendered, and its composed resources by
     composition-resource-name."""
     tmp = tmp_path_factory.mktemp("render")
@@ -79,7 +99,7 @@ def render(tmp_path_factory):
             same = (xr["kind"], xr["metadata"]["name"])
             required = [
                 e for e in examples if (e["kind"], e["metadata"]["name"]) != same
-            ]
+            ] + secrets()
         required_path = tmp / f"required-{n}.yaml"
         required_path.write_text(yaml.safe_dump_all(required))
         result = subprocess.run(

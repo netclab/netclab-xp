@@ -5,7 +5,7 @@ objects with a Usage."""
 import functools
 
 import pytest
-from conftest import EXAMPLES, IOSXE, in_namespace, observed
+from conftest import EXAMPLES, IOSXE, in_namespace, observed, secrets
 
 KINDS = sorted({p.parent.name for p in EXAMPLES} - {"device"})
 DEVICES = [in_namespace(p) for p in EXAMPLES if p.parent.name == "device"]
@@ -59,14 +59,18 @@ def stage(render):
         if name == "absent":
             return render(kind, xr(kind), required=DEVICES)
         if name == "one-not-ready":
-            return render(kind, xr(kind), required=DEVICES + waited_on(True, False))
+            return render(
+                kind, xr(kind), required=DEVICES + secrets() + waited_on(True, False)
+            )
         if name == "ready":
-            return render(kind, xr(kind), required=DEVICES + waited_on(True, True))
+            return render(
+                kind, xr(kind), required=DEVICES + secrets() + waited_on(True, True)
+            )
         if name == "composed-then-one-not-ready":
             before = [
                 observed(r, True) for r in _stage(kind, "ready").resources.values()
             ]
-            required = DEVICES + waited_on(True, False)
+            required = DEVICES + secrets() + waited_on(True, False)
             return render(kind, xr(kind), before, required)
         raise ValueError(name)
 
