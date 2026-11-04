@@ -168,6 +168,33 @@ def recorded(kind, state):
     return json.loads((FIXTURES / kind / f"{state}.json").read_text())
 
 
+def answered(kind, request, state, method="GET", status=None):
+    """The Request as provider-http leaves it after `method`, the router's answer the one
+    recorded for `kind` in `state`, or an empty body with `status`."""
+    out = observed(request, True)
+    response = (
+        recorded(kind, state) if status is None else {"statusCode": status, "body": ""}
+    )
+    body = response["body"]
+    out["status"]["requestDetails"] = {"method": method}
+    out["status"]["response"] = {
+        "statusCode": response["statusCode"],
+        "body": body if isinstance(body, str) else json.dumps(body),
+    }
+    return out
+
+
+def ready(rendered):
+    """The rendered XR's Ready condition."""
+    conditions = rendered.composite["status"]["conditions"]
+    return {c["type"]: c["status"] for c in conditions}["Ready"]
+
+
+def status(rendered):
+    """The rendered XR's status, without its conditions."""
+    return {k: v for k, v in rendered.composite["status"].items() if k != "conditions"}
+
+
 def _secrets(text):
     values = json.loads((FIXTURES / "secrets.json").read_text())
     return SECRET_REF.sub(lambda m: values[m.group(1)][m.group(3)], text)

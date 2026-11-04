@@ -11,7 +11,12 @@ spec:
   # One Request owns the policy over RESTCONF. The router refuses a policy
   # naming a proposal that is missing or incomplete, and a proposal's delete
   # while a policy names it, so the order of the two is the router's. With no
-  # `match` the policy matches everything; a `match` set on the router is drift.
+  # `match` the policy matches everything; the spec has none, so a `match` on
+  # the router is beyond the spec, and FullControl takes it off.
+  # Observe only reads; Manage PATCHes the proposals of the spec, a merge;
+  # FullControl PUTs the policy and DELETEs it with the object. The status is the
+  # last GET in the shape of the spec; Ready means the mode's write would change
+  # nothing.
   # Once every object in `after` is Ready the Requests are composed, and they
   # stay composed whatever happens to those objects; until then none is, and the
   # XR is not Ready, where Crossplane would call an XR composing nothing Ready. A
@@ -28,6 +33,24 @@ spec:
           {{- $xr := .observed.composite.resource }}
           {{- $ns := $xr.metadata.namespace }}
           {{- $after := default (list) $xr.spec.after }}
+          {{- $observed := default (dict) .observed.resources }}
+          {{- $policy := $xr.spec.managementPolicy | default "Observe" }}
+          {{- $old := default (dict) $xr.status }}
+          {{- /* <device>--<slug>--<8 hex>, at most 63 characters */}}
+          {{- $device := $xr.spec.deviceRef.name }}
+          {{- $slug := regexReplaceAll "[^a-z0-9]+" (lower $xr.spec.name) "-" | trimAll "-" }}
+          {{- $slug = trunc (int (max 0 (sub 51 (len $device)))) $slug | trimSuffix "-" }}
+          {{- $want := printf "%s--%s--%s" $device $slug (sha256sum $xr.spec.name | trunc 8) }}
+          {{- if ne $xr.metadata.name $want }}
+          ---
+          apiVersion: {{ $xr.apiVersion }}
+          kind: {{ $xr.kind }}
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/ready: "False"
+          status:
+            wantsName: {{ $want }}
+          {{- else }}
           ---
           apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
           kind: ExtraResources
@@ -35,7 +58,7 @@ spec:
             device:
               apiVersion: iosxe.netclab.dev/v1alpha1
               kind: Device
-              matchName: {{ $xr.spec.deviceRef.name }}
+              matchName: {{ $device }}
               namespace: {{ $ns }}
             {{- range $i, $a := $after }}
             after-{{ $i }}:
@@ -73,22 +96,21 @@ spec:
           {{- end }}{{ end }}
           {{- if not $ready }}{{ $waiting = true }}{{ end }}
           {{- end }}
-          {{- if and $waiting (not (index (default (dict) .observed.resources) "policy")) }}
-          ---
-          apiVersion: {{ $xr.apiVersion }}
-          kind: {{ $xr.kind }}
-          metadata:
-            annotations:
-              gotemplating.fn.crossplane.io/ready: "False"
-          {{- else }}
+          {{- $hold := and $waiting (not (hasKey $observed "policy")) }}
+          {{- $mine := sortAlpha (default list $xr.spec.proposals) }}
+          {{- if not $hold }}
           {{- with .extraResources }}{{ with index . "device" }}{{ with .items }}
           {{- $dev := (index . 0).resource }}
           {{- $cred := $dev.spec.credentialsSecretRef }}
           {{- $auth := printf "{{ %s:%s:%s }}" $cred.name $ns $cred.key }}
-          {{- $url := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native/crypto/Cisco-IOS-XE-crypto:ikev2/policy=%s" $dev.spec.address $xr.spec.name }}
-          {{- $owned := sortAlpha $xr.spec.proposals }}
+          {{- $native := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native" $dev.spec.address }}
+          {{- $url := printf "%s/crypto/Cisco-IOS-XE-crypto:ikev2/policy=%s" $native $xr.spec.name }}
           {{- $proposals := list }}
-          {{- range $owned }}{{ $proposals = append $proposals (dict "proposals" .) }}{{ end }}
+          {{- range $mine }}{{ $proposals = append $proposals (dict "proposals" .) }}{{ end }}
+          {{- $body := dict "name" $xr.spec.name "proposal" $proposals }}
+          {{- $put := dict "Cisco-IOS-XE-crypto:policy" (list $body) }}
+          {{- /* a merge on native, which exists, creates the policy if it does not */}}
+          {{- $patch := dict "Cisco-IOS-XE-native:native" (dict "crypto" (dict "Cisco-IOS-XE-crypto:ikev2" (dict "policy" (list $body)))) }}
           ---
           apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
@@ -96,6 +118,13 @@ spec:
             annotations:
               gotemplating.fn.crossplane.io/composition-resource-name: policy
           spec:
+            {{- if eq $policy "Observe" }}
+            managementPolicies: ["Observe"]
+            {{- else if eq $policy "Manage" }}
+            managementPolicies: ["Observe", "Create", "Update"]
+            {{- else }}
+            managementPolicies: ["*"]
+            {{- end }}
             forProvider:
               insecureSkipTLSVerify: {{ $dev.spec.insecureSkipTLSVerify }}
               headers:
@@ -104,11 +133,21 @@ spec:
                 Authorization: ["Basic {{ $auth }}"]
               payload:
                 baseUrl: {{ $url | quote }}
-                body: {{ dict "Cisco-IOS-XE-crypto:policy" (list (dict "name" $xr.spec.name "proposal" $proposals)) | toJson | quote }}
+                body: {{ (ternary $put $patch (eq $policy "FullControl")) | toJson | quote }}
               mappings:
               - action: OBSERVE
                 method: GET
                 url: .payload.baseUrl
+              {{- if eq $policy "Manage" }}
+              - action: CREATE
+                method: PATCH
+                url: {{ $native | quote | quote }}
+                body: .payload.body
+              - action: UPDATE
+                method: PATCH
+                url: {{ $native | quote | quote }}
+                body: .payload.body
+              {{- else if eq $policy "FullControl" }}
               - action: CREATE
                 method: PUT
                 url: .payload.baseUrl
@@ -120,15 +159,80 @@ spec:
               - action: REMOVE
                 method: DELETE
                 url: .payload.baseUrl
+              {{- end }}
               expectedResponseCheck:
                 type: CUSTOM
                 logic: |
                   if .response.statusCode != 200 then false else
-                    (.response.body["Cisco-IOS-XE-crypto:policy"][0]
-                      | {proposals: ([.proposal[]?.proposals] | sort), other: del(.name, .proposal)})
-                    == {proposals: {{ $owned | toJson }}, other: {}}
+                    .response.body["Cisco-IOS-XE-crypto:policy"][0] as $p
+                    | ([$p.proposal[]?.proposals] | sort) as $router
+                  {{- if eq $policy "FullControl" }}
+                    | $router == {{ $mine | toJson }} and ($p | del(.name, .proposal)) == {}
+                  {{- else }}
+                    | {{ $mine | toJson }} - $router == []
+                  {{- end }}
                   end
           {{- end }}{{ end }}{{ end }}
+          {{- end }}
+          {{- $status := dict }}
+          {{- range $k := list "observed" "drift" "extra" "reverted" }}{{ with index $old $k }}{{ $_ := set $status $k . }}{{ end }}{{ end }}
+          {{- $present := hasKey $status "observed" }}
+          {{- with index $observed "policy" }}
+          {{- $rs := default (dict) .resource.status }}
+          {{- $method := "" }}{{ with $rs.requestDetails }}{{ $method = .method | default "" }}{{ end }}
+          {{- with $rs.response }}
+          {{- $code := int (.statusCode | default 0) }}
+          {{- if eq $method "GET" }}
+            {{- if eq $code 200 }}
+              {{- $p := index (index (fromYaml .body) "Cisco-IOS-XE-crypto:policy") 0 }}
+              {{- $theirs := list }}{{ range (get $p "proposal" | default list) }}{{ $theirs = append $theirs .proposals }}{{ end }}
+              {{- $theirs = sortAlpha $theirs }}
+              {{- $drift := list }}
+              {{- $more := list }}
+              {{- $missing := list }}{{ range $mine }}{{ if not (has . $theirs) }}{{ $missing = append $missing . }}{{ end }}{{ end }}
+              {{- if $missing }}{{ $drift = append $drift (dict "field" "proposals" "device" $theirs "spec" $mine) }}{{ end }}
+              {{- if or $mine (eq $policy "FullControl") }}
+                {{- $beyond := list }}{{ range $theirs }}{{ if not (has . $mine) }}{{ $beyond = append $beyond . }}{{ end }}{{ end }}
+                {{- if $beyond }}{{ $more = append $more (dict "field" "proposals" "device" $beyond) }}{{ end }}
+              {{- end }}
+              {{- if eq $policy "FullControl" }}
+                {{- range $k, $v := $p }}
+                  {{- if not (has $k (list "name" "proposal")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}
+                {{- end }}
+              {{- end }}
+              {{- $_ := set $status "observed" (ternary (dict "proposals" $theirs) dict (gt (len $theirs) 0)) }}
+              {{- $_ := set $status "drift" $drift }}
+              {{- $_ := set $status "extra" $more }}
+              {{- $present = true }}
+            {{- else }}
+              {{- $_ := unset $status "observed" }}
+              {{- $_ := set $status "drift" list }}
+              {{- $_ := set $status "extra" list }}
+              {{- $present = false }}
+            {{- end }}
+          {{- else if and $method (ge $code 200) (lt $code 300) }}
+            {{- /* after a write that succeeded the response is still the GET before it: the router has the spec, the next GET shows it */}}
+            {{- $undid := dict "drift" (default list $old.drift) "extra" (ternary (default list $old.extra) list (eq $policy "FullControl")) }}
+            {{- if or $undid.drift $undid.extra }}
+              {{- $_ := set $undid "time" (dateInZone "2006-01-02T15:04:05Z" (now) "UTC") }}
+              {{- $_ := set $status "reverted" $undid }}
+            {{- end }}
+            {{- $_ := set $status "drift" list }}
+            {{- if eq $policy "FullControl" }}{{ $_ := set $status "extra" list }}{{ end }}
+            {{- $present = true }}
+          {{- end }}
+          {{- end }}
+          {{- end }}
+          {{- $ready := and $present (not $status.drift) (or (ne $policy "FullControl") (not $status.extra)) }}
+          ---
+          apiVersion: {{ $xr.apiVersion }}
+          kind: {{ $xr.kind }}
+          {{- if or $hold (not $ready) }}
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/ready: "False"
+          {{- end }}
+          status: {{ $status | toJson }}
           {{- end }}
 
   - step: auto-ready

@@ -1,8 +1,9 @@
 apiVersion: iosxe.netclab.dev/v1alpha1
 kind: Ikev2Policy
 metadata:
-  name: r3-ikev2-policy
+  name: r3--classical-policy--17d97755
 spec:
+  managementPolicy: FullControl
   deviceRef:
     name: r3
   after:

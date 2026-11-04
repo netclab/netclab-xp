@@ -2,11 +2,22 @@
 recorded answers, and the status it makes of them."""
 
 import json
+from functools import partial
 
 import pytest
-from conftest import EXAMPLES, IOSXE, check, in_namespace, observed, recorded
+from conftest import (
+    EXAMPLES,
+    IOSXE,
+    check,
+    in_namespace,
+    ready,
+    recorded,
+    status,
+)
+from conftest import answered as _answered
 
 KIND = "ikev2proposal"
+answered = partial(_answered, KIND)
 XR = "r1--classical-proposal--3a16aab3"
 DEVICES = [in_namespace(p) for p in EXAMPLES if p.parent.name == "device"]
 
@@ -27,35 +38,6 @@ def thin(name="CLASSICAL-PROPOSAL", xr_name=XR):
         "kind": "Ikev2Proposal",
         "metadata": {"name": xr_name, "namespace": "lab"},
         "spec": {"deviceRef": {"name": "r1"}, "name": name},
-    }
-
-
-def answered(request, state, method="GET", status=None):
-    """The Request as provider-http leaves it after `method`, the router's answer the one
-    recorded in `state`."""
-    out = observed(request, True)
-    response = (
-        recorded(KIND, state) if status is None else {"statusCode": status, "body": ""}
-    )
-    body = response["body"]
-    out["status"]["requestDetails"] = {"method": method}
-    out["status"]["response"] = {
-        "statusCode": response["statusCode"],
-        "body": body if isinstance(body, str) else json.dumps(body),
-    }
-    return out
-
-
-def ready(rendered):
-    conditions = rendered.composite["status"]["conditions"]
-    return {c["type"]: c["status"] for c in conditions}["Ready"]
-
-
-def status(rendered):
-    return {
-        k: v
-        for k, v in rendered.composite["status"].items()
-        if k not in ("conditions",)
     }
 
 

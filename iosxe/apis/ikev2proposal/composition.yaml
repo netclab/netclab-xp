@@ -96,7 +96,6 @@ spec:
           {{- $fields := list "encryption" "integrity" "prf" "group" }}
           {{- $leaf := dict "3des" "en-3des" "1" "one" "2" "two" "5" "five" "14" "fourteen" "15" "fifteen" "16" "sixteen" "19" "nineteen" "20" "twenty" "21" "twenty-one" "24" "twenty-four" }}
           {{- $back := dict }}{{ range $k, $v := $leaf }}{{ $_ := set $back $v $k }}{{ end }}
-          {{- /* the spec's values as strings, by field; empty for a field it leaves out */}}
           {{- $spec := dict }}
           {{- range $f := $fields }}
           {{- $vals := list }}{{ range (get $xr.spec $f | default list) }}{{ $vals = append $vals (toString .) }}{{ end }}
@@ -190,7 +189,6 @@ spec:
                   end
           {{- end }}{{ end }}{{ end }}
           {{- end }}
-          {{- /* The status: from the last GET, or after a write that succeeded. */}}
           {{- $status := dict }}
           {{- range $k := list "observed" "drift" "extra" "reverted" }}{{ with index $old $k }}{{ $_ := set $status $k . }}{{ end }}{{ end }}
           {{- $present := hasKey $status "observed" }}
@@ -236,7 +234,7 @@ spec:
               {{- $present = false }}
             {{- end }}
           {{- else if and $method (ge $code 200) (lt $code 300) }}
-            {{- /* a write that succeeded: the router now has the spec; the next GET shows it */}}
+            {{- /* after a write that succeeded the response is still the GET before it: the router has the spec, the next GET shows it */}}
             {{- $undid := dict "drift" (default list $old.drift) "extra" (ternary (default list $old.extra) list (eq $policy "FullControl")) }}
             {{- if or $undid.drift $undid.extra }}
               {{- $_ := set $undid "time" (dateInZone "2006-01-02T15:04:05Z" (now) "UTC") }}
