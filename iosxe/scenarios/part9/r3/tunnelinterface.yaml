@@ -6,7 +6,7 @@ spec:
   deviceRef:
     name: r3
   after:
-  - {kind: IpsecProfile, name: r3-ipsec-profile}
+  - {kind: IpsecProfile, name: r3--classical-ipsec--461c477a}
   number: 0
   mode: ipsec-ipv4
   ipv4Address: 192.168.100.2/24

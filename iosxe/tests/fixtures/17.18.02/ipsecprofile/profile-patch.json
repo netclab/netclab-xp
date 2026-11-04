@@ -1,0 +1,27 @@
+{
+  "request": {
+    "method": "PATCH",
+    "url": "https://172.18.0.101/restconf/data/Cisco-IOS-XE-native:native",
+    "body": {
+      "Cisco-IOS-XE-native:native": {
+        "crypto": {
+          "Cisco-IOS-XE-crypto:ipsec": {
+            "profile": [
+              {
+                "name": "CLASSICAL-IPSEC",
+                "set": {
+                  "transform-set": [
+                    "CLASSICAL-TS"
+                  ],
+                  "ikev2-profile": "CLASSICAL-PROFILE"
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "statusCode": 204,
+  "body": ""
+}

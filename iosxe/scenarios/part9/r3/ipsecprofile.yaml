@@ -1,8 +1,9 @@
 apiVersion: iosxe.netclab.dev/v1alpha1
 kind: IpsecProfile
 metadata:
-  name: r3-ipsec-profile
+  name: r3--classical-ipsec--461c477a
 spec:
+  managementPolicy: FullControl
   deviceRef:
     name: r3
   after:

@@ -147,7 +147,10 @@ def test_status_takes_the_active_sa_of_several_to_the_destination(state):
 def test_reads_the_router_once_the_tunnel_request_exists(render, rendered):
     xr = in_namespace(IOSXE / "examples" / KIND / "r1.yaml")
     first = render(KIND, xr).resources
-    assert sorted(first) == ["after-ipsecprofile-r1-ipsec-profile", "tunnel"]
+    assert sorted(first) == [
+        "after-ipsecprofile-r1--classical-ipsec--461c477a",
+        "tunnel",
+    ]
     for name in ("oper", "ike-sa"):
         assert rendered[XR][name]["spec"]["managementPolicies"] == ["Observe"]
 

@@ -9,10 +9,15 @@ spec:
   mode: Pipeline
   pipeline:
   # One Request owns the IPsec profile over RESTCONF. The router keeps the
-  # transform-sets sorted by name whatever order a PUT sends, so they are a set,
-  # sorted in the body too. A PATCH adds to the router's transform-sets rather
-  # than replacing them, hence PUT. The router refuses a profile naming a
-  # missing transform-set or IKEv2 profile, and their delete while it names them.
+  # transform-sets sorted by name whatever order a write sends, so they are a
+  # set, sorted in the body too; a PATCH adds to them. The router refuses a
+  # profile naming a missing transform-set or IKEv2 profile, and their delete
+  # while it names them. What else the router holds in `set`, such as pfs, the
+  # spec has no field for, so FullControl takes it off.
+  # Observe only reads; Manage PATCHes the fields of the spec, a merge;
+  # FullControl PUTs the profile and DELETEs it with the object. The status is
+  # the last GET in the shape of the spec; Ready means the mode's write would
+  # change nothing.
   # Once every object in `after` is Ready the Requests are composed, and they
   # stay composed whatever happens to those objects; until then none is, and the
   # XR is not Ready, where Crossplane would call an XR composing nothing Ready. A
@@ -29,6 +34,24 @@ spec:
           {{- $xr := .observed.composite.resource }}
           {{- $ns := $xr.metadata.namespace }}
           {{- $after := default (list) $xr.spec.after }}
+          {{- $observed := default (dict) .observed.resources }}
+          {{- $policy := $xr.spec.managementPolicy | default "Observe" }}
+          {{- $old := default (dict) $xr.status }}
+          {{- /* <device>--<slug>--<8 hex>, at most 63 characters */}}
+          {{- $device := $xr.spec.deviceRef.name }}
+          {{- $slug := regexReplaceAll "[^a-z0-9]+" (lower $xr.spec.name) "-" | trimAll "-" }}
+          {{- $slug = trunc (int (max 0 (sub 51 (len $device)))) $slug | trimSuffix "-" }}
+          {{- $want := printf "%s--%s--%s" $device $slug (sha256sum $xr.spec.name | trunc 8) }}
+          {{- if ne $xr.metadata.name $want }}
+          ---
+          apiVersion: {{ $xr.apiVersion }}
+          kind: {{ $xr.kind }}
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/ready: "False"
+          status:
+            wantsName: {{ $want }}
+          {{- else }}
           ---
           apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
           kind: ExtraResources
@@ -36,7 +59,7 @@ spec:
             device:
               apiVersion: iosxe.netclab.dev/v1alpha1
               kind: Device
-              matchName: {{ $xr.spec.deviceRef.name }}
+              matchName: {{ $device }}
               namespace: {{ $ns }}
             {{- range $i, $a := $after }}
             after-{{ $i }}:
@@ -74,22 +97,23 @@ spec:
           {{- end }}{{ end }}
           {{- if not $ready }}{{ $waiting = true }}{{ end }}
           {{- end }}
-          {{- if and $waiting (not (index (default (dict) .observed.resources) "profile")) }}
-          ---
-          apiVersion: {{ $xr.apiVersion }}
-          kind: {{ $xr.kind }}
-          metadata:
-            annotations:
-              gotemplating.fn.crossplane.io/ready: "False"
-          {{- else }}
+          {{- $hold := and $waiting (not (hasKey $observed "profile")) }}
+          {{- $mine := sortAlpha (default list $xr.spec.transformSets) }}
+          {{- $ike := $xr.spec.ikev2Profile | default "" }}
+          {{- if not $hold }}
           {{- with .extraResources }}{{ with index . "device" }}{{ with .items }}
           {{- $dev := (index . 0).resource }}
           {{- $cred := $dev.spec.credentialsSecretRef }}
           {{- $auth := printf "{{ %s:%s:%s }}" $cred.name $ns $cred.key }}
-          {{- $url := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native/crypto/Cisco-IOS-XE-crypto:ipsec/profile=%s" $dev.spec.address $xr.spec.name }}
-          {{- $profile := dict
-            "name" $xr.spec.name
-            "set" (dict "transform-set" (sortAlpha $xr.spec.transformSets) "ikev2-profile" $xr.spec.ikev2Profile) }}
+          {{- $native := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native" $dev.spec.address }}
+          {{- $url := printf "%s/crypto/Cisco-IOS-XE-crypto:ipsec/profile=%s" $native $xr.spec.name }}
+          {{- $set := dict }}
+          {{- if $mine }}{{ $_ := set $set "transform-set" $mine }}{{ end }}
+          {{- if $ike }}{{ $_ := set $set "ikev2-profile" $ike }}{{ end }}
+          {{- $body := dict "name" $xr.spec.name "set" $set }}
+          {{- $put := dict "Cisco-IOS-XE-crypto:profile" (list $body) }}
+          {{- /* a merge on native, which exists, creates the profile if it does not */}}
+          {{- $patch := dict "Cisco-IOS-XE-native:native" (dict "crypto" (dict "Cisco-IOS-XE-crypto:ipsec" (dict "profile" (list $body)))) }}
           ---
           apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
@@ -97,6 +121,13 @@ spec:
             annotations:
               gotemplating.fn.crossplane.io/composition-resource-name: profile
           spec:
+            {{- if eq $policy "Observe" }}
+            managementPolicies: ["Observe"]
+            {{- else if eq $policy "Manage" }}
+            managementPolicies: ["Observe", "Create", "Update"]
+            {{- else }}
+            managementPolicies: ["*"]
+            {{- end }}
             forProvider:
               insecureSkipTLSVerify: {{ $dev.spec.insecureSkipTLSVerify }}
               headers:
@@ -105,11 +136,21 @@ spec:
                 Authorization: ["Basic {{ $auth }}"]
               payload:
                 baseUrl: {{ $url | quote }}
-                body: {{ dict "Cisco-IOS-XE-crypto:profile" (list $profile) | toJson | quote }}
+                body: {{ (ternary $put $patch (eq $policy "FullControl")) | toJson | quote }}
               mappings:
               - action: OBSERVE
                 method: GET
                 url: .payload.baseUrl
+              {{- if eq $policy "Manage" }}
+              - action: CREATE
+                method: PATCH
+                url: {{ $native | quote | quote }}
+                body: .payload.body
+              - action: UPDATE
+                method: PATCH
+                url: {{ $native | quote | quote }}
+                body: .payload.body
+              {{- else if eq $policy "FullControl" }}
               - action: CREATE
                 method: PUT
                 url: .payload.baseUrl
@@ -121,13 +162,97 @@ spec:
               - action: REMOVE
                 method: DELETE
                 url: .payload.baseUrl
+              {{- end }}
               expectedResponseCheck:
                 type: CUSTOM
                 logic: |
                   if .response.statusCode != 200 then false else
-                    .response.body["Cisco-IOS-XE-crypto:profile"][0] == {{ $profile | toJson }}
+                    .response.body["Cisco-IOS-XE-crypto:profile"][0] as $p
+                    | ($p.set // {}) as $s
+                    | ($s["transform-set"] // [] | sort) as $router
+                  {{- if eq $policy "FullControl" }}
+                    | $router == {{ $mine | toJson }} and ($s["ikev2-profile"] // "") == {{ $ike | toJson }}
+                      and ($s | del(.["transform-set"], .["ikev2-profile"])) == {} and ($p | del(.name, .set)) == {}
+                  {{- else }}
+                    | {{ $mine | toJson }} - $router == []
+                    {{- if $ike }} and $s["ikev2-profile"] == {{ $ike | toJson }}{{ end }}
+                  {{- end }}
                   end
           {{- end }}{{ end }}{{ end }}
+          {{- end }}
+          {{- $status := dict }}
+          {{- range $k := list "observed" "drift" "extra" "reverted" }}{{ if hasKey $old $k }}{{ $_ := set $status $k (index $old $k) }}{{ end }}{{ end }}
+          {{- $present := hasKey $status "observed" }}
+          {{- with index $observed "profile" }}
+          {{- $rs := default (dict) .resource.status }}
+          {{- $method := "" }}{{ with $rs.requestDetails }}{{ $method = .method | default "" }}{{ end }}
+          {{- with $rs.response }}
+          {{- $code := int (.statusCode | default 0) }}
+          {{- if eq $method "GET" }}
+            {{- if eq $code 200 }}
+              {{- $p := index (index (fromYaml .body) "Cisco-IOS-XE-crypto:profile") 0 }}
+              {{- $s := get $p "set" | default dict }}
+              {{- $theirs := list }}{{ range (get $s "transform-set" | default list) }}{{ $theirs = append $theirs . }}{{ end }}
+              {{- $theirs = sortAlpha $theirs }}
+              {{- $their := get $s "ikev2-profile" | default "" }}
+              {{- $drift := list }}
+              {{- $more := list }}
+              {{- $missing := list }}{{ range $mine }}{{ if not (has . $theirs) }}{{ $missing = append $missing . }}{{ end }}{{ end }}
+              {{- if $missing }}{{ $drift = append $drift (dict "field" "transformSets" "device" $theirs "spec" $mine) }}{{ end }}
+              {{- if or $mine (eq $policy "FullControl") }}
+                {{- $beyond := list }}{{ range $theirs }}{{ if not (has . $mine) }}{{ $beyond = append $beyond . }}{{ end }}{{ end }}
+                {{- if $beyond }}{{ $more = append $more (dict "field" "transformSets" "device" $beyond) }}{{ end }}
+              {{- end }}
+              {{- $theirIke := ternary (list $their) list (ne $their "") }}
+              {{- if $ike }}
+                {{- if ne $their $ike }}{{ $drift = append $drift (dict "field" "ikev2Profile" "device" $theirIke "spec" (list $ike)) }}{{ end }}
+              {{- else if and (eq $policy "FullControl") $their }}
+                {{- $more = append $more (dict "field" "ikev2Profile" "device" $theirIke) }}
+              {{- end }}
+              {{- if eq $policy "FullControl" }}
+                {{- range $k, $v := $s }}
+                  {{- if not (has $k (list "transform-set" "ikev2-profile")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}
+                {{- end }}
+                {{- range $k, $v := $p }}
+                  {{- if not (has $k (list "name" "set")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}
+                {{- end }}
+              {{- end }}
+              {{- $seen := dict }}
+              {{- if $theirs }}{{ $_ := set $seen "transformSets" $theirs }}{{ end }}
+              {{- if $their }}{{ $_ := set $seen "ikev2Profile" $their }}{{ end }}
+              {{- $_ := set $status "observed" $seen }}
+              {{- $_ := set $status "drift" $drift }}
+              {{- $_ := set $status "extra" $more }}
+              {{- $present = true }}
+            {{- else }}
+              {{- $_ := unset $status "observed" }}
+              {{- $_ := set $status "drift" list }}
+              {{- $_ := set $status "extra" list }}
+              {{- $present = false }}
+            {{- end }}
+          {{- else if and $method (ge $code 200) (lt $code 300) }}
+            {{- /* after a write that succeeded the response is still the GET before it: the router has the spec, the next GET shows it */}}
+            {{- $undid := dict "drift" (default list $old.drift) "extra" (ternary (default list $old.extra) list (eq $policy "FullControl")) }}
+            {{- if or $undid.drift $undid.extra }}
+              {{- $_ := set $undid "time" (dateInZone "2006-01-02T15:04:05Z" (now) "UTC") }}
+              {{- $_ := set $status "reverted" $undid }}
+            {{- end }}
+            {{- $_ := set $status "drift" list }}
+            {{- if eq $policy "FullControl" }}{{ $_ := set $status "extra" list }}{{ end }}
+            {{- $present = true }}
+          {{- end }}
+          {{- end }}
+          {{- end }}
+          {{- $ready := and $present (not $status.drift) (or (ne $policy "FullControl") (not $status.extra)) }}
+          ---
+          apiVersion: {{ $xr.apiVersion }}
+          kind: {{ $xr.kind }}
+          {{- if or $hold (not $ready) }}
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/ready: "False"
+          {{- end }}
+          status: {{ $status | toJson }}
           {{- end }}
 
   - step: auto-ready
