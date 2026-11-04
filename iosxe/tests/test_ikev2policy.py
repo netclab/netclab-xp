@@ -80,17 +80,15 @@ def test_the_mode_decides_what_the_request_may_do(render, policy, policies, writ
     ] == writes
 
 
-def test_manage_patches_a_merge_on_native(render):
+def test_manage_sends_the_patch_the_router_merged(render):
     request = render(KIND, example("Manage"), required=DEVICES).resources["policy"]
     for_provider = request["spec"]["forProvider"]
-    policy = recorded(KIND, "policy-applied")["body"]["Cisco-IOS-XE-crypto:policy"]
-    assert json.loads(for_provider["payload"]["body"]) == {
-        "Cisco-IOS-XE-native:native": {
-            "crypto": {"Cisco-IOS-XE-crypto:ikev2": {"policy": policy}}
-        }
+    sent = recorded(KIND, "policy-patch")["request"]
+    assert json.loads(for_provider["payload"]["body"]) == sent["body"]
+    writes = [m for m in for_provider["mappings"] if m["action"] != "OBSERVE"]
+    assert {(m["method"], json.loads(m["url"])) for m in writes} == {
+        (sent["method"], sent["url"])
     }
-    urls = {m["url"] for m in for_provider["mappings"] if m["action"] != "OBSERVE"}
-    assert urls == {'"https://172.18.0.101/restconf/data/Cisco-IOS-XE-native:native"'}
 
 
 def test_full_control_puts_what_the_router_then_returns(render):
@@ -106,6 +104,8 @@ def test_full_control_puts_what_the_router_then_returns(render):
         # Beyond the spec: Manage leaves it, FullControl takes it off.
         ("policy-extra-proposal", True, False),
         ("policy-with-match", True, False),
+        # Manage's PATCH over `default` alone, merged by the router.
+        ("policy-patched", True, False),
         # The spec's proposal not on the router.
         ("policy-other-proposal", False, False),
         ("policy-absent", False, False),
@@ -165,6 +165,13 @@ def test_a_block_gone_from_the_router_is_not_ready(after_get):
             [{"field": "proposals", "device": ["default"]}],
             "False",
         ),
+        (
+            "Manage",
+            "policy-patched",
+            [],
+            [{"field": "proposals", "device": ["default"]}],
+            "True",
+        ),
         # A field the spec cannot hold: compared in FullControl alone.
         ("Manage", "policy-with-match", [], [], "True"),
         (
@@ -203,8 +210,9 @@ def test_a_write_that_succeeded_records_what_it_put_back(render):
     request = render(KIND, xr, required=DEVICES).resources["policy"]
     before = render(KIND, xr, [answered(request, "policy-other-proposal")], DEVICES)
     xr["status"] = status(before)
+    code = recorded(KIND, "policy-patch")["statusCode"]
     rendered = render(
-        KIND, xr, [answered(request, "policy-other-proposal", "PATCH", 204)], DEVICES
+        KIND, xr, [answered(request, "policy-other-proposal", "PATCH", code)], DEVICES
     )
     assert status(rendered)["drift"] == []
     assert status(rendered)["reverted"]["drift"] == xr["status"]["drift"]

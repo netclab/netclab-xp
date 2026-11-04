@@ -87,6 +87,20 @@ record() { # record <kind>/<state> <url>: the status code and the body, as the p
   echo "$1: HTTP $code"
 }
 
+patch() { # patch <kind>/<state> <body>: Manage's PATCH on native, sent and recorded with
+  # the router's answer; fails unless 2xx
+  waitsync
+  local body code
+  body=$(mktemp)
+  code=$(curl_ -o "$body" -w '%{http_code}' -X PATCH "$NATIVE" --data-binary "$2")
+  jq -n --arg url "$NATIVE" --argjson sent "$2" --argjson code "$code" --rawfile body "$body" \
+    '{request: {method: "PATCH", url: $url, body: $sent}, statusCode: $code,
+      body: ($body | try fromjson catch $body)}' > "$FIXTURES/$1.json"
+  rm -f "$body"
+  echo "$1: HTTP $code"
+  case $code in 2??) ;; *) exit 1 ;; esac
+}
+
 ikev2proposal() { # iosxe/examples/ikev2proposal/r1.yaml
   local url=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/proposal=CLASSICAL-PROPOSAL
   local example='{"name": "CLASSICAL-PROPOSAL", "encryption": {"aes-cbc-256": [null]},
@@ -107,6 +121,10 @@ ikev2proposal() { # iosxe/examples/ikev2proposal/r1.yaml
   record ikev2proposal/proposal-with-prf "$url"
   put '.group = {"nineteen": [null]}'
   record ikev2proposal/proposal-other-group "$url"
+  # Manage's write over group 19 alone: a merge keeps 19 beside the example's 20
+  patch ikev2proposal/proposal-patch \
+    "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {proposal: [$p]}}}}')"
+  record ikev2proposal/proposal-patched "$url"
 
   write DELETE "$url"
 }
@@ -131,6 +149,11 @@ ikev2policy() { # iosxe/examples/ikev2policy/r1.yaml, on the proposal of iosxe/e
   record ikev2policy/policy-other-proposal "$url"
   put '.match = {"fvrf": {"any": [null]}}'
   record ikev2policy/policy-with-match "$url"
+  # Manage's write over `default` alone: a merge keeps it beside the example's proposal
+  put '.proposal = [{"proposals": "default"}]'
+  patch ikev2policy/policy-patch \
+    "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {policy: [$p]}}}}')"
+  record ikev2policy/policy-patched "$url"
 
   write DELETE "$url"
   write DELETE "$proposal"

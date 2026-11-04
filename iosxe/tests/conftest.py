@@ -169,16 +169,15 @@ def recorded(kind, state):
 
 
 def answered(kind, request, state, method="GET", status=None):
-    """The Request as provider-http leaves it after `method`, the router's answer the one
-    recorded for `kind` in `state`, or an empty body with `status`."""
+    """The Request as provider-http leaves it after `method`: the router's answer the one
+    recorded for `kind` in `state`; after a write answered with `status`, the body is still
+    that GET's, which provider-http keeps until the next GET."""
     out = observed(request, True)
-    response = (
-        recorded(kind, state) if status is None else {"statusCode": status, "body": ""}
-    )
+    response = recorded(kind, state)
     body = response["body"]
     out["status"]["requestDetails"] = {"method": method}
     out["status"]["response"] = {
-        "statusCode": response["statusCode"],
+        "statusCode": response["statusCode"] if status is None else status,
         "body": body if isinstance(body, str) else json.dumps(body),
     }
     return out

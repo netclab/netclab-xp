@@ -94,20 +94,15 @@ def test_the_mode_decides_what_the_request_may_do(render, policy, policies, writ
     ] == writes
 
 
-def test_manage_patches_a_merge_on_native(render):
+def test_manage_sends_the_patch_the_router_merged(render):
     request = render(KIND, example("Manage"), required=DEVICES).resources["proposal"]
     for_provider = request["spec"]["forProvider"]
-    body = json.loads(for_provider["payload"]["body"])
-    proposal = recorded(KIND, "proposal-applied")["body"][
-        "Cisco-IOS-XE-crypto:proposal"
-    ]
-    assert body == {
-        "Cisco-IOS-XE-native:native": {
-            "crypto": {"Cisco-IOS-XE-crypto:ikev2": {"proposal": proposal}}
-        }
+    sent = recorded(KIND, "proposal-patch")["request"]
+    assert json.loads(for_provider["payload"]["body"]) == sent["body"]
+    writes = [m for m in for_provider["mappings"] if m["action"] != "OBSERVE"]
+    assert {(m["method"], json.loads(m["url"])) for m in writes} == {
+        (sent["method"], sent["url"])
     }
-    urls = {m["url"] for m in for_provider["mappings"] if m["action"] != "OBSERVE"}
-    assert urls == {'"https://172.18.0.101/restconf/data/Cisco-IOS-XE-native:native"'}
 
 
 def test_full_control_puts_what_the_router_then_returns(render):
@@ -125,6 +120,8 @@ def test_full_control_puts_what_the_router_then_returns(render):
         # Beyond the spec: Manage leaves it, FullControl takes it off.
         ("proposal-extra-encryption", True, False),
         ("proposal-with-prf", True, False),
+        # Manage's PATCH over group 19 alone, merged by the router.
+        ("proposal-patched", True, False),
         # The spec's values not on the router.
         ("proposal-other-integrity", False, False),
         ("proposal-other-group", False, False),
@@ -226,8 +223,9 @@ def test_a_write_that_succeeded_records_what_it_put_back(render):
     request = render(KIND, xr, required=DEVICES).resources["proposal"]
     before = render(KIND, xr, [answered(request, "proposal-other-group")], DEVICES)
     xr["status"] = status(before)
+    code = recorded(KIND, "proposal-patch")["statusCode"]
     rendered = render(
-        KIND, xr, [answered(request, "proposal-other-group", "PATCH", 204)], DEVICES
+        KIND, xr, [answered(request, "proposal-other-group", "PATCH", code)], DEVICES
     )
     assert status(rendered)["drift"] == []
     assert status(rendered)["reverted"]["drift"] == xr["status"]["drift"]
@@ -236,7 +234,7 @@ def test_a_write_that_succeeded_records_what_it_put_back(render):
     xr["status"] = status(rendered)
     xr["status"]["reverted"]["time"] = "2000-01-01T00:00:00Z"
     again = render(
-        KIND, xr, [answered(request, "proposal-other-group", "PATCH", 204)], DEVICES
+        KIND, xr, [answered(request, "proposal-other-group", "PATCH", code)], DEVICES
     )
     assert status(again)["reverted"] == xr["status"]["reverted"]
 
