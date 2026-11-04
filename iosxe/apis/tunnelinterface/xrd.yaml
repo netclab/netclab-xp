@@ -19,21 +19,27 @@ spec:
     - name: DEVICE
       type: string
       jsonPath: .spec.deviceRef.name
-    - name: TUNNEL
-      type: integer
-      jsonPath: .spec.number
-    - name: MODE
+    - name: INTERFACE
+      type: string
+      jsonPath: .spec.name
+    - name: TUNNEL-MODE
       type: string
       jsonPath: .spec.mode
     - name: ADDRESS
       type: string
       jsonPath: .spec.ipv4Address
+    - name: MODE
+      type: string
+      jsonPath: .spec.managementPolicy
     - name: OPER
       type: string
       jsonPath: .status.oper.interface
     - name: IKE-SA
       type: string
       jsonPath: .status.oper.activePeers
+    - name: WANTS-NAME
+      type: string
+      jsonPath: .status.wantsName
     served: true
     referenceable: true
     schema:
@@ -42,10 +48,30 @@ spec:
         properties:
           spec:
             type: object
+            # A thin object (deviceRef and name) only observes.
+            x-kubernetes-validations:
+            - rule: >-
+                self.managementPolicy == 'Observe'
+                || (has(self.mode) && has(self.ipv4Address) && has(self.source)
+                  && has(self.destination) && has(self.ipsecProfile))
+              message: >-
+                to write, a tunnel needs mode, ipv4Address, source, destination
+                and ipsecProfile
             properties:
+              managementPolicy:
+                type: string
+                description: >-
+                  Observe reads the tunnel interface on the router; Manage writes
+                  the fields of the spec; FullControl makes the interface the
+                  spec, and removes it with the object.
+                enum: [Observe, Manage, FullControl]
+                default: Observe
               deviceRef:
                 type: object
                 description: A Device in the tunnel's namespace.
+                x-kubernetes-validations:
+                - rule: self == oldSelf
+                  message: deviceRef cannot change
                 properties:
                   name:
                     type: string
@@ -72,11 +98,16 @@ spec:
                   required:
                   - kind
                   - name
-              number:
-                type: integer
-                description: Number of the tunnel interface on the router, 0 for Tunnel0.
-                minimum: 0
-                maximum: 2147483647
+              name:
+                type: string
+                description: Name of the tunnel interface on the router, such as Tunnel0.
+                x-kubernetes-validations:
+                - rule: >-
+                    self.matches('^Tunnel(0|[1-9][0-9]{0,9})$')
+                    && int(self.substring(6)) <= 2147483647
+                  message: Tunnel and the interface's number, such as Tunnel0
+                - rule: self == oldSelf
+                  message: name cannot change
               mode:
                 type: string
                 description: Tunnel mode, `ipsec-ipv4` for `tunnel mode ipsec ipv4`.
@@ -102,15 +133,91 @@ spec:
                 minLength: 1
             required:
             - deviceRef
-            - number
-            - mode
-            - ipv4Address
-            - source
-            - destination
-            - ipsecProfile
+            - name
           status:
             type: object
             properties:
+              wantsName:
+                type: string
+                description: The name the object needs, when it has another.
+              observed:
+                type: object
+                description: >-
+                  The tunnel interface on the router, in the shape of the spec; a
+                  mode the spec cannot hold is given as JSON.
+                properties:
+                  mode:
+                    type: string
+                  ipv4Address:
+                    type: string
+                  source:
+                    type: string
+                  destination:
+                    type: string
+                  ipsecProfile:
+                    type: string
+              drift:
+                type: array
+                description: Fields whose values in the spec the router lacks.
+                items:
+                  type: object
+                  properties:
+                    field:
+                      type: string
+                    device:
+                      type: array
+                      items:
+                        type: string
+                    spec:
+                      type: array
+                      items:
+                        type: string
+              extra:
+                type: array
+                description: >-
+                  In FullControl, what the router has beyond the spec; a field the
+                  spec cannot hold, such as description or shutdown, given as JSON.
+                items:
+                  type: object
+                  properties:
+                    field:
+                      type: string
+                    device:
+                      type: array
+                      items:
+                        type: string
+              reverted:
+                type: object
+                description: The drift and extra values the last write put back.
+                properties:
+                  time:
+                    type: string
+                  drift:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        field:
+                          type: string
+                        device:
+                          type: array
+                          items:
+                            type: string
+                        spec:
+                          type: array
+                          items:
+                            type: string
+                  extra:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        field:
+                          type: string
+                        device:
+                          type: array
+                          items:
+                            type: string
               oper:
                 type: object
                 description: The tunnel as the router reported it at the provider's last poll.

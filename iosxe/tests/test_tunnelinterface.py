@@ -1,14 +1,28 @@
-"""TunnelInterface: the check its Request observes with, on the router's recorded answers,
-the mask its body carries for a prefix length, and the state the router reports for it."""
+"""TunnelInterface: its name, its modes, the check its Request observes with on the router's
+recorded answers, the status it makes of them, the mask its body carries for a prefix
+length, and the state the router reports for it."""
 
 import copy
 import json
+from functools import partial
 
 import pytest
-from conftest import IOSXE, check, in_namespace, observed, recorded
+from conftest import (
+    EXAMPLES,
+    IOSXE,
+    check,
+    in_namespace,
+    observed,
+    ready,
+    recorded,
+    status,
+)
+from conftest import answered as _answered
 
 KIND = "tunnelinterface"
-XR = "r1-tunnel0"
+XR = "r1--tunnel0--d311cfe5"
+DEVICES = [in_namespace(p) for p in EXAMPLES if p.parent.name == "device"]
+answered = partial(_answered, KIND)
 
 # A prefix that ends in each octet, and both ends of the range.
 MASKS = {
@@ -23,28 +37,230 @@ MASKS = {
 }
 
 
+def example(policy=None, **spec):
+    xr = in_namespace(IOSXE / "examples" / KIND / "r1.yaml")
+    # No `after`: the requests are composed at once.
+    del xr["spec"]["after"]
+    if policy:
+        xr["spec"]["managementPolicy"] = policy
+    else:
+        del xr["spec"]["managementPolicy"]
+    xr["spec"].update(spec)
+    return xr
+
+
+def thin(name="Tunnel0", xr_name=XR):
+    """An object as Step 3 imports it: deviceRef and name, no mode."""
+    return {
+        "apiVersion": "iosxe.netclab.dev/v1alpha1",
+        "kind": "TunnelInterface",
+        "metadata": {"name": xr_name, "namespace": "lab"},
+        "spec": {"deviceRef": {"name": "r1"}, "name": name},
+    }
+
+
+def request(render, xr):
+    return render(KIND, xr, required=DEVICES).resources["tunnel"]
+
+
+def test_an_object_under_another_name_composes_nothing(render):
+    xr = thin(xr_name="r1-tunnel0")
+    rendered = render(KIND, xr, required=DEVICES)
+    assert rendered.resources == {}
+    assert rendered.composite["status"]["wantsName"] == XR
+    assert ready(rendered) == "False"
+    xr["metadata"]["name"] = XR
+    assert list(render(KIND, xr, required=DEVICES).resources) == ["tunnel"]
+
+
+def test_the_name_gives_the_interface_number(render):
+    xr = thin("Tunnel12", "r1--tunnel12--" + "x" * 8)
+    wants = render(KIND, xr, required=DEVICES).composite["status"]["wantsName"]
+    xr["metadata"]["name"] = wants
+    url = request(render, xr)["spec"]["forProvider"]["payload"]["baseUrl"]
+    assert url.endswith("/interface/Tunnel=12")
+
+
 @pytest.mark.parametrize(
-    ("state", "up_to_date"),
+    ("policy", "policies", "writes"),
     [
-        ("tunnel-applied", True),
-        # One field away from the example each.
-        ("tunnel-host-mask", False),
-        ("tunnel-other-destination", False),
-        ("tunnel-gre", False),
-        ("tunnel-no-protection", False),
-        ("tunnel-shutdown", False),
-        ("tunnel-absent", False),
+        (None, ["Observe"], []),
+        (
+            "Manage",
+            ["Observe", "Create", "Update"],
+            [("CREATE", "PATCH"), ("UPDATE", "PATCH")],
+        ),
+        (
+            "FullControl",
+            ["*"],
+            [("CREATE", "PUT"), ("UPDATE", "PUT"), ("REMOVE", "DELETE")],
+        ),
     ],
 )
-def test_tunnel_compares_the_whole_interface(rendered, state, up_to_date):
-    tunnel = rendered[XR]["tunnel"]
-    result = check(tunnel, "expectedResponseCheck", recorded(KIND, state))
-    assert result is up_to_date
+def test_the_mode_decides_what_the_request_may_do(render, policy, policies, writes):
+    spec = request(render, example(policy))["spec"]
+    assert spec["managementPolicies"] == policies
+    assert [
+        (m["action"], m["method"])
+        for m in spec["forProvider"]["mappings"]
+        if m["action"] != "OBSERVE"
+    ] == writes
 
 
-def test_tunnel_puts_what_the_router_then_returns(rendered):
-    body = rendered[XR]["tunnel"]["spec"]["forProvider"]["payload"]["body"]
-    assert json.loads(body) == recorded(KIND, "tunnel-applied")["body"]
+def test_manage_sends_the_patch_the_router_merged(render):
+    for_provider = request(render, example("Manage"))["spec"]["forProvider"]
+    sent = recorded(KIND, "tunnel-patch")["request"]
+    assert json.loads(for_provider["payload"]["body"]) == sent["body"]
+    writes = [m for m in for_provider["mappings"] if m["action"] != "OBSERVE"]
+    assert {(m["method"], json.loads(m["url"])) for m in writes} == {
+        (sent["method"], sent["url"])
+    }
+
+
+def test_full_control_puts_what_the_router_then_returns(render):
+    body = request(render, example("FullControl"))["spec"]["forProvider"]
+    assert (
+        json.loads(body["payload"]["body"]) == recorded(KIND, "tunnel-applied")["body"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("state", "manage", "full_control"),
+    [
+        ("tunnel-applied", True, True),
+        # A line the spec cannot hold: Manage leaves it, FullControl takes it off.
+        ("tunnel-shutdown", True, False),
+        # Manage's PATCH over a description made by hand, merged by the router.
+        ("tunnel-patched", True, False),
+        # A value of the spec the router lacks.
+        ("tunnel-host-mask", False, False),
+        ("tunnel-other-destination", False, False),
+        ("tunnel-gre", False, False),
+        ("tunnel-no-protection", False, False),
+        ("tunnel-absent", False, False),
+    ],
+)
+def test_check_is_the_mode_write_changing_nothing(render, state, manage, full_control):
+    for policy, expected in [("Manage", manage), ("FullControl", full_control)]:
+        req = request(render, example(policy))
+        assert check(req, "expectedResponseCheck", recorded(KIND, state)) is expected
+
+
+@pytest.fixture(scope="module")
+def after_get(render):
+    """The XR rendered with its Request answered by a GET of the router in `state`."""
+
+    def _after_get(xr, state):
+        return render(KIND, xr, [answered(request(render, xr), state)], DEVICES)
+
+    return _after_get
+
+
+APPLIED = {
+    "mode": "ipsec-ipv4",
+    "ipv4Address": "192.168.100.1/24",
+    "source": "GigabitEthernet2",
+    "destination": "10.0.23.2",
+    "ipsecProfile": "CLASSICAL-IPSEC",
+}
+
+
+@pytest.mark.parametrize(
+    ("state", "differs"),
+    [
+        ("tunnel-applied", {}),
+        # The mask back as a prefix length.
+        ("tunnel-host-mask", {"ipv4Address": "192.168.100.1/32"}),
+        # A mode the spec cannot hold, as JSON.
+        ("tunnel-gre", {"mode": '{"gre-config":{"ip":true}}'}),
+        ("tunnel-no-protection", {"ipsecProfile": None}),
+    ],
+)
+def test_a_thin_object_shows_the_router_in_the_shape_of_the_spec(
+    after_get, state, differs
+):
+    rendered = after_get(thin(), state)
+    seen = {k: v for k, v in {**APPLIED, **differs}.items() if v is not None}
+    assert status(rendered) == {"observed": seen, "drift": [], "extra": []}
+    assert ready(rendered) == "True"
+
+
+def test_a_block_gone_from_the_router_is_not_ready(after_get):
+    xr = thin()
+    xr["status"] = {"observed": {"mode": "ipsec-ipv4"}, "drift": [], "extra": []}
+    rendered = after_get(xr, "tunnel-absent")
+    assert "observed" not in status(rendered)
+    assert ready(rendered) == "False"
+
+
+@pytest.mark.parametrize(
+    ("policy", "state", "drift", "extra", "is_ready"),
+    [
+        (
+            None,
+            "tunnel-other-destination",
+            [{"field": "destination", "device": ["10.0.23.9"], "spec": ["10.0.23.2"]}],
+            [],
+            "False",
+        ),
+        (
+            "Manage",
+            "tunnel-no-protection",
+            [{"field": "ipsecProfile", "device": [], "spec": ["CLASSICAL-IPSEC"]}],
+            [],
+            "False",
+        ),
+        # A line the spec cannot hold: compared in FullControl alone.
+        ("Manage", "tunnel-patched", [], [], "True"),
+        (
+            "FullControl",
+            "tunnel-patched",
+            [],
+            [{"field": "description", "device": ['"made by hand"']}],
+            "False",
+        ),
+        (
+            "FullControl",
+            "tunnel-shutdown",
+            [],
+            [{"field": "shutdown", "device": ["[null]"]}],
+            "False",
+        ),
+    ],
+)
+def test_drift_and_extra_follow_the_mode(
+    after_get, policy, state, drift, extra, is_ready
+):
+    rendered = after_get(example(policy), state)
+    assert status(rendered)["drift"] == drift
+    assert status(rendered)["extra"] == extra
+    assert ready(rendered) == is_ready
+
+
+def test_a_write_that_succeeded_records_what_it_put_back(render):
+    xr = example("Manage")
+    req = request(render, xr)
+    before = render(KIND, xr, [answered(req, "tunnel-other-destination")], DEVICES)
+    xr["status"] = status(before)
+    code = recorded(KIND, "tunnel-patch")["statusCode"]
+    rendered = render(
+        KIND, xr, [answered(req, "tunnel-other-destination", "PATCH", code)], DEVICES
+    )
+    assert status(rendered)["drift"] == []
+    assert status(rendered)["reverted"]["drift"] == xr["status"]["drift"]
+    assert ready(rendered) == "True"
+
+
+def test_a_write_that_failed_changes_nothing(render):
+    xr = example("Manage")
+    req = request(render, xr)
+    before = render(KIND, xr, [answered(req, "tunnel-other-destination")], DEVICES)
+    xr["status"] = status(before)
+    rendered = render(
+        KIND, xr, [answered(req, "tunnel-other-destination", "PATCH", 409)], DEVICES
+    )
+    assert status(rendered) == xr["status"]
+    assert ready(rendered) == "False"
 
 
 @pytest.fixture(scope="module")
@@ -52,12 +268,10 @@ def masks(render):
     """The mask in the body for each prefix length of MASKS, one render each."""
     out = {}
     for length in MASKS:
-        xr = in_namespace(IOSXE / "examples" / KIND / "r1.yaml")
-        xr["metadata"]["name"] = f"{XR}-{length}"
-        xr["spec"]["ipv4Address"] = f"192.168.100.1/{length}"
-        tunnel = render(KIND, xr).resources["tunnel"]["spec"]["forProvider"]
-        body = json.loads(tunnel["payload"]["body"])["Cisco-IOS-XE-native:Tunnel"][0]
-        out[length] = body["ip"]["address"]["primary"]["mask"]
+        xr = example("FullControl", ipv4Address=f"192.168.100.1/{length}")
+        body = request(render, xr)["spec"]["forProvider"]["payload"]["body"]
+        tunnel = json.loads(body)["Cisco-IOS-XE-native:Tunnel"][0]
+        out[length] = tunnel["ip"]["address"]["primary"]["mask"]
     return out
 
 
@@ -66,7 +280,7 @@ def test_tunnel_turns_the_prefix_length_into_a_mask(masks, length, mask):
     assert masks[length] == mask
 
 
-def answered(request, response):
+def read(request, response):
     """A read-only Request as provider-http leaves it after an answer: the body a string."""
     out = observed(request, True)
     body = response["body"]
@@ -87,15 +301,15 @@ def sa_elsewhere():
 
 @pytest.fixture(scope="module")
 def state(rendered, render):
-    """state(oper, sa): the XR's status.oper with these answers to its two reads."""
-    xr = in_namespace(IOSXE / "examples" / KIND / "r1.yaml")
+    """state(oper, sa, xr): the XR's status.oper with these answers to its two reads."""
     resources = rendered[XR]
 
-    def _state(oper, sa):
+    def _state(oper, sa, xr=None):
+        xr = xr or in_namespace(IOSXE / "examples" / KIND / "r1.yaml")
         before = [
-            observed(resources["tunnel"], True),
-            answered(resources["oper"], recorded(KIND, oper)),
-            answered(
+            answered(resources["tunnel"], "tunnel-applied"),
+            read(resources["oper"], recorded(KIND, oper)),
+            read(
                 resources["ike-sa"], sa if isinstance(sa, dict) else recorded(KIND, sa)
             ),
         ]
@@ -133,6 +347,10 @@ def test_status_carries_what_the_router_reports(state, oper, sa, expected):
     assert state(oper, sa) == expected
 
 
+def test_a_thin_object_counts_the_sa_to_the_router_s_destination(state):
+    assert state("oper-ready", "sa-active", thin())["peers"] == peer("active")
+
+
 def test_status_counts_only_the_sa_to_the_destination(state):
     assert state("oper-ready", sa_elsewhere())["peers"] == peer("none")
 
@@ -157,9 +375,11 @@ def test_reads_the_router_once_the_tunnel_request_exists(render, rendered):
 
 def test_state_never_holds_back_ready(render, rendered):
     xr = in_namespace(IOSXE / "examples" / KIND / "r1.yaml")
-    # The tunnel and the Usage Ready, the two reads not.
+    # The tunnel as on the router and the Usage Ready, the two reads not.
     before = [
-        observed(r, name not in ("oper", "ike-sa")) for name, r in rendered[XR].items()
+        answered(r, "tunnel-applied")
+        if name == "tunnel"
+        else observed(r, name not in ("oper", "ike-sa"))
+        for name, r in rendered[XR].items()
     ]
-    conditions = render(KIND, xr, before).composite["status"]["conditions"]
-    assert {c["type"]: c["status"] for c in conditions}["Ready"] == "True"
+    assert ready(render(KIND, xr, before)) == "True"

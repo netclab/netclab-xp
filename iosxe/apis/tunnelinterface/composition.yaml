@@ -11,9 +11,14 @@ spec:
   # One Request owns the tunnel interface over RESTCONF. The body always
   # carries the mode: without one the router makes a GRE tunnel. The router
   # returns `ipsec ipv4` as both `ipv4-mode` and `ipv4`, so the body carries
-  # both. A PATCH keeps lines the body leaves out, hence PUT, which also drops
-  # lines set on the router. The router refuses a tunnel naming a missing IPsec
-  # profile, and the profile's delete while a tunnel names it.
+  # both. Lines the spec has no field for, such as description or shutdown, are
+  # beyond the spec, and FullControl takes them off. The router refuses a tunnel
+  # naming a missing IPsec profile, and the profile's delete while a tunnel
+  # names it.
+  # Observe only reads; Manage PATCHes the fields of the spec, a merge;
+  # FullControl PUTs the interface and DELETEs it with the object. The status is
+  # the last GET in the shape of the spec; Ready means the mode's write would
+  # change nothing.
   # Once the tunnel's Request exists, two Requests only read the router: the
   # interface's oper-status and the IKEv2 SAs, of which the one to the tunnel's
   # destination counts; the XR's status carries both as of their last poll.
@@ -34,6 +39,24 @@ spec:
           {{- $xr := .observed.composite.resource }}
           {{- $ns := $xr.metadata.namespace }}
           {{- $after := default (list) $xr.spec.after }}
+          {{- $observed := default (dict) .observed.resources }}
+          {{- $policy := $xr.spec.managementPolicy | default "Observe" }}
+          {{- $old := default (dict) $xr.status }}
+          {{- /* <device>--<slug>--<8 hex>, at most 63 characters */}}
+          {{- $device := $xr.spec.deviceRef.name }}
+          {{- $slug := regexReplaceAll "[^a-z0-9]+" (lower $xr.spec.name) "-" | trimAll "-" }}
+          {{- $slug = trunc (int (max 0 (sub 51 (len $device)))) $slug | trimSuffix "-" }}
+          {{- $want := printf "%s--%s--%s" $device $slug (sha256sum $xr.spec.name | trunc 8) }}
+          {{- if ne $xr.metadata.name $want }}
+          ---
+          apiVersion: {{ $xr.apiVersion }}
+          kind: {{ $xr.kind }}
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/ready: "False"
+          status:
+            wantsName: {{ $want }}
+          {{- else }}
           ---
           apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
           kind: ExtraResources
@@ -41,7 +64,7 @@ spec:
             device:
               apiVersion: iosxe.netclab.dev/v1alpha1
               kind: Device
-              matchName: {{ $xr.spec.deviceRef.name }}
+              matchName: {{ $device }}
               namespace: {{ $ns }}
             {{- range $i, $a := $after }}
             after-{{ $i }}:
@@ -79,38 +102,55 @@ spec:
           {{- end }}{{ end }}
           {{- if not $ready }}{{ $waiting = true }}{{ end }}
           {{- end }}
-          {{- if and $waiting (not (index (default (dict) .observed.resources) "tunnel")) }}
-          ---
-          apiVersion: {{ $xr.apiVersion }}
-          kind: {{ $xr.kind }}
-          metadata:
-            annotations:
-              gotemplating.fn.crossplane.io/ready: "False"
-          {{- else }}
-          {{- with .extraResources }}{{ with index . "device" }}{{ with .items }}
-          {{- $dev := (index . 0).resource }}
+          {{- $hold := and $waiting (not (hasKey $observed "tunnel")) }}
+          {{- $number := int (trimPrefix "Tunnel" $xr.spec.name) }}
+          {{- $fields := list "mode" "ipv4Address" "source" "destination" "ipsecProfile" }}
+          {{- $spec := dict }}
+          {{- range $f := $fields }}{{ with get $xr.spec $f }}{{ $_ := set $spec $f . }}{{ end }}{{ end }}
+          {{- $modes := dict "ipsec-ipv4" (dict "ipsec" (dict "ipv4-mode" (dict) "ipv4" (dict))) }}
+          {{- $octet := list 0 128 192 224 240 248 252 254 255 }}
+          {{- $address := "" }}{{ $mask := "" }}
+          {{- with $spec.ipv4Address }}
+            {{- $cidr := splitList "/" . }}
+            {{- $address = index $cidr 0 }}
+            {{- /* The router takes a mask. Each octet holds 0 to 8 bits of the
+                   prefix, and an octet of n bits is the n-th of these values. */}}
+            {{- $length := atoi (index $cidr 1) }}
+            {{- $octets := list }}
+            {{- range $i := until 4 }}{{ $octets = append $octets (index $octet (max 0 (min 8 (sub $length (mul 8 $i))))) }}{{ end }}
+            {{- $mask = join "." $octets }}
+          {{- end }}
+          {{- $dev := dict }}
+          {{- with .extraResources }}{{ with index . "device" }}{{ with .items }}{{ $dev = (index . 0).resource }}{{ end }}{{ end }}{{ end }}
+          {{- if and (not $hold) $dev }}
           {{- $cred := $dev.spec.credentialsSecretRef }}
           {{- $auth := printf "{{ %s:%s:%s }}" $cred.name $ns $cred.key }}
-          {{- $number := int $xr.spec.number }}
-          {{- $url := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native/interface/Tunnel=%d" $dev.spec.address $number }}
-          {{- $modes := dict "ipsec-ipv4" (dict "ipsec" (dict "ipv4-mode" (dict) "ipv4" (dict))) }}
-          {{- /* The router takes a mask. Each octet holds 0 to 8 bits of the
-                 prefix, and an octet of n bits is the n-th of these values. */}}
-          {{- $cidr := splitList "/" $xr.spec.ipv4Address }}
-          {{- $length := atoi (index $cidr 1) }}
-          {{- $octets := list }}
-          {{- range $i := until 4 }}
-            {{- $bits := max 0 (min 8 (sub $length (mul 8 $i))) }}
-            {{- $octets = append $octets (index (list 0 128 192 224 240 248 252 254 255) $bits) }}
+          {{- $native := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native" $dev.spec.address }}
+          {{- $url := printf "%s/interface/Tunnel=%d" $native $number }}
+          {{- $tunnel := dict "name" $number }}
+          {{- $inner := dict }}
+          {{- if $address }}{{ $_ := set $tunnel "ip" (dict "address" (dict "primary" (dict "address" $address "mask" $mask))) }}{{ end }}
+          {{- with $spec.source }}{{ $_ := set $inner "source" . }}{{ end }}
+          {{- with $spec.destination }}{{ $_ := set $inner "destination-config" (dict "ipv4" .) }}{{ end }}
+          {{- with $spec.mode }}{{ $_ := set $inner "mode" (get $modes .) }}{{ end }}
+          {{- with $spec.ipsecProfile }}{{ $_ := set $inner "protection" (dict "Cisco-IOS-XE-crypto:ipsec" (dict "profile-option" (dict "name" .))) }}{{ end }}
+          {{- if $inner }}{{ $_ := set $tunnel "Cisco-IOS-XE-tunnel:tunnel" $inner }}{{ end }}
+          {{- $put := dict "Cisco-IOS-XE-native:Tunnel" (list $tunnel) }}
+          {{- /* a merge on native, which exists, creates the interface if it does not */}}
+          {{- $patch := dict "Cisco-IOS-XE-native:native" (dict "interface" (dict "Tunnel" (list $tunnel))) }}
+          {{- /* the check, field by field, on the router's own terms */}}
+          {{- $checks := list }}
+          {{- with $spec.mode }}{{ $checks = append $checks (printf "$u.mode == %s" (get $modes . | toJson)) }}{{ end }}
+          {{- if $address }}{{ $checks = append $checks (printf "$t.ip.address.primary == %s" (dict "address" $address "mask" $mask | toJson)) }}{{ end }}
+          {{- with $spec.source }}{{ $checks = append $checks (printf "$u.source == %s" (toJson .)) }}{{ end }}
+          {{- with $spec.destination }}{{ $checks = append $checks (printf "$u[\"destination-config\"].ipv4 == %s" (toJson .)) }}{{ end }}
+          {{- with $spec.ipsecProfile }}{{ $checks = append $checks (printf "$u.protection[\"Cisco-IOS-XE-crypto:ipsec\"][\"profile-option\"].name == %s" (toJson .)) }}{{ end }}
+          {{- if eq $policy "FullControl" }}
+            {{- $checks = append $checks "($t | del(.name, .ip, .[\"Cisco-IOS-XE-tunnel:tunnel\"])) == {}" }}
+            {{- $checks = append $checks "(($t.ip // {}) | del(.address)) == {}" }}
+            {{- $checks = append $checks "(($t.ip.address // {}) | del(.primary)) == {}" }}
+            {{- $checks = append $checks "($u | del(.source, .[\"destination-config\"], .mode, .protection)) == {}" }}
           {{- end }}
-          {{- $tunnel := dict
-            "name" $number
-            "ip" (dict "address" (dict "primary" (dict "address" (index $cidr 0) "mask" (join "." $octets))))
-            "Cisco-IOS-XE-tunnel:tunnel" (dict
-              "source" $xr.spec.source
-              "destination-config" (dict "ipv4" $xr.spec.destination)
-              "mode" (index $modes $xr.spec.mode)
-              "protection" (dict "Cisco-IOS-XE-crypto:ipsec" (dict "profile-option" (dict "name" $xr.spec.ipsecProfile)))) }}
           ---
           apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
@@ -118,6 +158,13 @@ spec:
             annotations:
               gotemplating.fn.crossplane.io/composition-resource-name: tunnel
           spec:
+            {{- if eq $policy "Observe" }}
+            managementPolicies: ["Observe"]
+            {{- else if eq $policy "Manage" }}
+            managementPolicies: ["Observe", "Create", "Update"]
+            {{- else }}
+            managementPolicies: ["*"]
+            {{- end }}
             forProvider:
               insecureSkipTLSVerify: {{ $dev.spec.insecureSkipTLSVerify }}
               headers:
@@ -126,11 +173,21 @@ spec:
                 Authorization: ["Basic {{ $auth }}"]
               payload:
                 baseUrl: {{ $url | quote }}
-                body: {{ dict "Cisco-IOS-XE-native:Tunnel" (list $tunnel) | toJson | quote }}
+                body: {{ (ternary $put $patch (eq $policy "FullControl")) | toJson | quote }}
               mappings:
               - action: OBSERVE
                 method: GET
                 url: .payload.baseUrl
+              {{- if eq $policy "Manage" }}
+              - action: CREATE
+                method: PATCH
+                url: {{ $native | quote | quote }}
+                body: .payload.body
+              - action: UPDATE
+                method: PATCH
+                url: {{ $native | quote | quote }}
+                body: .payload.body
+              {{- else if eq $policy "FullControl" }}
               - action: CREATE
                 method: PUT
                 url: .payload.baseUrl
@@ -142,13 +199,15 @@ spec:
               - action: REMOVE
                 method: DELETE
                 url: .payload.baseUrl
+              {{- end }}
               expectedResponseCheck:
                 type: CUSTOM
                 logic: |
                   if .response.statusCode != 200 then false else
-                    .response.body["Cisco-IOS-XE-native:Tunnel"][0] == {{ $tunnel | toJson }}
+                    .response.body["Cisco-IOS-XE-native:Tunnel"][0] as $t
+                    | ($t["Cisco-IOS-XE-tunnel:tunnel"] // {}) as $u
+                    | {{ ternary (join " and " $checks) "true" (gt (len $checks) 0) }}
                   end
-          {{- $observed := default (dict) $.observed.resources }}
           {{- if hasKey $observed "tunnel" }}
           {{- range $name, $path := dict
                 "oper" (printf "Cisco-IOS-XE-interfaces-oper:interfaces/interface=Tunnel%d/oper-status" $number)
@@ -175,40 +234,113 @@ spec:
                 url: .payload.baseUrl
           {{- end }}
           {{- end }}
-          {{- /* A Request's last answer: 200 with a body, or 204 for no SA at all. */}}
+          {{- end }}
+          {{- $status := dict }}
+          {{- range $k := list "observed" "drift" "extra" "reverted" }}{{ if hasKey $old $k }}{{ $_ := set $status $k (index $old $k) }}{{ end }}{{ end }}
+          {{- $present := hasKey $status "observed" }}
+          {{- with index $observed "tunnel" }}
+          {{- $rs := default (dict) .resource.status }}
+          {{- $method := "" }}{{ with $rs.requestDetails }}{{ $method = .method | default "" }}{{ end }}
+          {{- with $rs.response }}
+          {{- $code := int (.statusCode | default 0) }}
+          {{- if eq $method "GET" }}
+            {{- if eq $code 200 }}
+              {{- $t := index (index (fromYaml .body) "Cisco-IOS-XE-native:Tunnel") 0 }}
+              {{- $u := get $t "Cisco-IOS-XE-tunnel:tunnel" | default dict }}
+              {{- $ip := get $t "ip" | default dict }}
+              {{- $addr := get $ip "address" | default dict }}
+              {{- $router := dict }}
+              {{- with get $u "mode" }}
+                {{- if hasKey (get . "ipsec" | default dict) "ipv4" }}{{ $_ := set $router "mode" "ipsec-ipv4" }}{{ else }}{{ $_ := set $router "mode" (toJson .) }}{{ end }}
+              {{- end }}
+              {{- with get $addr "primary" }}
+                {{- $length := 0 }}
+                {{- range splitList "." .mask }}{{ $n := atoi . }}{{ range $i, $v := $octet }}{{ if eq $v $n }}{{ $length = add $length $i }}{{ end }}{{ end }}{{ end }}
+                {{- $_ := set $router "ipv4Address" (printf "%s/%d" .address $length) }}
+              {{- end }}
+              {{- with get $u "source" }}{{ $_ := set $router "source" (toString .) }}{{ end }}
+              {{- with get $u "destination-config" }}{{ with get . "ipv4" }}{{ $_ := set $router "destination" . }}{{ end }}{{ end }}
+              {{- with get $u "protection" }}{{ with get . "Cisco-IOS-XE-crypto:ipsec" }}{{ with get . "profile-option" }}{{ with get . "name" }}{{ $_ := set $router "ipsecProfile" . }}{{ end }}{{ end }}{{ end }}{{ end }}
+              {{- $drift := list }}
+              {{- $more := list }}
+              {{- range $f := $fields }}
+                {{- $theirs := ternary (list (get $router $f)) list (hasKey $router $f) }}
+                {{- if hasKey $spec $f }}
+                  {{- if ne (get $router $f | toString) (get $spec $f | toString) }}{{ $drift = append $drift (dict "field" $f "device" $theirs "spec" (list (get $spec $f))) }}{{ end }}
+                {{- else if and (eq $policy "FullControl") (hasKey $router $f) }}
+                  {{- $more = append $more (dict "field" $f "device" $theirs) }}
+                {{- end }}
+              {{- end }}
+              {{- if eq $policy "FullControl" }}
+                {{- range $k, $v := $t }}{{ if not (has $k (list "name" "ip" "Cisco-IOS-XE-tunnel:tunnel")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}{{ end }}
+                {{- range $k, $v := $ip }}{{ if ne $k "address" }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}{{ end }}
+                {{- range $k, $v := $addr }}{{ if ne $k "primary" }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}{{ end }}
+                {{- range $k, $v := $u }}{{ if not (has $k (list "source" "destination-config" "mode" "protection")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}{{ end }}
+              {{- end }}
+              {{- $_ := set $status "observed" $router }}
+              {{- $_ := set $status "drift" $drift }}
+              {{- $_ := set $status "extra" $more }}
+              {{- $present = true }}
+            {{- else }}
+              {{- $_ := unset $status "observed" }}
+              {{- $_ := set $status "drift" list }}
+              {{- $_ := set $status "extra" list }}
+              {{- $present = false }}
+            {{- end }}
+          {{- else if and $method (ge $code 200) (lt $code 300) }}
+            {{- /* after a write that succeeded the response is still the GET before it: the router has the spec, the next GET shows it */}}
+            {{- $undid := dict "drift" (default list $old.drift) "extra" (ternary (default list $old.extra) list (eq $policy "FullControl")) }}
+            {{- if or $undid.drift $undid.extra }}
+              {{- $_ := set $undid "time" (dateInZone "2006-01-02T15:04:05Z" (now) "UTC") }}
+              {{- $_ := set $status "reverted" $undid }}
+            {{- end }}
+            {{- $_ := set $status "drift" list }}
+            {{- if eq $policy "FullControl" }}{{ $_ := set $status "extra" list }}{{ end }}
+            {{- $present = true }}
+          {{- end }}
+          {{- end }}
+          {{- end }}
+          {{- /* A read's last answer: 200 with a body, or 204 for no SA at all. The SA
+                 counts to the spec's destination, or to the router's for a thin object. */}}
+          {{- $destination := $spec.destination | default (get (get $status "observed" | default dict) "destination") | default "" }}
           {{- $oper := dict }}
           {{- with index $observed "oper" }}{{ with .resource.status }}{{ with .response }}
           {{- if eq (int .statusCode) 200 }}
           {{- $_ := set $oper "interface" (trimPrefix "if-oper-state-" (index (fromYaml .body) "Cisco-IOS-XE-interfaces-oper:oper-status")) }}
           {{- end }}
           {{- end }}{{ end }}{{ end }}
+          {{- if $destination }}
           {{- with index $observed "ike-sa" }}{{ with .resource.status }}{{ with .response }}
           {{- $state := "" }}
           {{- if eq (int .statusCode) 204 }}{{ $state = "none" }}{{ end }}
           {{- if eq (int .statusCode) 200 }}
           {{- $state = "none" }}
           {{- range index (fromYaml .body) "Cisco-IOS-XE-crypto-oper:crypto-ikev2-sa" }}
-          {{- if and (eq (index . "sa-data" "remote-ip-addr") $xr.spec.destination) (ne $state "active") }}
+          {{- if and (eq (index . "sa-data" "remote-ip-addr") $destination) (ne $state "active") }}
           {{- $state = trimPrefix "crypto-sa-status-" (index . "sa-data" "sa-status") }}
           {{- end }}
           {{- end }}
           {{- end }}
           {{- if $state }}
-          {{- $peers := list (dict "address" $xr.spec.destination "ikeSA" $state) }}
+          {{- $peers := list (dict "address" $destination "ikeSA" $state) }}
           {{- $active := 0 }}
           {{- range $peers }}{{ if eq .ikeSA "active" }}{{ $active = add1 $active }}{{ end }}{{ end }}
           {{- $_ := set $oper "peers" $peers }}
           {{- $_ := set $oper "activePeers" (printf "%d/%d" $active (len $peers)) }}
           {{- end }}
           {{- end }}{{ end }}{{ end }}
-          {{- if $oper }}
+          {{- end }}
+          {{- if $oper }}{{ $_ := set $status "oper" $oper }}{{ end }}
+          {{- $ready := and $present (not $status.drift) (or (ne $policy "FullControl") (not $status.extra)) }}
           ---
           apiVersion: {{ $xr.apiVersion }}
           kind: {{ $xr.kind }}
-          status:
-            oper: {{ $oper | toJson }}
+          {{- if or $hold (not $ready) }}
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/ready: "False"
           {{- end }}
-          {{- end }}{{ end }}{{ end }}
+          status: {{ $status | toJson }}
           {{- end }}
 
   - step: auto-ready

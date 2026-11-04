@@ -390,6 +390,13 @@ tunnelinterface() { # iosxe/examples/tunnelinterface/r1.yaml, on part 9's IPsec 
   record tunnelinterface/tunnel-no-protection "$url"
   put '.shutdown = [null]'
   record tunnelinterface/tunnel-shutdown "$url"
+  # Manage's write over another destination and mask, and a description made by hand:
+  # a merge puts back the spec's and keeps the description
+  put '.ip.address.primary.mask = "255.255.255.255" | .description = "made by hand"
+    | .["Cisco-IOS-XE-tunnel:tunnel"]["destination-config"].ipv4 = "10.0.23.9"'
+  patch tunnelinterface/tunnel-patch \
+    "$(jq -nc --argjson t "$example" '{"Cisco-IOS-XE-native:native": {interface: {Tunnel: [$t]}}}')"
+  record tunnelinterface/tunnel-patched "$url"
 
   write DELETE "$url"
   unstack "$NATIVE"

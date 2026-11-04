@@ -1,13 +1,14 @@
 apiVersion: iosxe.netclab.dev/v1alpha1
 kind: TunnelInterface
 metadata:
-  name: r3-tunnel0
+  name: r3--tunnel0--d311cfe5
 spec:
+  managementPolicy: FullControl
   deviceRef:
     name: r3
   after:
   - {kind: IpsecProfile, name: r3--classical-ipsec--461c477a}
-  number: 0
+  name: Tunnel0
   mode: ipsec-ipv4
   ipv4Address: 192.168.100.2/24
   source: GigabitEthernet2
