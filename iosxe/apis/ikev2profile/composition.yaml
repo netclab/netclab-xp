@@ -19,7 +19,8 @@ spec:
   # over cli-rpc, once the profile's Request is Ready, and clears the peers' SAs
   # only when it replaces a mark of its own: taking over a profile changes
   # nothing in its traffic. The XR is not Ready until the mark is there, so what
-  # waits on the profile in `after` comes up with the line in place.
+  # waits on the profile in `after` comes up with the line in place. In
+  # FullControl a Usage holds back the profile's DELETE until the line is removed.
   # The status is the last GET in the shape of the spec; Ready means the mode's
   # writes would change nothing.
   # Once every object in `after` is Ready the Requests are composed, and they
@@ -288,6 +289,28 @@ spec:
                 logic: |
                   .response.statusCode == 200 and
                     ((.response.body["Cisco-IOS-XE-eem:environment"][0].value // "") | split(" ")[0]) == {{ $mark | quote }}
+          {{- /* the line's removal enters the profile, which makes it again once deleted */}}
+          {{- if and (eq $policy "FullControl") (hasKey $observed "profile") (hasKey $observed "ppk") }}
+          ---
+          apiVersion: protection.crossplane.io/v1beta1
+          kind: Usage
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: profile-by-ppk
+              gotemplating.fn.crossplane.io/ready: "True"
+          spec:
+            of:
+              apiVersion: http.m.crossplane.io/v1alpha2
+              kind: Request
+              resourceRef:
+                name: {{ (index $observed "profile").resource.metadata.name }}
+            by:
+              apiVersion: http.m.crossplane.io/v1alpha2
+              kind: Request
+              resourceRef:
+                name: {{ (index $observed "ppk").resource.metadata.name }}
+            replayDeletion: true
+          {{- end }}
           {{- end }}
           {{- end }}{{ end }}{{ end }}
           {{- end }}

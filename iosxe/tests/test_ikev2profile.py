@@ -221,6 +221,28 @@ def test_the_rpc_waits_for_the_profile(render):
     assert "ppk" not in render(KIND, xr, before, DEVICES).resources
 
 
+@pytest.mark.parametrize(("policy", "held"), [("Manage", False), ("FullControl", True)])
+def test_full_control_deletes_the_profile_only_after_the_line(render, policy, held):
+    # The line's removal enters the profile, which would make it again once deleted.
+    xr = example(policy)
+    resources = first(render, xr)
+    before = [
+        observed(resources["profile"], True),
+        observed(resources["ppk-mark"], True),
+    ]
+    before.append(observed(render(KIND, xr, before, DEVICES).resources["ppk"], True))
+    usage = render(KIND, xr, before, DEVICES).resources.get("profile-by-ppk")
+    assert (usage is not None) is held
+    if held:
+        assert usage["spec"]["of"]["resourceRef"] == {
+            "name": before[0]["metadata"]["name"]
+        }
+        assert usage["spec"]["by"]["resourceRef"] == {
+            "name": before[2]["metadata"]["name"]
+        }
+        assert usage["spec"]["replayDeletion"] is True
+
+
 @pytest.mark.parametrize(
     ("mark", "written"),
     [("ppk-mark-applied", True), ("ppk-mark-other", False), ("ppk-mark-absent", False)],

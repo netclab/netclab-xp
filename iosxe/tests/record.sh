@@ -218,11 +218,20 @@ ikev2keyring() { # iosxe/examples/ikev2keyring/r1.yaml
     jq -nc --arg psk "${1:-}" '{"Cisco-IOS-XE-crypto:keyring": [{name: "CLASSICAL-KEYRING", peer: [{name: "R3",
       address: {ipv4: {"ipv4-address": "10.0.23.2"}}} + if $psk == "" then {} else {"pre-shared-key": {key: $psk}} end]}]}'
   }
+  # the keyrings' names, which tell the origin before the keyring's Request writes
+  local names="$NATIVE/crypto?fields=Cisco-IOS-XE-crypto:ikev2/keyring/name"
+  local other=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/keyring=OTHER-KEYRING
   absent "$url"
+  absent "$other"
   record ikev2keyring/keyring-absent "$url"
+  record ikev2keyring/origin-absent "$names"
+  write PUT "$other" '{"Cisco-IOS-XE-crypto:keyring": [{"name": "OTHER-KEYRING"}]}'
+  record ikev2keyring/origin-other "$names"
+  write DELETE "$other"
 
   write PUT "$url" "$(body "$PSK")"
   record ikev2keyring/keyring-applied "$url"
+  record ikev2keyring/origin-applied "$names"
   cli "crypto ikev2 keyring CLASSICAL-KEYRING
  peer R3
   ppk manual id PPK-R1R3 key hex $PPK_HEX required

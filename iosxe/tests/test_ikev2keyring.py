@@ -30,12 +30,15 @@ VALUES = {
 }
 
 
-def example(policy="FullControl"):
+def example(policy="FullControl", origin="Created"):
+    """The example in `policy`, with `origin` in its status: until then nothing writes."""
     xr = in_namespace(IOSXE / "examples" / KIND / "r1.yaml")
     if policy:
         xr["spec"]["managementPolicy"] = policy
     else:
         del xr["spec"]["managementPolicy"]
+    if origin:
+        xr["status"] = {"origin": origin}
     return xr
 
 
@@ -309,17 +312,42 @@ def test_check_is_the_mode_write_changing_nothing(render, state, manage, full_co
         )
 
 
+@pytest.mark.parametrize("policy", ["Manage", "FullControl"])
+def test_until_the_origin_is_known_the_keyring_is_only_read(render, policy):
+    # A write that creates the keyring would leave no GET to tell the origin by.
+    composed = first(render, example(policy, origin=None))
+    assert composed["keyring"]["spec"]["managementPolicies"] == ["Observe"]
+    names = composed["origin"]["spec"]
+    assert names["managementPolicies"] == ["Observe"]
+    assert names["forProvider"]["payload"]["baseUrl"].endswith(
+        "/crypto?fields=Cisco-IOS-XE-crypto:ikev2/keyring/name"
+    )
+    assert "origin" not in first(render, example(None, origin=None))
+
+
 @pytest.mark.parametrize(
     ("state", "origin"),
-    [("keyring-applied", "TakenOver"), ("keyring-absent", "Created")],
+    [
+        ("origin-absent", "Created"),
+        ("origin-other", "Created"),
+        ("origin-applied", "TakenOver"),
+    ],
 )
-def test_the_first_read_sets_the_origin_and_it_stays(render, state, origin):
-    xr = example()
-    assert status(after_get(render, xr, state))["origin"] == origin
+def test_the_names_tell_the_origin_then_the_keyring_is_written(render, state, origin):
+    xr = example("FullControl", origin=None)
+    before = [answered(first(render, xr)["origin"], state)]
+    rendered = render(KIND, xr, before, DEVICES + secrets(VALUES))
+    assert status(rendered)["origin"] == origin
+    assert "origin" not in rendered.resources
+    assert rendered.resources["keyring"]["spec"]["managementPolicies"] == ["*"]
+
+
+def test_a_keyring_read_there_is_taken_over_and_the_origin_stays(render):
+    xr = example(None, origin=None)
+    assert status(after_get(render, xr, "keyring-applied"))["origin"] == "TakenOver"
     # Whatever the router shows later.
-    xr["status"] = {"origin": origin}
-    other = "keyring-absent" if state == "keyring-applied" else "keyring-applied"
-    assert status(after_get(render, xr, other))["origin"] == origin
+    xr = example(None, origin="Created")
+    assert status(after_get(render, xr, "keyring-applied"))["origin"] == "Created"
 
 
 def keys_after(render, xr, keyring, origin, marks=None):

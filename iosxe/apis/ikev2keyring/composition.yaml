@@ -17,7 +17,9 @@ spec:
   # keyring's is Ready, which observes only the key's mark, an EEM variable. Its
   # RPC writes the key, the mark, and clears the peer's SA, so the key is in use
   # at once; where the package took the keyring over and the mark is missing, it
-  # writes the mark alone, and a key the router holds stays as it is.
+  # writes the mark alone, and a key the router holds stays as it is. Whether the
+  # package took it over, status.origin, comes from a read of the keyrings' names
+  # before the keyring's Request writes, and stays.
   # Once every object in `after` is Ready the Requests are composed, and they
   # stay composed whatever happens to those objects; until then none is, and the
   # XR is not Ready, where Crossplane would call an XR composing nothing Ready. A
@@ -104,11 +106,25 @@ spec:
               {{- $routerKeyring = index (index (fromYaml .body) "Cisco-IOS-XE-crypto:keyring") 0 }}
               {{- range (get $routerKeyring "peer" | default list) }}{{ $_ := set $router .name . }}{{ end }}
               {{- if not $origin }}{{ $origin = "TakenOver" }}{{ end }}
-            {{- else if eq $code 404 }}
-              {{- if not $origin }}{{ $origin = "Created" }}{{ end }}
             {{- end }}
           {{- end }}{{ end }}
           {{- end }}{{ end }}
+          {{- /* neither a 404 nor the GET before a write that creates the keyring stays in
+            its Request's status, so the keyring's Request writes only once a read of the
+            names, never a 404, has told the origin */}}
+          {{- if not $origin }}
+          {{- with index $observed "origin" }}{{ with .resource.status }}{{ with .response }}
+            {{- $code := int (.statusCode | default 0) }}
+            {{- if eq $code 204 }}{{ $origin = "Created" }}{{ end }}
+            {{- if eq $code 200 }}
+              {{- $names := list }}
+              {{- with get (fromYaml .body) "Cisco-IOS-XE-native:crypto" }}{{ with get . "Cisco-IOS-XE-crypto:ikev2" }}
+                {{- range (get . "keyring" | default list) }}{{ $names = append $names .name }}{{ end }}
+              {{- end }}{{ end }}
+              {{- $origin = ternary "TakenOver" "Created" (has $xr.spec.name $names) }}
+            {{- end }}
+          {{- end }}{{ end }}{{ end }}
+          {{- end }}
           {{- $keys := list }}
           {{- $missing := list }}
           {{- if $writes }}{{ range $peers }}
@@ -184,6 +200,28 @@ spec:
           {{- $rpc := printf "https://%s/restconf/operations/Cisco-IOS-XE-cli-rpc:config-ios-cli-rpc" $dev.spec.address }}
           {{- /* a merge on native, which exists, creates the keyring if it does not */}}
           {{- $patch := dict "Cisco-IOS-XE-native:native" (dict "crypto" (dict "Cisco-IOS-XE-crypto:ikev2" (dict "keyring" (list (dict "name" $xr.spec.name "peer" $merged))))) }}
+          {{- if and $writes (not $origin) }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: origin
+              gotemplating.fn.crossplane.io/ready: "True"
+          spec:
+            managementPolicies: ["Observe"]
+            forProvider:
+              insecureSkipTLSVerify: {{ $dev.spec.insecureSkipTLSVerify }}
+              headers:
+                Accept: ["application/yang-data+json"]
+                Authorization: ["Basic {{ $auth }}"]
+              payload:
+                baseUrl: {{ printf "%s/crypto?fields=Cisco-IOS-XE-crypto:ikev2/keyring/name" $native | quote }}
+              mappings:
+              - action: OBSERVE
+                method: GET
+                url: .payload.baseUrl
+          {{- end }}
           ---
           apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
@@ -191,7 +229,7 @@ spec:
             annotations:
               gotemplating.fn.crossplane.io/composition-resource-name: keyring
           spec:
-            {{- if eq $policy "Observe" }}
+            {{- if or (eq $policy "Observe") (not $origin) }}
             managementPolicies: ["Observe"]
             {{- else if eq $policy "Manage" }}
             managementPolicies: ["Observe", "Create", "Update"]
