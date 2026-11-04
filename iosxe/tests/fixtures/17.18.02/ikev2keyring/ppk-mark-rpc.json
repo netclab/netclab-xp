@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "https://172.18.0.101/restconf/operations/Cisco-IOS-XE-cli-rpc:config-ios-cli-rpc",
+    "body": {
+      "Cisco-IOS-XE-cli-rpc:input": {
+        "config-clis": "event manager environment netclab-0fb93954 \"7af6f941 Ikev2Keyring/CLASSICAL-KEYRING/R3/ppk\""
+      }
+    }
+  },
+  "body": {
+    "Cisco-IOS-XE-cli-rpc:output": {
+      "result": "RPC request successful"
+    }
+  }
+}

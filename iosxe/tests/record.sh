@@ -232,6 +232,11 @@ ikev2keyring() { # iosxe/examples/ikev2keyring/r1.yaml
   record ikev2keyring/keyring-other-psk "$url"
   write PUT "$url" "$(body)"
   record ikev2keyring/keyring-no-psk "$url"
+  # Manage's write over another address and another PSK: a merge puts the address back
+  # and leaves the PSK
+  write PUT "$url" "$(body OtherPsk456 | jq -c '.["Cisco-IOS-XE-crypto:keyring"][0].peer[0].address.ipv4["ipv4-address"] = "10.0.23.9"')"
+  patch ikev2keyring/keyring-patch "$(body | jq -c '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {keyring: .["Cisco-IOS-XE-crypto:keyring"]}}}}')"
+  record ikev2keyring/keyring-patched "$url"
 
   # The marks of the examples' keys, as the composition makes them from SECRET_UID.
   local key place var mark
@@ -242,7 +247,8 @@ ikev2keyring() { # iosxe/examples/ikev2keyring/r1.yaml
     else mark=$(sha8 "$SECRET_UID/$(b64 "$PPK_HEX")/PPK-R1R3"); fi
     absent "$eem=$var"
     record ikev2keyring/$key-mark-absent "$eem=$var"
-    write PUT "$eem=$var" "$(jq -nc --arg n "$var" --arg v "$mark $place" '{"Cisco-IOS-XE-eem:environment": [{name: $n, value: $v}]}')"
+    # the mark alone, as a takeover writes it to a key the router holds
+    rpc ikev2keyring/$key-mark-rpc "event manager environment $var \"$mark $place\""
     record ikev2keyring/$key-mark-applied "$eem=$var"
     write PUT "$eem=$var" "$(jq -nc --arg n "$var" --arg v "00000000 $place" '{"Cisco-IOS-XE-eem:environment": [{name: $n, value: $v}]}')"
     record ikev2keyring/$key-mark-other "$eem=$var"

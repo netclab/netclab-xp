@@ -7,7 +7,7 @@ spec:
   deviceRef:
     name: r3
   after:
-  - {kind: Ikev2Keyring, name: r3-ikev2-keyring}
+  - {kind: Ikev2Keyring, name: r3--classical-keyring--eb60cb7d}
   name: CLASSICAL-PROFILE
   remoteAddresses: [10.0.12.1]
   keyring: CLASSICAL-KEYRING

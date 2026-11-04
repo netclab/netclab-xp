@@ -22,6 +22,12 @@ spec:
     - name: KEYRING
       type: string
       jsonPath: .spec.name
+    - name: MODE
+      type: string
+      jsonPath: .spec.managementPolicy
+    - name: WANTS-NAME
+      type: string
+      jsonPath: .status.wantsName
     served: true
     referenceable: true
     schema:
@@ -30,10 +36,27 @@ spec:
         properties:
           spec:
             type: object
+            # A thin object (deviceRef and name) only observes.
+            x-kubernetes-validations:
+            - rule: >-
+                self.managementPolicy == 'Observe'
+                || (has(self.peers) && self.peers.all(p, has(p.address) && has(p.preSharedKeySecretRef)))
+              message: to write, a keyring needs peers, each with address and preSharedKeySecretRef
             properties:
+              managementPolicy:
+                type: string
+                description: >-
+                  Observe reads the keyring on the router; Manage writes the
+                  fields of the spec; FullControl makes the keyring the spec, and
+                  removes it with the object. Keys follow their own rules.
+                enum: [Observe, Manage, FullControl]
+                default: Observe
               deviceRef:
                 type: object
                 description: A Device in the keyring's namespace.
+                x-kubernetes-validations:
+                - rule: self == oldSelf
+                  message: deviceRef cannot change
                 properties:
                   name:
                     type: string
@@ -64,9 +87,15 @@ spec:
                 type: string
                 description: Name of the keyring on the router.
                 minLength: 1
+                x-kubernetes-validations:
+                - rule: self == oldSelf
+                  message: name cannot change
               peers:
                 type: array
                 minItems: 1
+                maxItems: 16
+                x-kubernetes-list-type: map
+                x-kubernetes-list-map-keys: [name]
                 items:
                   type: object
                   properties:
@@ -120,15 +149,107 @@ spec:
                       - keySecretRef
                   required:
                   - name
-                  - address
-                  - preSharedKeySecretRef
             required:
             - deviceRef
             - name
-            - peers
           status:
             type: object
             properties:
+              wantsName:
+                type: string
+                description: The name the object needs, when it has another.
+              origin:
+                type: string
+                description: >-
+                  TakenOver when the first read found the keyring on the router,
+                  Created when it did not; a key without its mark is written only
+                  where the package created the keyring, or where the router holds
+                  no pre-shared key.
+                enum: [TakenOver, Created]
+              observed:
+                type: object
+                description: >-
+                  The keyring on the router, in the shape of the spec: of a key,
+                  only whether it is there. On IOS XE 17.18 no read returns a PPK.
+                properties:
+                  peers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        address:
+                          type: string
+                        preSharedKey:
+                          type: object
+                          properties:
+                            present:
+                              type: boolean
+                            encryption:
+                              type: string
+              drift:
+                type: array
+                description: Fields whose values in the spec the router lacks; keys aside.
+                items:
+                  type: object
+                  properties:
+                    field:
+                      type: string
+                    device:
+                      type: array
+                      items:
+                        type: string
+                    spec:
+                      type: array
+                      items:
+                        type: string
+              extra:
+                type: array
+                description: >-
+                  Peers the router has beyond the spec; in FullControl also a field
+                  the spec cannot hold, such as a peer's description, given as JSON.
+                items:
+                  type: object
+                  properties:
+                    field:
+                      type: string
+                    device:
+                      type: array
+                      items:
+                        type: string
+              reverted:
+                type: object
+                description: The drift and extra values the last write put back.
+                properties:
+                  time:
+                    type: string
+                  drift:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        field:
+                          type: string
+                        device:
+                          type: array
+                          items:
+                            type: string
+                        spec:
+                          type: array
+                          items:
+                            type: string
+                  extra:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        field:
+                          type: string
+                        device:
+                          type: array
+                          items:
+                            type: string
               missingSecrets:
                 type: array
                 description: >-

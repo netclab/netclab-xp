@@ -49,12 +49,11 @@ def test_lists_each_block_with_the_name_its_object_must_have(render):
         entry(
             "Ikev2Policy", "CLASSICAL-POLICY", "r1--classical-policy--17d97755", True
         ),
-        # The example keyring has a name of its own, so its block has no object yet.
         entry(
             "Ikev2Keyring",
             "CLASSICAL-KEYRING",
             "r1--classical-keyring--eb60cb7d",
-            False,
+            True,
         ),
         entry(
             "Ikev2Profile", "CLASSICAL-PROFILE", "r1--classical-profile--cdf1f733", True

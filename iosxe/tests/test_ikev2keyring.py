@@ -1,14 +1,28 @@
-"""Ikev2Keyring: the checks its Requests observe with, on the router's recorded answers, the
-key Requests composed after the keyring, their marks, and missing Secrets."""
+"""Ikev2Keyring: its name, its modes, the checks its Requests observe with on the router's
+recorded answers, the key Requests composed after the keyring, their marks, the keyring's
+origin, and missing Secrets."""
 
 import json
 import re
+from functools import partial
 
 import pytest
-from conftest import EXAMPLES, IOSXE, check, in_namespace, observed, recorded, secrets
+from conftest import (
+    EXAMPLES,
+    IOSXE,
+    _secrets,
+    check,
+    in_namespace,
+    observed,
+    recorded,
+    secrets,
+    status,
+)
+from conftest import answered as _answered
 
 KIND = "ikev2keyring"
-XR = "r1-ikev2-keyring"
+XR = "r1--classical-keyring--eb60cb7d"
+answered = partial(_answered, KIND)
 KEYS = ["psk-r3", "ppk-r3"]
 DEVICES = [in_namespace(p) for p in EXAMPLES if p.parent.name == "device"]
 VALUES = {
@@ -16,8 +30,23 @@ VALUES = {
 }
 
 
-def example():
-    return in_namespace(IOSXE / "examples" / KIND / "r1.yaml")
+def example(policy="FullControl"):
+    xr = in_namespace(IOSXE / "examples" / KIND / "r1.yaml")
+    if policy:
+        xr["spec"]["managementPolicy"] = policy
+    else:
+        del xr["spec"]["managementPolicy"]
+    return xr
+
+
+def thin(xr_name=XR):
+    """An object as Step 3 imports it: deviceRef and name, no mode."""
+    return {
+        "apiVersion": "iosxe.netclab.dev/v1alpha1",
+        "kind": "Ikev2Keyring",
+        "metadata": {"name": xr_name, "namespace": "lab"},
+        "spec": {"deviceRef": {"name": "r1"}, "name": "CLASSICAL-KEYRING"},
+    }
 
 
 def with_keys(render, xr=None, values=VALUES, uid=None, before=None):
@@ -42,25 +71,6 @@ def mark(request):
 def ready(rendered):
     conditions = rendered.composite["status"]["conditions"]
     return {c["type"]: c["status"] for c in conditions}["Ready"]
-
-
-@pytest.mark.parametrize(
-    ("state", "up_to_date"),
-    [
-        ("keyring-applied", True),
-        # A description and a PPK line set by hand are not the keyring's to compare.
-        ("keyring-described", True),
-        # The router may give a PSK back encrypted: only that it is there counts.
-        ("keyring-other-psk", True),
-        ("keyring-no-psk", False),
-        ("keyring-absent", False),
-    ],
-)
-def test_keyring_checks_that_a_psk_is_there_not_its_value(rendered, state, up_to_date):
-    result = check(
-        rendered[XR]["keyring"], "expectedResponseCheck", recorded(KIND, state)
-    )
-    assert result is up_to_date
 
 
 @pytest.mark.parametrize("key", ["psk", "ppk"])
@@ -216,3 +226,206 @@ def test_written_follows_the_key_request(render, key_ready, written):
 def test_keys_wait_for_the_keyring(rendered, render, before, composed):
     seen = [observed(rendered[XR][name], ready) for name, ready in before.items()]
     assert sorted(render(KIND, example(), seen).resources) == sorted(composed)
+
+
+def first(render, xr):
+    return render(KIND, xr, required=DEVICES + secrets(VALUES)).resources
+
+
+def after_get(render, xr, state):
+    """The XR rendered with its keyring's Request answered by a GET in `state`."""
+    request = first(render, xr)["keyring"]
+    return render(KIND, xr, [answered(request, state)], DEVICES + secrets(VALUES))
+
+
+def test_an_object_under_another_name_composes_nothing(render):
+    xr = thin("my-keyring")
+    rendered = render(KIND, xr, required=DEVICES)
+    assert rendered.resources == {}
+    assert rendered.composite["status"]["wantsName"] == XR
+    assert ready(rendered) == "False"
+
+
+@pytest.mark.parametrize(
+    ("policy", "policies", "writes"),
+    [
+        (None, ["Observe"], []),
+        (
+            "Manage",
+            ["Observe", "Create", "Update"],
+            [("CREATE", "PATCH"), ("UPDATE", "PATCH")],
+        ),
+        (
+            "FullControl",
+            ["*"],
+            [("CREATE", "PUT"), ("UPDATE", "PUT"), ("REMOVE", "DELETE")],
+        ),
+    ],
+)
+def test_the_mode_decides_what_the_request_may_do(render, policy, policies, writes):
+    spec = first(render, example(policy))["keyring"]["spec"]
+    assert spec["managementPolicies"] == policies
+    assert [
+        (m["action"], m["method"])
+        for m in spec["forProvider"]["mappings"]
+        if m["action"] != "OBSERVE"
+    ] == writes
+
+
+def test_manage_sends_the_patch_the_router_merged_without_keys(render):
+    for_provider = first(render, example("Manage"))["keyring"]["spec"]["forProvider"]
+    sent = recorded(KIND, "keyring-patch")["request"]
+    assert json.loads(for_provider["payload"]["body"]) == sent["body"]
+    writes = [m for m in for_provider["mappings"] if m["action"] != "OBSERVE"]
+    assert {(m["method"], json.loads(m["url"])) for m in writes} == {
+        (sent["method"], sent["url"])
+    }
+
+
+def test_full_control_puts_the_psk_the_router_then_returns(render):
+    body = first(render, example())["keyring"]["spec"]["forProvider"]["payload"]["body"]
+    assert json.loads(_secrets(body)) == recorded(KIND, "keyring-applied")["body"]
+
+
+@pytest.mark.parametrize(
+    ("state", "manage", "full_control"),
+    [
+        ("keyring-applied", True, True),
+        # A key's value is never compared: the router may give it back encrypted.
+        ("keyring-other-psk", True, True),
+        ("keyring-patched", True, True),
+        # A peer's description: Manage leaves it, FullControl takes it off.
+        ("keyring-described", True, False),
+        # FullControl's PUT carries the PSK; Manage leaves keys alone.
+        ("keyring-no-psk", True, False),
+        ("keyring-absent", False, False),
+    ],
+)
+def test_check_is_the_mode_write_changing_nothing(render, state, manage, full_control):
+    for policy, expected in [("Manage", manage), ("FullControl", full_control)]:
+        request = first(render, example(policy))["keyring"]
+        assert (
+            check(request, "expectedResponseCheck", recorded(KIND, state)) is expected
+        )
+
+
+@pytest.mark.parametrize(
+    ("state", "origin"),
+    [("keyring-applied", "TakenOver"), ("keyring-absent", "Created")],
+)
+def test_the_first_read_sets_the_origin_and_it_stays(render, state, origin):
+    xr = example()
+    assert status(after_get(render, xr, state))["origin"] == origin
+    # Whatever the router shows later.
+    xr["status"] = {"origin": origin}
+    other = "keyring-absent" if state == "keyring-applied" else "keyring-applied"
+    assert status(after_get(render, xr, other))["origin"] == origin
+
+
+def keys_after(render, xr, keyring, origin, marks=None):
+    """The key Requests of `xr` with its keyring's GET in `keyring`, `origin` set, and the
+    key's own last read in `marks` (by key, a recorded state), or none."""
+    xr["status"] = {"origin": origin}
+    composed = first(render, xr)
+    before = [answered(composed["keyring"], keyring)]
+    rendered = render(KIND, xr, before, DEVICES + secrets(VALUES)).resources
+    for key, state in (marks or {}).items():
+        before.append(answered(rendered[key], state))
+    if marks:
+        rendered = render(KIND, xr, before, DEVICES + secrets(VALUES)).resources
+    return rendered
+
+
+def body(request):
+    return json.loads(request["spec"]["forProvider"]["payload"]["body"])
+
+
+@pytest.mark.parametrize("key", ["psk", "ppk"])
+def test_taking_over_writes_only_the_mark_of_a_key_the_router_holds(render, key):
+    rendered = keys_after(render, example("Manage"), "keyring-applied", "TakenOver")
+    assert (
+        body(rendered[f"{key}-r3"])
+        == recorded(KIND, f"{key}-mark-rpc")["request"]["body"]
+    )
+
+
+def test_taking_over_writes_a_psk_the_router_lacks(render):
+    rendered = keys_after(render, example("Manage"), "keyring-no-psk", "TakenOver")
+    clis = body(rendered["psk-r3"])["Cisco-IOS-XE-cli-rpc:input"]["config-clis"]
+    assert " pre-shared-key {{ ike-keys:lab:psk }}" in clis.splitlines()[2]
+
+
+@pytest.mark.parametrize(
+    ("origin", "marks"),
+    [
+        # A keyring the package created gets its keys.
+        ("Created", {}),
+        # A mark that differs writes the key whatever the origin.
+        ("TakenOver", {"psk-r3": "psk-mark-other", "ppk-r3": "ppk-mark-other"}),
+    ],
+)
+def test_the_key_is_written_with_its_mark_and_the_clear(render, origin, marks):
+    rendered = keys_after(render, example("Manage"), "keyring-applied", origin, marks)
+    for key in KEYS:
+        clis = body(rendered[key])["Cisco-IOS-XE-cli-rpc:input"]["config-clis"]
+        assert clis.splitlines()[-1] == "do clear crypto ikev2 sa remote 10.0.23.2"
+
+
+@pytest.mark.parametrize(
+    ("policy", "removes"), [("Manage", False), ("FullControl", True)]
+)
+def test_only_full_control_removes_a_key(render, policy, removes):
+    rendered = keys_after(render, example(policy), "keyring-applied", "Created")
+    for key in KEYS:
+        actions = [
+            m["action"] for m in rendered[key]["spec"]["forProvider"]["mappings"]
+        ]
+        assert ("REMOVE" in actions) is removes
+
+
+def test_observe_writes_no_key_and_needs_no_secret(render):
+    rendered = render(KIND, example(None), required=DEVICES)
+    assert sorted(rendered.resources) == ["keyring"]
+    assert rendered.composite["status"]["missingSecrets"] == []
+
+
+def test_a_thin_object_shows_a_key_only_as_there(render):
+    rendered = after_get(render, thin(), "keyring-applied")
+    assert status(rendered)["observed"] == {
+        "peers": [
+            {"name": "R3", "address": "10.0.23.2", "preSharedKey": {"present": True}}
+        ]
+    }
+    assert status(rendered)["drift"] == [] and status(rendered)["extra"] == []
+    assert ready(rendered) == "True"
+
+
+@pytest.mark.parametrize(
+    ("policy", "state", "drift", "extra"),
+    [
+        ("Manage", "keyring-described", [], []),
+        (
+            "FullControl",
+            "keyring-described",
+            [],
+            [{"field": "peers[R3].description", "device": ['"made by hand"']}],
+        ),
+        ("Manage", "keyring-no-psk", [], []),
+        (
+            "FullControl",
+            "keyring-no-psk",
+            [{"field": "peers[R3].preSharedKey", "device": [], "spec": ["present"]}],
+            [],
+        ),
+        (
+            "Manage",
+            "keyring-absent",
+            [],
+            [],
+        ),
+    ],
+)
+def test_drift_and_extra_follow_the_mode(render, policy, state, drift, extra):
+    rendered = after_get(render, example(policy), state)
+    assert status(rendered).get("drift", []) == drift
+    assert status(rendered).get("extra", []) == extra
