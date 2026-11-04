@@ -3,13 +3,22 @@
 The checks are the compositions' own `logic:`, taken from `crossplane composition render`,
 and they see what provider-http gives them: the Request's `forProvider` with `response`
 beside it, and Secret values in place of `{{ name:namespace:key }}`.
+
+By default the functions run once for the whole session and the render engine is a local
+Crossplane binary; `--render=docker` renders each time in Docker, as the CLI does alone.
 """
 
 import base64
 import copy
+import hashlib
 import json
+import os
+import platform
 import re
+import socket
 import subprocess
+import time
+import urllib.request
 from collections import namedtuple
 from itertools import count
 from pathlib import Path
@@ -40,6 +49,11 @@ metadata:
 spec:
   package: xpkg.upbound.io/crossplane-contrib/function-auto-ready:v0.5.2
 """
+
+# The render engine with --render=local, fixed so that a run does not follow a moving tag.
+# It is not the floor of iosxe/apis/crossplane.yaml: a cluster checks that, not a render.
+ENGINE = "v2.4.3"
+ENGINES = "https://releases.crossplane.io/stable"
 
 SECRET_REF = re.compile(r"\{\{\s*([^:\s{}]+):([^:\s{}]+):([^:\s{}]+)\s*\}\}")
 
@@ -75,16 +89,110 @@ def in_namespace(path):
 Rendered = namedtuple("Rendered", "composite resources")
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--render",
+        choices=["local", "docker"],
+        default="local",
+        help="local: the functions once per session and a local engine (the default); "
+        "docker: every render in Docker",
+    )
+
+
+def engine():
+    """The Crossplane binary of ENGINE for this machine, downloaded once and checked."""
+    arch = {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}[platform.machine()]
+    url = f"{ENGINES}/{ENGINE}/bin/{platform.system().lower()}_{arch}/crossplane"
+    cache = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+    path = cache / "netclab-xp" / f"crossplane-{ENGINE}-{arch}"
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with urllib.request.urlopen(url) as r:
+            binary = r.read()
+        with urllib.request.urlopen(f"{url}.sha256") as r:
+            want = r.read().decode().split()[0]
+        if hashlib.sha256(binary).hexdigest() != want:
+            raise RuntimeError(f"{url}: checksum differs from {url}.sha256")
+        partial = path.with_suffix(".part")
+        partial.write_bytes(binary)
+        partial.chmod(0o755)
+        partial.rename(path)
+    return path
+
+
+def listening(port, wait=60):
+    """Whether a gRPC server answers on 127.0.0.1:port within `wait` seconds: its HTTP/2
+    SETTINGS frame, which Docker's proxy alone, with nothing behind it, never sends."""
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1) as s:
+                s.sendall(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+                s.settimeout(1)
+                if s.recv(9):
+                    return True
+        except OSError:
+            pass
+        time.sleep(0.2)
+    return False
+
+
 @pytest.fixture(scope="session")
-def render(tmp_path_factory):
+def functions(request, tmp_path_factory):
+    """The Functions file the renders use: with --render=local, each Function's container
+    started once, the file pointing at it, and the containers removed at the end."""
+    path = tmp_path_factory.mktemp("functions") / "functions.yaml"
+    docs = list(yaml.safe_load_all(FUNCTIONS))
+    if request.config.getoption("render") == "docker":
+        path.write_text(FUNCTIONS)
+        yield path, []
+        return
+    started = []
+    try:
+        for doc in docs:
+            started.append(
+                subprocess.run(
+                    ["docker", "run", "-d", "--rm", "-p", "127.0.0.1::9443"]
+                    + [doc["spec"]["package"], "--insecure"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.strip()
+            )
+            port = (
+                subprocess.run(
+                    ["docker", "port", started[-1], "9443/tcp"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                .stdout.split(":")[-1]
+                .strip()
+            )
+            if not listening(int(port)):
+                raise RuntimeError(f"{doc['metadata']['name']} not listening on {port}")
+            doc["metadata"]["annotations"] = {
+                "render.crossplane.io/runtime": "Development",
+                "render.crossplane.io/runtime-development-target": f"127.0.0.1:{port}",
+            }
+        path.write_text(yaml.safe_dump_all(docs))
+        yield path, [f"--crossplane-binary={engine()}"]
+    finally:
+        if started:
+            subprocess.run(
+                ["docker", "rm", "-f", *started], check=False, capture_output=True
+            )
+
+
+@pytest.fixture(scope="session")
+def render(tmp_path_factory, functions):
     """Renders an XR with the composition of its directory under apis/, `required` as the
     resources it requires (unless given, the other examples, all Ready, and the Secrets),
     and `observed` as
     the resources it composed before: the XR as rendered, and its composed resources by
     composition-resource-name."""
     tmp = tmp_path_factory.mktemp("render")
-    functions = tmp / "functions.yaml"
-    functions.write_text(FUNCTIONS)
+    functions, engine_args = functions
     examples = [observed(in_namespace(p), True) for p in EXAMPLES]
     renders = count()
 
@@ -112,6 +220,7 @@ def render(tmp_path_factory):
                 str(functions),
                 f"--required-resources={required_path}",
                 f"--observed-resources={observed_path}",
+                *engine_args,
             ],
             capture_output=True,
             text=True,
