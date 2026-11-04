@@ -24,6 +24,11 @@ spec:
     schema:
       openAPIV3Schema:
         type: object
+        # Each object's name starts with its Device's and two dashes, and fits
+        # the 63 characters of a Kubernetes name.
+        x-kubernetes-validations:
+        - rule: size(self.metadata.name) <= 31 && !self.metadata.name.contains('--')
+          message: a Device name has at most 31 characters and no --
         properties:
           spec:
             type: object
@@ -53,3 +58,26 @@ spec:
             required:
             - address
             - credentialsSecretRef
+          status:
+            type: object
+            properties:
+              config:
+                type: array
+                description: >-
+                  The router's blocks of the package's kinds, as of the last
+                  poll, each with the name its object must have and whether that
+                  object is in the namespace.
+                items:
+                  type: object
+                  properties:
+                    kind:
+                      type: string
+                    name:
+                      type: string
+                      description: The block's name on the router.
+                    xr:
+                      type: string
+                      description: The name the block's object must have.
+                    exists:
+                      type: boolean
+                      description: Whether an object of that name for this Device is in the namespace.

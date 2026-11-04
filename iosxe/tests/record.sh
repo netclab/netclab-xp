@@ -21,7 +21,7 @@ BASE=https://$ADDR/restconf
 NATIVE=$BASE/data/Cisco-IOS-XE-native:native
 
 # apply order
-KINDS=(ikev2proposal ikev2policy ikev2keyring ikev2profile ipsectransformset ipsecprofile tunnelinterface)
+KINDS=(device ikev2proposal ikev2policy ikev2keyring ikev2profile ipsectransformset ipsecprofile tunnelinterface)
 
 # the values the examples' Secrets hold, and their uid in the tests (conftest.py)
 PSK=TestPsk123
@@ -113,6 +113,44 @@ rpc() { # rpc <kind>/<state> <lines>: config-ios-cli-rpc, sent and recorded with
   rm -f "$out"
   echo "$1: $(jq -r '.body["Cisco-IOS-XE-cli-rpc:output"].result' "$FIXTURES/$1.json")"
   jq -e '.body["Cisco-IOS-XE-cli-rpc:output"].result == "RPC request successful"' "$FIXTURES/$1.json" > /dev/null
+}
+
+device() { # the names the Device reads, before and with part 9's blocks and LEGACY_PROPOSAL
+  local config="$NATIVE/crypto?fields=Cisco-IOS-XE-crypto:ikev2(proposal/name;policy/name;keyring/name;profile/name);Cisco-IOS-XE-crypto:ipsec(transform-set/tag;profile/name)"
+  local tunnels="$NATIVE/interface?fields=Tunnel/name"
+  local crypto=$NATIVE/crypto/Cisco-IOS-XE-crypto
+  record device/config-absent "$config"
+  record device/tunnels-absent "$tunnels"
+  write PUT "$crypto:ikev2/proposal=CLASSICAL-PROPOSAL" '{"Cisco-IOS-XE-crypto:proposal": [{"name": "CLASSICAL-PROPOSAL",
+    "encryption": {"aes-cbc-256": [null]}, "integrity": {"sha512": [null]}, "group": {"twenty": [null]}}]}'
+  write PUT "$crypto:ikev2/proposal=LEGACY_PROPOSAL" '{"Cisco-IOS-XE-crypto:proposal": [{"name": "LEGACY_PROPOSAL",
+    "encryption": {"aes-cbc-128": [null]}, "integrity": {"sha256": [null]}, "group": {"fourteen": [null]}}]}'
+  write PUT "$crypto:ikev2/policy=CLASSICAL-POLICY" '{"Cisco-IOS-XE-crypto:policy": [{"name": "CLASSICAL-POLICY",
+    "proposal": [{"proposals": "CLASSICAL-PROPOSAL"}]}]}'
+  write PUT "$crypto:ikev2/keyring=CLASSICAL-KEYRING" "$(jq -nc --arg psk "$PSK" '{"Cisco-IOS-XE-crypto:keyring": [{name: "CLASSICAL-KEYRING",
+    peer: [{name: "R3", address: {ipv4: {"ipv4-address": "10.0.23.2"}}, "pre-shared-key": {key: $psk}}]}]}')"
+  write PUT "$crypto:ikev2/profile=CLASSICAL-PROFILE" '{"Cisco-IOS-XE-crypto:profile": [{"name": "CLASSICAL-PROFILE",
+    "authentication": {"local": {"pre-share": {}}, "remote": {"pre-share": {}}}, "keyring": {"local": {"name": "CLASSICAL-KEYRING"}},
+    "match": {"identity": {"remote": {"address": {"ipv4": [{"ipv4-address": "10.0.23.2", "ipv4-mask": "255.255.255.255"}]}}}}}]}'
+  write PUT "$crypto:ipsec/transform-set=CLASSICAL-TS" '{"Cisco-IOS-XE-crypto:transform-set": [{"tag": "CLASSICAL-TS",
+    "esp": "esp-gcm", "key-bit": "256", "mode": {"tunnel-choice": [null]}}]}'
+  write PUT "$crypto:ipsec/profile=CLASSICAL-IPSEC" '{"Cisco-IOS-XE-crypto:profile": [{"name": "CLASSICAL-IPSEC",
+    "set": {"transform-set": ["CLASSICAL-TS"], "ikev2-profile": "CLASSICAL-PROFILE"}}]}'
+  write PUT "$NATIVE/interface/Tunnel=0" '{"Cisco-IOS-XE-native:Tunnel": [{"name": 0,
+    "ip": {"address": {"primary": {"address": "192.168.100.1", "mask": "255.255.255.0"}}},
+    "Cisco-IOS-XE-tunnel:tunnel": {"source": "GigabitEthernet2", "destination-config": {"ipv4": "10.0.23.2"},
+    "mode": {"ipsec": {"ipv4-mode": {}, "ipv4": {}}},
+    "protection": {"Cisco-IOS-XE-crypto:ipsec": {"profile-option": {"name": "CLASSICAL-IPSEC"}}}}}]}'
+  record device/config-part9 "$config"
+  record device/tunnels-part9 "$tunnels"
+  write DELETE "$NATIVE/interface/Tunnel=0"
+  write DELETE "$crypto:ipsec/profile=CLASSICAL-IPSEC"
+  write DELETE "$crypto:ipsec/transform-set=CLASSICAL-TS"
+  write DELETE "$crypto:ikev2/profile=CLASSICAL-PROFILE"
+  write DELETE "$crypto:ikev2/keyring=CLASSICAL-KEYRING"
+  write DELETE "$crypto:ikev2/policy=CLASSICAL-POLICY"
+  write DELETE "$crypto:ikev2/proposal=LEGACY_PROPOSAL"
+  write DELETE "$crypto:ikev2/proposal=CLASSICAL-PROPOSAL"
 }
 
 ikev2proposal() { # iosxe/examples/ikev2proposal/r1.yaml

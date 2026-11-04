@@ -8,8 +8,12 @@ spec:
     kind: Device
   mode: Pipeline
   pipeline:
-  # A Device configures nothing. Its one Request reads the hostname, so the
-  # Device is Ready only when the router answers with these credentials.
+  # A Device configures nothing. Its first Request reads the hostname, so the
+  # Device is Ready only when the router answers with these credentials. Two
+  # more read the names of the router's blocks of the package's kinds, the
+  # crypto ones in one GET and the tunnels in another; they are always Ready.
+  # The status lists each block with the name its object must have, and whether
+  # an object of that name for this Device is in the namespace.
   - step: requests
     functionRef:
       name: crossplane-contrib-function-go-templating
@@ -20,26 +24,104 @@ spec:
       inline:
         template: |
           {{- $xr := .observed.composite.resource }}
+          {{- $ns := $xr.metadata.namespace }}
+          {{- $device := $xr.metadata.name }}
           {{- $ref := $xr.spec.credentialsSecretRef }}
+          {{- $auth := printf "{{ %s:%s:%s }}" $ref.name $ns $ref.key }}
+          {{- $native := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native" $xr.spec.address }}
+          {{- $observed := default (dict) .observed.resources }}
+          {{- $kinds := list "Ikev2Proposal" "Ikev2Policy" "Ikev2Keyring" "Ikev2Profile" "IpsecTransformSet" "IpsecProfile" "TunnelInterface" }}
+          ---
+          apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+          kind: ExtraResources
+          requirements:
+            {{- range $kinds }}
+            {{ lower . }}:
+              apiVersion: iosxe.netclab.dev/v1alpha1
+              kind: {{ . }}
+              matchLabels: {}
+              namespace: {{ $ns }}
+            {{- end }}
+          {{- range $name, $url := dict
+                "hostname" (printf "%s/hostname" $native)
+                "config" (printf "%s/crypto?fields=Cisco-IOS-XE-crypto:ikev2(proposal/name;policy/name;keyring/name;profile/name);Cisco-IOS-XE-crypto:ipsec(transform-set/tag;profile/name)" $native)
+                "tunnels" (printf "%s/interface?fields=Tunnel/name" $native) }}
           ---
           apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
           metadata:
             annotations:
-              gotemplating.fn.crossplane.io/composition-resource-name: hostname
+              gotemplating.fn.crossplane.io/composition-resource-name: {{ $name }}
+              {{- if ne $name "hostname" }}
+              gotemplating.fn.crossplane.io/ready: "True"
+              {{- end }}
           spec:
             managementPolicies: ["Observe"]
             forProvider:
               insecureSkipTLSVerify: {{ $xr.spec.insecureSkipTLSVerify }}
               headers:
                 Accept: ["application/yang-data+json"]
-                Authorization: ["Basic {{ printf "{{ %s:%s:%s }}" $ref.name $xr.metadata.namespace $ref.key }}"]
+                Authorization: ["Basic {{ $auth }}"]
               payload:
-                baseUrl: "https://{{ $xr.spec.address }}/restconf/data/Cisco-IOS-XE-native:native/hostname"
+                baseUrl: {{ $url | quote }}
               mappings:
               - action: OBSERVE
                 method: GET
                 url: .payload.baseUrl
+          {{- end }}
+          {{- /* the objects in the namespace for this Device, by kind */}}
+          {{- $have := dict }}
+          {{- $extra := default (dict) .extraResources }}
+          {{- range $kinds }}
+            {{- $names := list }}
+            {{- with index $extra (lower .) }}{{ range .items }}
+              {{- if eq .resource.spec.deviceRef.name $device }}{{ $names = append $names .resource.metadata.name }}{{ end }}
+            {{- end }}{{ end }}
+            {{- $_ := set $have . $names }}
+          {{- end }}
+          {{- /* the blocks on the router, by kind, as the last reads found them; a 204 is none */}}
+          {{- $blocks := dict }}
+          {{- $read := false }}
+          {{- with index $observed "config" }}{{ with .resource.status }}{{ with .response }}
+          {{- $code := int (.statusCode | default 0) }}
+          {{- if eq $code 204 }}{{ $read = true }}{{ end }}
+          {{- if eq $code 200 }}{{ $read = true }}
+            {{- $crypto := get (fromYaml .body) "Cisco-IOS-XE-native:crypto" | default dict }}
+            {{- $ikev2 := get $crypto "Cisco-IOS-XE-crypto:ikev2" | default dict }}
+            {{- $ipsec := get $crypto "Cisco-IOS-XE-crypto:ipsec" | default dict }}
+            {{- range $kind, $list := dict "Ikev2Proposal" (get $ikev2 "proposal") "Ikev2Policy" (get $ikev2 "policy") "Ikev2Keyring" (get $ikev2 "keyring") "Ikev2Profile" (get $ikev2 "profile") "IpsecProfile" (get $ipsec "profile") }}
+              {{- $names := list }}{{ range ($list | default list) }}{{ $names = append $names .name }}{{ end }}
+              {{- $_ := set $blocks $kind $names }}
+            {{- end }}
+            {{- $tags := list }}{{ range (get $ipsec "transform-set" | default list) }}{{ $tags = append $tags .tag }}{{ end }}
+            {{- $_ := set $blocks "IpsecTransformSet" $tags }}
+          {{- end }}
+          {{- end }}{{ end }}{{ end }}
+          {{- with index $observed "tunnels" }}{{ with .resource.status }}{{ with .response }}
+          {{- $code := int (.statusCode | default 0) }}
+          {{- if eq $code 200 }}
+            {{- $names := list }}
+            {{- with get (fromYaml .body) "Cisco-IOS-XE-native:interface" }}{{ range (get . "Tunnel" | default list) }}{{ $names = append $names (printf "Tunnel%v" .name) }}{{ end }}{{ end }}
+            {{- $_ := set $blocks "TunnelInterface" $names }}
+          {{- end }}
+          {{- end }}{{ end }}{{ end }}
+          {{- if $read }}
+          {{- $config := list }}
+          {{- range $kind := $kinds }}
+            {{- range (get $blocks $kind | default list) }}
+              {{- /* <device>--<slug>--<8 hex>, at most 63 characters, as each kind's composition makes it */}}
+              {{- $slug := regexReplaceAll "[^a-z0-9]+" (lower .) "-" | trimAll "-" }}
+              {{- $slug = trunc (int (max 0 (sub 51 (len $device)))) $slug | trimSuffix "-" }}
+              {{- $want := printf "%s--%s--%s" $device $slug (sha256sum . | trunc 8) }}
+              {{- $config = append $config (dict "kind" $kind "name" . "xr" $want "exists" (has $want (get $have $kind))) }}
+            {{- end }}
+          {{- end }}
+          ---
+          apiVersion: {{ $xr.apiVersion }}
+          kind: {{ $xr.kind }}
+          status:
+            config: {{ $config | toJson }}
+          {{- end }}
 
   - step: auto-ready
     functionRef:
