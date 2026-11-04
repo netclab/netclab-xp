@@ -1,8 +1,9 @@
 apiVersion: iosxe.netclab.dev/v1alpha1
 kind: Ikev2Profile
 metadata:
-  name: r3-ikev2-profile
+  name: r3--classical-profile--cdf1f733
 spec:
+  managementPolicy: FullControl
   deviceRef:
     name: r3
   after:

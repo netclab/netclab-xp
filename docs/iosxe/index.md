@@ -38,7 +38,7 @@ r2 only routes between r1 and r3. The names are the blog's: `CLASSICAL-PROPOSAL`
 | `Ikev2Proposal` | `crypto ikev2 proposal` |
 | `Ikev2Policy` | `crypto ikev2 policy` |
 | `Ikev2Keyring` | `crypto ikev2 keyring`, with `ppk manual` per peer |
-| `Ikev2Profile` | `crypto ikev2 profile`, with `keyring ppk` |
+| `Ikev2Profile` | `crypto ikev2 profile`, with `keyring ppk`; pre-shared keys both ways, the one method of this version |
 | `IpsecTransformSet` | `crypto ipsec transform-set` |
 | `IpsecProfile` | `crypto ipsec profile` |
 | `TunnelInterface` | `interface Tunnel` |

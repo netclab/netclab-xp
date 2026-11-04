@@ -101,6 +101,20 @@ patch() { # patch <kind>/<state> <body>: Manage's PATCH on native, sent and reco
   case $code in 2??) ;; *) exit 1 ;; esac
 }
 
+rpc() { # rpc <kind>/<state> <lines>: config-ios-cli-rpc, sent and recorded with the
+  # router's answer; fails unless the RPC succeeds
+  waitsync
+  local sent out
+  sent=$(jq -nc --arg c "$2" '{"Cisco-IOS-XE-cli-rpc:input":{"config-clis":$c}}')
+  out=$(mktemp)
+  curl_ -o "$out" -X POST "$BASE/operations/Cisco-IOS-XE-cli-rpc:config-ios-cli-rpc" --data-binary "$sent"
+  jq -n --arg url "$BASE/operations/Cisco-IOS-XE-cli-rpc:config-ios-cli-rpc" --argjson sent "$sent" \
+    --slurpfile body "$out" '{request: {method: "POST", url: $url, body: $sent}, body: $body[0]}' > "$FIXTURES/$1.json"
+  rm -f "$out"
+  echo "$1: $(jq -r '.body["Cisco-IOS-XE-cli-rpc:output"].result' "$FIXTURES/$1.json")"
+  jq -e '.body["Cisco-IOS-XE-cli-rpc:output"].result == "RPC request successful"' "$FIXTURES/$1.json" > /dev/null
+}
+
 ikev2proposal() { # iosxe/examples/ikev2proposal/r1.yaml
   local url=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/proposal=CLASSICAL-PROPOSAL
   local example='{"name": "CLASSICAL-PROPOSAL", "encryption": {"aes-cbc-256": [null]},
@@ -217,13 +231,28 @@ ikev2profile() { # iosxe/examples/ikev2profile/r1.yaml, on a keyring CLASSICAL-K
   put .
   record ikev2profile/profile-applied "$url"
 
+  # `keyring ppk`, which no read returns, and a description made by hand
   cli "crypto ikev2 profile CLASSICAL-PROFILE
  keyring ppk CLASSICAL-KEYRING
- description ppk CLASSICAL-KEYRING"
-  record ikev2profile/profile-marked "$url"
-  cli "crypto ikev2 profile CLASSICAL-PROFILE
- description ppk OLD-KR"
-  record ikev2profile/profile-old-mark "$url"
+ description made by hand"
+  record ikev2profile/profile-described "$url"
+
+  # The mark of the example's PPK keyring, as the composition makes it.
+  local eem=$NATIVE/event/Cisco-IOS-XE-eem:manager/environment
+  local place=Ikev2Profile/CLASSICAL-PROFILE/ppk
+  local var=netclab-$(sha8 "$place")
+  absent "$eem=$var"
+  record ikev2profile/ppk-mark-absent "$eem=$var"
+  # the line and its mark in one RPC, as a takeover writes them: no clear
+  rpc ikev2profile/ppk-rpc "crypto ikev2 profile CLASSICAL-PROFILE
+ keyring ppk CLASSICAL-KEYRING
+ exit
+event manager environment $var \"$(sha8 CLASSICAL-KEYRING) $place CLASSICAL-KEYRING\""
+  record ikev2profile/ppk-mark-applied "$eem=$var"
+  write PUT "$eem=$var" "$(jq -nc --arg n "$var" --arg v "$(sha8 OLD-KEYRING) $place OLD-KEYRING" \
+    '{"Cisco-IOS-XE-eem:environment": [{name: $n, value: $v}]}')"
+  record ikev2profile/ppk-mark-other "$eem=$var"
+  write DELETE "$eem=$var"
 
   put 'del(.match.identity.remote.address.ipv4[0]["ipv4-mask"])'
   put 'del(.match.identity.remote.address.ipv4[0]["ipv4-mask"])'
@@ -232,6 +261,13 @@ ikev2profile() { # iosxe/examples/ikev2profile/r1.yaml, on a keyring CLASSICAL-K
   record ikev2profile/profile-other-address "$url"
   put '.match.identity.remote.address.ipv4 += [{"ipv4-address": "10.0.12.2", "ipv4-mask": "255.255.255.255"}]'
   record ikev2profile/profile-extra-address "$url"
+  # Manage's write over another address and a description made by hand: a merge adds
+  # the spec's address and keeps both
+  put '.match.identity.remote.address.ipv4 = [{"ipv4-address": "10.0.12.9", "ipv4-mask": "255.255.255.255"}]
+    | .description = "made by hand"'
+  patch ikev2profile/profile-patch \
+    "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {profile: [$p]}}}}')"
+  record ikev2profile/profile-patched "$url"
 
   write DELETE "$url"
   write DELETE "$keyring"

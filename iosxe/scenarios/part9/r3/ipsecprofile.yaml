@@ -8,7 +8,7 @@ spec:
     name: r3
   after:
   - {kind: IpsecTransformSet, name: r3--classical-ts--771f3cb2}
-  - {kind: Ikev2Profile, name: r3-ikev2-profile}
+  - {kind: Ikev2Profile, name: r3--classical-profile--cdf1f733}
   name: CLASSICAL-IPSEC
   transformSets: [CLASSICAL-TS]
   ikev2Profile: CLASSICAL-PROFILE
