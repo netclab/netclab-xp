@@ -190,7 +190,7 @@ spec:
           {{- end }}{{ end }}{{ end }}
           {{- end }}
           {{- $status := dict }}
-          {{- range $k := list "observed" "drift" "extra" "reverted" }}{{ with index $old $k }}{{ $_ := set $status $k . }}{{ end }}{{ end }}
+          {{- range $k := list "observed" "drift" "extra" "reverted" }}{{ if hasKey $old $k }}{{ $_ := set $status $k (index $old $k) }}{{ end }}{{ end }}
           {{- $present := hasKey $status "observed" }}
           {{- with index $observed "proposal" }}
           {{- $rs := default (dict) .resource.status }}

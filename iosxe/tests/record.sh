@@ -254,6 +254,16 @@ ipsectransformset() { # iosxe/examples/ipsectransformset/r1.yaml
   record ipsectransformset/transform-set-transport "$url"
   put '.esp = "esp-aes" | .["esp-hmac"] = "esp-sha256-hmac"'
   record ipsectransformset/transform-set-aes-with-hmac "$url"
+  # Manage's write over a block that differs in every field: the router drops esp-hmac
+  # itself when esp becomes esp-gcm
+  put '.esp = "esp-aes" | .["key-bit"] = "192" | .["esp-hmac"] = "esp-sha256-hmac" | .mode = {"transport-choice": {}}'
+  patch ipsectransformset/transform-set-patch \
+    "$(jq -nc --argjson t "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ipsec": {"transform-set": [$t]}}}}')"
+  record ipsectransformset/transform-set-patched "$url"
+  # a key length of 128, the router's default, named in the merge to replace 256
+  patch ipsectransformset/transform-set-patch-key-bit-128 \
+    "$(jq -nc --argjson t "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ipsec": {"transform-set": [$t | .["key-bit"] = "128"]}}}}')"
+  record ipsectransformset/transform-set-patched-key-bit-128 "$url"
 
   write DELETE "$url"
 }

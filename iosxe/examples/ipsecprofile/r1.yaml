@@ -6,7 +6,7 @@ spec:
   deviceRef:
     name: r1
   after:
-  - {kind: IpsecTransformSet, name: r1-ipsec-transform-set}
+  - {kind: IpsecTransformSet, name: r1--classical-ts--771f3cb2}
   - {kind: Ikev2Profile, name: r1-ikev2-profile}
   name: CLASSICAL-IPSEC
   transformSets: [CLASSICAL-TS]
