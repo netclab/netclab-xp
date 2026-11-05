@@ -32,12 +32,16 @@ spec:
           {{- $native := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native" $xr.spec.address }}
           {{- $observed := default (dict) .observed.resources }}
           {{- $kinds := list "Ikev2Proposal" "Ikev2Policy" "Ikev2Keyring" "Ikev2Profile" "IpsecTransformSet" "IpsecProfile" "TunnelInterface" }}
+
+          {{- /* ---- whether each read has answered ---- */}}
           {{- /* whether each read has answered; a 204 is a router with no such block */}}
           {{- $answered := dict }}
           {{- range $name := list "config" "tunnels" }}
             {{- $code := int (dig $name "resource" "status" "response" "statusCode" 0 $observed) }}
             {{- $_ := set $answered $name (or (eq $code 200) (eq $code 204)) }}
           {{- end }}
+
+          {{- /* ---- what it requires, and the three Requests it reads the router with ---- */}}
           ---
           apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
           kind: ExtraResources
@@ -76,6 +80,8 @@ spec:
                 method: GET
                 url: .payload.baseUrl
           {{- end }}
+
+          {{- /* ---- its objects ---- */}}
           {{- /* the objects in the namespace for this Device, by kind */}}
           {{- $have := dict }}
           {{- $extra := default (dict) .extraResources }}
@@ -86,6 +92,8 @@ spec:
             {{- end }}{{ end }}
             {{- $_ := set $have . $names }}
           {{- end }}
+
+          {{- /* ---- the router's blocks ---- */}}
           {{- /* the blocks on the router, by kind, as the last reads found them; a 204 is none */}}
           {{- $blocks := dict }}
           {{- with index $observed "config" }}{{ with .resource.status }}{{ with .response }}
@@ -110,6 +118,8 @@ spec:
             {{- $_ := set $blocks "TunnelInterface" $names }}
           {{- end }}
           {{- end }}{{ end }}{{ end }}
+
+          {{- /* ---- the status: each block with the name of its object ---- */}}
           {{- if and (get $answered "config") (get $answered "tunnels") }}
           {{- $config := list }}
           {{- range $kind := $kinds }}

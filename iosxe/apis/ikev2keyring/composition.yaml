@@ -45,6 +45,8 @@ spec:
           {{- $writes := ne $policy "Observe" }}
           {{- $old := default (dict) $xr.status }}
           {{- $peers := default list $xr.spec.peers }}
+
+          {{- /* ---- its name: under another name the object composes nothing ---- */}}
           {{- /* <device>--<slug>--<8 hex>, at most 63 characters */}}
           {{- $device := $xr.spec.deviceRef.name }}
           {{- $after = prepend $after (dict "kind" "Device" "name" $device) }}
@@ -61,6 +63,8 @@ spec:
           status:
             wantsName: {{ $want }}
           {{- else }}
+
+          {{- /* ---- what it requires ---- */}}
           {{- $rewrite := index (default (dict) $xr.metadata.annotations) "iosxe.netclab.dev/rewrite-keys" | default "" }}
           {{- $secretNames := list }}
           {{- if $writes }}{{ range $peers }}
@@ -97,6 +101,8 @@ spec:
           {{- range $i, $s := $secretNames }}{{ with index $extra (printf "secret-%d" $i) }}{{ with .items }}
           {{- $_ := set $secrets $s (index . 0).resource }}
           {{- end }}{{ end }}{{ end }}
+
+          {{- /* ---- the keyring as its last GET found it, and its origin ---- */}}
           {{- /* the router's peers as the keyring's last GET found them, by name */}}
           {{- $router := dict }}
           {{- $routerKeyring := dict }}
@@ -130,6 +136,8 @@ spec:
             {{- end }}
           {{- end }}{{ end }}{{ end }}
           {{- end }}
+
+          {{- /* ---- the keys, each with the mark that says it was written ---- */}}
           {{- $keys := list }}
           {{- $missing := list }}
           {{- if $writes }}{{ range $peers }}
@@ -154,6 +162,8 @@ spec:
           {{- end }}
           {{- end }}{{ end }}
           {{- $missing = $missing | uniq }}
+
+          {{- /* ---- `after`: a Usage of each object it waits on, and whether all are Ready ---- */}}
           {{- $waiting := false }}
           {{- range $i, $a := $after }}
           {{- $ready := false }}
@@ -184,6 +194,8 @@ spec:
           {{- end }}
           {{- /* a missing Secret holds back what was not composed yet */}}
           {{- $hold := and (or $waiting $missing) (not (hasKey $observed "keyring")) }}
+
+          {{- /* ---- its Requests, once nothing holds them back ---- */}}
           {{- /* the spec's peers as the router would hold them, and the keyring's two bodies */}}
           {{- $owned := list }}
           {{- $merged := list }}
@@ -292,6 +304,8 @@ spec:
                     | {{ $owned | toJson }} | all(. as $s | $router | any(.name == $s.name and ($s.address == "" or .address == $s.address)))
                   {{- end }}
                   end
+
+          {{- /* ---- a Request per key, once the keyring's is Ready ---- */}}
           {{- $keyringReady := false }}
           {{- with index $observed "keyring" }}
           {{- range .resource.status.conditions }}
@@ -389,6 +403,8 @@ spec:
           spec: {{ .resource.spec | toJson }}
           {{- end }}{{ end }}
           {{- end }}{{ end }}
+
+          {{- /* ---- back in Observe ---- */}}
           {{- /* back in Observe a key's Request stays, reading only: dropped, it would be
             deleted as the mode before left it, and FullControl's REMOVE take the key and its
             mark off */}}
@@ -404,6 +420,8 @@ spec:
           spec: {{ merge (dict "managementPolicies" (list "Observe")) $r.resource.spec | toJson }}
           {{- end }}{{ end }}
           {{- end }}
+
+          {{- /* ---- FullControl: the keyring's DELETE waits on each PPK line ---- */}}
           {{- /* a PPK's removal enters the keyring, which makes it again once deleted */}}
           {{- if and (eq $policy "FullControl") (hasKey $observed "keyring") }}
           {{- range $keys }}{{ if and (eq .type "ppk") (hasKey $observed .resource) }}
@@ -430,6 +448,8 @@ spec:
           {{- end }}
           {{- end }}{{ end }}{{ end }}
           {{- end }}
+
+          {{- /* ---- the status: the last GET in the shape of the spec, and Ready ---- */}}
           {{- $status := dict }}
           {{- range $k := list "observed" "drift" "extra" "reverted" }}{{ if hasKey $old $k }}{{ $_ := set $status $k (index $old $k) }}{{ end }}{{ end }}
           {{- $present := hasKey $status "observed" }}

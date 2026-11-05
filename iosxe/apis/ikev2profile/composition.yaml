@@ -45,6 +45,8 @@ spec:
           {{- $observed := default (dict) .observed.resources }}
           {{- $policy := $xr.spec.managementPolicy | default "Observe" }}
           {{- $old := default (dict) $xr.status }}
+
+          {{- /* ---- its name: under another name the object composes nothing ---- */}}
           {{- /* <device>--<slug>--<8 hex>, at most 63 characters */}}
           {{- $device := $xr.spec.deviceRef.name }}
           {{- $after = prepend $after (dict "kind" "Device" "name" $device) }}
@@ -61,6 +63,8 @@ spec:
           status:
             wantsName: {{ $want }}
           {{- else }}
+
+          {{- /* ---- what it requires ---- */}}
           ---
           apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
           kind: ExtraResources
@@ -78,6 +82,8 @@ spec:
               namespace: {{ $ns }}
             {{- end }}
           {{- $extra := default (dict) .extraResources }}
+
+          {{- /* ---- `after`: a Usage of each object it waits on, and whether all are Ready ---- */}}
           {{- $waiting := false }}
           {{- range $i, $a := $after }}
           {{- $ready := false }}
@@ -111,6 +117,8 @@ spec:
           {{- $ring := $xr.spec.keyring | default "" }}
           {{- $ppk := $xr.spec.ppkKeyring | default "" }}
           {{- $rewrite := index (default (dict) $xr.metadata.annotations) "iosxe.netclab.dev/rewrite-keys" | default "" }}
+
+          {{- /* ---- the PPK keyring's mark, as the spec makes it and as the router has it ---- */}}
           {{- /* the mark of the PPK keyring the spec names; the name in clear after the place */}}
           {{- $place := printf "Ikev2Profile/%s/ppk" $xr.spec.name }}
           {{- $var := printf "netclab-%s" (sha256sum $place | trunc 8) }}
@@ -125,6 +133,8 @@ spec:
           {{- end }}{{ end }}{{ end }}
           {{- $foundMark := "" }}{{ if $found }}{{ $foundMark = index $found 0 }}{{ end }}
           {{- $foundRing := "" }}{{ if gt (len $found) 2 }}{{ $foundRing = index $found 2 }}{{ end }}
+
+          {{- /* ---- its Requests, once nothing holds them back ---- */}}
           {{- if not $hold }}
           {{- with .extraResources }}{{ with index . "device" }}{{ with .items }}
           {{- $dev := (index . 0).resource }}
@@ -230,6 +240,8 @@ spec:
               - action: OBSERVE
                 method: GET
                 url: .payload.baseUrl
+
+          {{- /* ---- the RPC of `keyring ppk`, once the profile's Request is Ready ---- */}}
           {{- $profileReady := false }}
           {{- with index $observed "profile" }}
           {{- range .resource.status.conditions }}
@@ -293,6 +305,8 @@ spec:
                 logic: |
                   .response.statusCode == 200 and
                     ((.response.body["Cisco-IOS-XE-eem:environment"][0].value // "") | split(" ")[0]) == {{ $mark | quote }}
+
+          {{- /* ---- FullControl: the profile's DELETE waits on the line ---- */}}
           {{- /* the line's removal enters the profile, which makes it again once deleted */}}
           {{- if and (eq $policy "FullControl") (hasKey $observed "profile") (hasKey $observed "ppk") }}
           ---
@@ -316,6 +330,8 @@ spec:
             replayDeletion: true
           {{- end }}
           {{- end }}
+
+          {{- /* ---- back in Observe ---- */}}
           {{- /* back in Observe the RPC stays, reading only: dropped, it would be deleted as
             the mode before left it, and FullControl's REMOVE take the line and its mark off */}}
           {{- if and (eq $policy "Observe") (hasKey $observed "ppk") }}
@@ -330,6 +346,8 @@ spec:
           {{- end }}
           {{- end }}{{ end }}{{ end }}
           {{- end }}
+
+          {{- /* ---- the status: the last GET in the shape of the spec, and Ready ---- */}}
           {{- $status := dict }}
           {{- range $k := list "observed" "drift" "extra" "reverted" }}{{ if hasKey $old $k }}{{ $_ := set $status $k (index $old $k) }}{{ end }}{{ end }}
           {{- $present := hasKey $status "observed" }}

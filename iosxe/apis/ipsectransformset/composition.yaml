@@ -38,6 +38,8 @@ spec:
           {{- $observed := default (dict) .observed.resources }}
           {{- $policy := $xr.spec.managementPolicy | default "Observe" }}
           {{- $old := default (dict) $xr.status }}
+
+          {{- /* ---- its name: under another name the object composes nothing ---- */}}
           {{- /* <device>--<slug>--<8 hex>, at most 63 characters */}}
           {{- $device := $xr.spec.deviceRef.name }}
           {{- $after = prepend $after (dict "kind" "Device" "name" $device) }}
@@ -54,6 +56,8 @@ spec:
           status:
             wantsName: {{ $want }}
           {{- else }}
+
+          {{- /* ---- what it requires ---- */}}
           ---
           apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
           kind: ExtraResources
@@ -71,6 +75,8 @@ spec:
               namespace: {{ $ns }}
             {{- end }}
           {{- $extra := default (dict) .extraResources }}
+
+          {{- /* ---- `after`: a Usage of each object it waits on, and whether all are Ready ---- */}}
           {{- $waiting := false }}
           {{- range $i, $a := $after }}
           {{- $ready := false }}
@@ -104,6 +110,8 @@ spec:
           {{- $keyed := list "esp-aes" "esp-gcm" "esp-gmac" }}
           {{- $spec := dict }}
           {{- range $f := $fields }}{{ with get $xr.spec $f }}{{ $_ := set $spec $f (toString .) }}{{ end }}{{ end }}
+
+          {{- /* ---- its Requests, once nothing holds them back ---- */}}
           {{- /* the transform-set a PUT of the spec leaves, the router's defaults in */}}
           {{- $whole := deepCopy $spec }}
           {{- if and (has (get $spec "esp") $keyed) (not (hasKey $spec "keyBits")) }}{{ $_ := set $whole "keyBits" "128" }}{{ end }}
@@ -193,6 +201,8 @@ spec:
                   end
           {{- end }}{{ end }}{{ end }}
           {{- end }}
+
+          {{- /* ---- the status: the last GET in the shape of the spec, and Ready ---- */}}
           {{- $status := dict }}
           {{- range $k := list "observed" "drift" "extra" "reverted" }}{{ if hasKey $old $k }}{{ $_ := set $status $k (index $old $k) }}{{ end }}{{ end }}
           {{- $present := hasKey $status "observed" }}

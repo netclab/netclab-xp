@@ -38,6 +38,8 @@ spec:
           {{- $observed := default (dict) .observed.resources }}
           {{- $policy := $xr.spec.managementPolicy | default "Observe" }}
           {{- $old := default (dict) $xr.status }}
+
+          {{- /* ---- its name: under another name the object composes nothing ---- */}}
           {{- /* <device>--<slug>--<8 hex>, at most 63 characters */}}
           {{- $device := $xr.spec.deviceRef.name }}
           {{- $after = prepend $after (dict "kind" "Device" "name" $device) }}
@@ -54,6 +56,8 @@ spec:
           status:
             wantsName: {{ $want }}
           {{- else }}
+
+          {{- /* ---- what it requires ---- */}}
           ---
           apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
           kind: ExtraResources
@@ -71,6 +75,8 @@ spec:
               namespace: {{ $ns }}
             {{- end }}
           {{- $extra := default (dict) .extraResources }}
+
+          {{- /* ---- `after`: a Usage of each object it waits on, and whether all are Ready ---- */}}
           {{- $waiting := false }}
           {{- range $i, $a := $after }}
           {{- $ready := false }}
@@ -102,6 +108,8 @@ spec:
           {{- $hold := and $waiting (not (hasKey $observed "profile")) }}
           {{- $mine := sortAlpha (default list $xr.spec.transformSets) }}
           {{- $ike := $xr.spec.ikev2Profile | default "" }}
+
+          {{- /* ---- its Requests, once nothing holds them back ---- */}}
           {{- if not $hold }}
           {{- with .extraResources }}{{ with index . "device" }}{{ with .items }}
           {{- $dev := (index . 0).resource }}
@@ -182,6 +190,8 @@ spec:
                   end
           {{- end }}{{ end }}{{ end }}
           {{- end }}
+
+          {{- /* ---- the status: the last GET in the shape of the spec, and Ready ---- */}}
           {{- $status := dict }}
           {{- range $k := list "observed" "drift" "extra" "reverted" }}{{ if hasKey $old $k }}{{ $_ := set $status $k (index $old $k) }}{{ end }}{{ end }}
           {{- $present := hasKey $status "observed" }}
