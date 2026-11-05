@@ -11,9 +11,10 @@ spec:
   # A Device configures nothing. Its first Request reads the hostname, so the
   # Device is Ready only when the router answers with these credentials. Two
   # more read the names of the router's blocks of the package's kinds, the
-  # crypto ones in one GET and the tunnels in another; they are always Ready.
-  # The status lists each block with the name its object must have, and whether
-  # an object of that name for this Device is in the namespace.
+  # crypto ones in one GET and the tunnels in another; each is Ready once its GET
+  # has answered, so a Ready Device has read every block. The status lists each
+  # block with the name its object must have, and whether an object of that name
+  # for this Device is in the namespace, once both reads have answered.
   - step: requests
     functionRef:
       name: crossplane-contrib-function-go-templating
@@ -31,6 +32,12 @@ spec:
           {{- $native := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native" $xr.spec.address }}
           {{- $observed := default (dict) .observed.resources }}
           {{- $kinds := list "Ikev2Proposal" "Ikev2Policy" "Ikev2Keyring" "Ikev2Profile" "IpsecTransformSet" "IpsecProfile" "TunnelInterface" }}
+          {{- /* whether each read has answered; a 204 is a router with no such block */}}
+          {{- $answered := dict }}
+          {{- range $name := list "config" "tunnels" }}
+            {{- $code := int (dig $name "resource" "status" "response" "statusCode" 0 $observed) }}
+            {{- $_ := set $answered $name (or (eq $code 200) (eq $code 204)) }}
+          {{- end }}
           ---
           apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
           kind: ExtraResources
@@ -53,7 +60,7 @@ spec:
             annotations:
               gotemplating.fn.crossplane.io/composition-resource-name: {{ $name }}
               {{- if ne $name "hostname" }}
-              gotemplating.fn.crossplane.io/ready: "True"
+              gotemplating.fn.crossplane.io/ready: {{ if get $answered $name }}"True"{{ else }}"False"{{ end }}
               {{- end }}
           spec:
             managementPolicies: ["Observe"]
@@ -81,11 +88,9 @@ spec:
           {{- end }}
           {{- /* the blocks on the router, by kind, as the last reads found them; a 204 is none */}}
           {{- $blocks := dict }}
-          {{- $read := false }}
           {{- with index $observed "config" }}{{ with .resource.status }}{{ with .response }}
           {{- $code := int (.statusCode | default 0) }}
-          {{- if eq $code 204 }}{{ $read = true }}{{ end }}
-          {{- if eq $code 200 }}{{ $read = true }}
+          {{- if eq $code 200 }}
             {{- $crypto := get (fromYaml .body) "Cisco-IOS-XE-native:crypto" | default dict }}
             {{- $ikev2 := get $crypto "Cisco-IOS-XE-crypto:ikev2" | default dict }}
             {{- $ipsec := get $crypto "Cisco-IOS-XE-crypto:ipsec" | default dict }}
@@ -105,7 +110,7 @@ spec:
             {{- $_ := set $blocks "TunnelInterface" $names }}
           {{- end }}
           {{- end }}{{ end }}{{ end }}
-          {{- if $read }}
+          {{- if and (get $answered "config") (get $answered "tunnels") }}
           {{- $config := list }}
           {{- range $kind := $kinds }}
             {{- range (get $blocks $kind | default list) }}

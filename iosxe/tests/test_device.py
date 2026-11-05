@@ -16,17 +16,36 @@ OBJECTS = [
 ]
 
 
-def config(render, cfg, tunnels, required=None):
-    """status.config of r1 with the reads answered as recorded in `cfg` and `tunnels`,
-    the objects in the namespace `required`, by default the examples."""
-    xr = copy.deepcopy(DEVICE)
-    resources = render(KIND, xr, required=required or OBJECTS + secrets()).resources
-    before = [
-        observed(resources["hostname"], True),
-        answered(resources["config"], cfg),
-        answered(resources["tunnels"], tunnels),
+def reads(resources, hostname, cfg, tunnels):
+    """The Device's Requests as observed: the hostname's Ready or not, and each read
+    answered as recorded in its state, (state, status code) for another code, or not yet
+    answered when None."""
+
+    def read(name, state):
+        if state is None:
+            return observed(resources[name], True)
+        state, status = state if isinstance(state, tuple) else (state, None)
+        return answered(resources[name], state, status=status)
+
+    return [
+        observed(resources["hostname"], hostname),
+        read("config", cfg),
+        read("tunnels", tunnels),
     ]
-    rendered = render(KIND, xr, before, required or OBJECTS + secrets())
+
+
+def device(render, hostname, cfg, tunnels, required=None):
+    """r1 rendered with its reads as `reads` gives them, the objects in the namespace
+    `required`, by default the examples."""
+    xr = copy.deepcopy(DEVICE)
+    required = required or OBJECTS + secrets()
+    resources = render(KIND, xr, required=required).resources
+    return render(KIND, xr, reads(resources, hostname, cfg, tunnels), required)
+
+
+def config(render, cfg, tunnels, required=None):
+    """status.config of r1 with the reads answered as `reads` takes them."""
+    rendered = device(render, True, cfg, tunnels, required)
     return rendered.composite["status"].get("config")
 
 
@@ -81,14 +100,31 @@ def test_no_list_before_the_router_is_read(render):
     assert "config" not in rendered.composite.get("status", {})
 
 
-@pytest.mark.parametrize("hostname", [True, False])
-def test_the_hostname_alone_decides_ready(render, hostname):
-    xr = copy.deepcopy(DEVICE)
-    resources = render(KIND, xr, required=OBJECTS + secrets()).resources
-    before = [
-        observed(resources["hostname"], hostname),
-        observed(resources["config"], False),
-        observed(resources["tunnels"], False),
-    ]
-    rendered = render(KIND, xr, before, OBJECTS + secrets())
-    assert ready(rendered) == ("True" if hostname else "False")
+@pytest.mark.parametrize(
+    "cfg, tunnels",
+    [
+        ("config-part9", None),
+        (None, "tunnels-part9"),
+        ("config-part9", ("tunnels-absent", 502)),
+    ],
+)
+def test_no_list_until_both_reads_have_answered(render, cfg, tunnels):
+    assert config(render, cfg, tunnels) is None
+
+
+@pytest.mark.parametrize(
+    "hostname, cfg, tunnels, want",
+    [
+        (True, "config-part9", "tunnels-part9", "True"),
+        # A router with no block answers both reads with a 204.
+        (True, "config-absent", "tunnels-absent", "True"),
+        (False, "config-part9", "tunnels-part9", "False"),
+        (True, None, "tunnels-part9", "False"),
+        (True, "config-part9", None, "False"),
+        (True, ("config-absent", 502), "tunnels-part9", "False"),
+    ],
+)
+def test_ready_once_the_router_answers_and_both_reads_have(
+    render, hostname, cfg, tunnels, want
+):
+    assert ready(device(render, hostname, cfg, tunnels)) == want
