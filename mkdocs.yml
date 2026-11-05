@@ -79,8 +79,9 @@ nav:
           - eAPI: eos/scenarios/eapi.md
           - Router: eos/scenarios/router.md
   - IOS XE:
-      - Post-quantum IPsec: iosxe/index.md
-      - Brownfield with GitOps: iosxe/brownfield.md
+      - Overview: iosxe/index.md
+      - Part 9: iosxe/part9.md
+      - Adopt a router: iosxe/adopt.md
 
 extra:
   social:
