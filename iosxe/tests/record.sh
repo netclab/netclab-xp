@@ -115,7 +115,7 @@ rpc() { # rpc <kind>/<state> <lines>: config-ios-cli-rpc, sent and recorded with
   jq -e '.body["Cisco-IOS-XE-cli-rpc:output"].result == "RPC request successful"' "$FIXTURES/$1.json" > /dev/null
 }
 
-device() { # the names the Device reads, before and with part 9's blocks and LEGACY_PROPOSAL
+device() { # the names the Device reads, before and with part 9's sections and LEGACY_PROPOSAL
   local config="$NATIVE/crypto?fields=Cisco-IOS-XE-crypto:ikev2(proposal/name;policy/name;keyring/name;profile/name);Cisco-IOS-XE-crypto:ipsec(transform-set/tag;profile/name)"
   local tunnels="$NATIVE/interface?fields=Tunnel/name"
   local crypto=$NATIVE/crypto/Cisco-IOS-XE-crypto
@@ -343,7 +343,7 @@ ipsectransformset() { # iosxe/examples/ipsectransformset/r1.yaml
   record ipsectransformset/transform-set-transport "$url"
   put '.esp = "esp-aes" | .["esp-hmac"] = "esp-sha256-hmac"'
   record ipsectransformset/transform-set-aes-with-hmac "$url"
-  # Manage's write over a block that differs in every field: the router drops esp-hmac
+  # Manage's write over a section that differs in every field: the router drops esp-hmac
   # itself when esp becomes esp-gcm
   put '.esp = "esp-aes" | .["key-bit"] = "192" | .["esp-hmac"] = "esp-sha256-hmac" | .mode = {"transport-choice": {}}'
   patch ipsectransformset/transform-set-patch \

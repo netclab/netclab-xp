@@ -10,10 +10,10 @@ spec:
   pipeline:
   # A Device configures nothing. Its first Request reads the hostname, so the
   # Device is Ready only when the router answers with these credentials. Two
-  # more read the names of the router's blocks of the package's kinds, the
+  # more read the names of the router's sections of the package's kinds, the
   # crypto ones in one GET and the tunnels in another; each is Ready once its GET
-  # has answered, so a Ready Device has read every block. The status lists each
-  # block with the name its object must have, and whether an object of that name
+  # has answered, so a Ready Device has read every section. The status lists each
+  # section with the name its object must have, and whether an object of that name
   # for this Device is in the namespace, once both reads have answered.
   - step: requests
     functionRef:
@@ -34,7 +34,7 @@ spec:
           {{- $kinds := list "Ikev2Proposal" "Ikev2Policy" "Ikev2Keyring" "Ikev2Profile" "IpsecTransformSet" "IpsecProfile" "TunnelInterface" }}
 
           {{- /* ---- whether each read has answered ---- */}}
-          {{- /* whether each read has answered; a 204 is a router with no such block */}}
+          {{- /* whether each read has answered; a 204 is a router with no such section */}}
           {{- $answered := dict }}
           {{- range $name := list "config" "tunnels" }}
             {{- $code := int (dig $name "resource" "status" "response" "statusCode" 0 $observed) }}
@@ -93,9 +93,9 @@ spec:
             {{- $_ := set $have . $names }}
           {{- end }}
 
-          {{- /* ---- the router's blocks ---- */}}
-          {{- /* the blocks on the router, by kind, as the last reads found them; a 204 is none */}}
-          {{- $blocks := dict }}
+          {{- /* ---- the router's sections ---- */}}
+          {{- /* the sections on the router, by kind, as the last reads found them; a 204 is none */}}
+          {{- $sections := dict }}
           {{- with index $observed "config" }}{{ with .resource.status }}{{ with .response }}
           {{- $code := int (.statusCode | default 0) }}
           {{- if eq $code 200 }}
@@ -104,10 +104,10 @@ spec:
             {{- $ipsec := get $crypto "Cisco-IOS-XE-crypto:ipsec" | default dict }}
             {{- range $kind, $list := dict "Ikev2Proposal" (get $ikev2 "proposal") "Ikev2Policy" (get $ikev2 "policy") "Ikev2Keyring" (get $ikev2 "keyring") "Ikev2Profile" (get $ikev2 "profile") "IpsecProfile" (get $ipsec "profile") }}
               {{- $names := list }}{{ range ($list | default list) }}{{ $names = append $names .name }}{{ end }}
-              {{- $_ := set $blocks $kind $names }}
+              {{- $_ := set $sections $kind $names }}
             {{- end }}
             {{- $tags := list }}{{ range (get $ipsec "transform-set" | default list) }}{{ $tags = append $tags .tag }}{{ end }}
-            {{- $_ := set $blocks "IpsecTransformSet" $tags }}
+            {{- $_ := set $sections "IpsecTransformSet" $tags }}
           {{- end }}
           {{- end }}{{ end }}{{ end }}
           {{- with index $observed "tunnels" }}{{ with .resource.status }}{{ with .response }}
@@ -115,15 +115,15 @@ spec:
           {{- if eq $code 200 }}
             {{- $names := list }}
             {{- with get (fromYaml .body) "Cisco-IOS-XE-native:interface" }}{{ range (get . "Tunnel" | default list) }}{{ $names = append $names (printf "Tunnel%v" .name) }}{{ end }}{{ end }}
-            {{- $_ := set $blocks "TunnelInterface" $names }}
+            {{- $_ := set $sections "TunnelInterface" $names }}
           {{- end }}
           {{- end }}{{ end }}{{ end }}
 
-          {{- /* ---- the status: each block with the name of its object ---- */}}
+          {{- /* ---- the status: each section with the name of its object ---- */}}
           {{- if and (get $answered "config") (get $answered "tunnels") }}
           {{- $config := list }}
           {{- range $kind := $kinds }}
-            {{- range (get $blocks $kind | default list) }}
+            {{- range (get $sections $kind | default list) }}
               {{- /* <device>--<slug>--<8 hex>, at most 63 characters, as each kind's composition makes it */}}
               {{- $slug := regexReplaceAll "[^a-z0-9]+" (lower .) "-" | trimAll "-" }}
               {{- $slug = trunc (int (max 0 (sub 51 (len $device)))) $slug | trimSuffix "-" }}

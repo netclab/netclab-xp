@@ -305,7 +305,7 @@ def test_the_ppk_keyring_is_shown_from_its_mark_not_the_spec(render, mark, shown
     assert status(rendered)["observed"].get("ppkKeyring") == shown
 
 
-def test_a_block_gone_from_the_router_is_not_ready(render):
+def test_a_section_gone_from_the_router_is_not_ready(render):
     xr = thin()
     xr["status"] = {"observed": {"keyring": "X"}, "drift": [], "extra": []}
     rendered = seen(render, xr, "profile-absent")

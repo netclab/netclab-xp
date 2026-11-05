@@ -64,7 +64,7 @@ spec:
               config:
                 type: array
                 description: >-
-                  The router's blocks of the package's kinds, as of the last
+                  The router's sections of the package's kinds, as of the last
                   poll, each with the name its object must have and whether that
                   object is in the namespace.
                 items:
@@ -74,10 +74,10 @@ spec:
                       type: string
                     name:
                       type: string
-                      description: The block's name on the router.
+                      description: The section's name on the router.
                     xr:
                       type: string
-                      description: The name the block's object must have.
+                      description: The name the section's object must have.
                     exists:
                       type: boolean
                       description: Whether an object of that name for this Device is in the namespace.

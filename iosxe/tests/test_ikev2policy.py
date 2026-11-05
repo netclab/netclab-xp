@@ -148,7 +148,7 @@ def test_a_thin_object_shows_the_router_in_the_shape_of_the_spec(after_get):
     assert ready(rendered) == "True"
 
 
-def test_a_block_gone_from_the_router_is_not_ready(after_get):
+def test_a_section_gone_from_the_router_is_not_ready(after_get):
     xr = thin()
     xr["status"] = {"observed": {"proposals": ["X"]}, "drift": [], "extra": []}
     rendered = after_get(xr, "policy-absent")

@@ -1,4 +1,4 @@
-"""Device: the Requests it reads the router with, and status.config, the router's blocks of
+"""Device: the Requests it reads the router with, and status.config, the router's sections of
 the package's kinds with the name each object must have and whether it is there."""
 
 import copy
@@ -53,7 +53,7 @@ def entry(kind, name, xr, exists):
     return {"kind": kind, "name": name, "xr": xr, "exists": exists}
 
 
-def test_lists_each_block_with_the_name_its_object_must_have(render):
+def test_lists_each_section_with_the_name_its_object_must_have(render):
     assert config(render, "config-part9", "tunnels-part9") == [
         entry(
             "Ikev2Proposal",
@@ -83,7 +83,7 @@ def test_lists_each_block_with_the_name_its_object_must_have(render):
     ]
 
 
-def test_an_object_for_another_device_is_not_this_block_s(render):
+def test_an_object_for_another_device_is_not_this_section_s(render):
     others = copy.deepcopy(OBJECTS)
     for o in others:
         o["spec"]["deviceRef"]["name"] = "r3"
@@ -91,7 +91,7 @@ def test_an_object_for_another_device_is_not_this_block_s(render):
     assert not any(e["exists"] for e in listed)
 
 
-def test_a_router_with_no_block_lists_none(render):
+def test_a_router_with_no_section_lists_none(render):
     assert config(render, "config-absent", "tunnels-absent") == []
 
 
@@ -116,7 +116,7 @@ def test_no_list_until_both_reads_have_answered(render, cfg, tunnels):
     "hostname, cfg, tunnels, want",
     [
         (True, "config-part9", "tunnels-part9", "True"),
-        # A router with no block answers both reads with a 204.
+        # A router with no section answers both reads with a 204.
         (True, "config-absent", "tunnels-absent", "True"),
         (False, "config-part9", "tunnels-part9", "False"),
         (True, None, "tunnels-part9", "False"),
