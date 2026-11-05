@@ -8,20 +8,20 @@ from functools import partial
 
 import pytest
 from conftest import (
-    EXAMPLES,
+    DEVICES,
     IOSXE,
     check,
     in_namespace,
     observed,
     ready,
     recorded,
+    requests,
     status,
 )
 from conftest import answered as _answered
 
 KIND = "tunnelinterface"
 XR = "r1--tunnel0--d311cfe5"
-DEVICES = [in_namespace(p) for p in EXAMPLES if p.parent.name == "device"]
 answered = partial(_answered, KIND)
 
 # A prefix that ends in each octet, and both ends of the range.
@@ -70,7 +70,7 @@ def test_an_object_under_another_name_composes_nothing(render):
     assert rendered.composite["status"]["wantsName"] == XR
     assert ready(rendered) == "False"
     xr["metadata"]["name"] = XR
-    assert list(render(KIND, xr, required=DEVICES).resources) == ["tunnel"]
+    assert requests(render(KIND, xr, required=DEVICES).resources) == ["tunnel"]
 
 
 def test_the_name_gives_the_interface_number(render):
@@ -366,6 +366,7 @@ def test_reads_the_router_once_the_tunnel_request_exists(render, rendered):
     xr = in_namespace(IOSXE / "examples" / KIND / "r1.yaml")
     first = render(KIND, xr).resources
     assert sorted(first) == [
+        "after-device-r1",
         "after-ipsecprofile-r1--classical-ipsec--461c477a",
         "tunnel",
     ]

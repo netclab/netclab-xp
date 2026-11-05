@@ -17,10 +17,11 @@ spec:
   # FullControl PUTs the policy and DELETEs it with the object. The status is the
   # last GET in the shape of the spec; Ready means the mode's write would change
   # nothing.
-  # Once every object in `after` is Ready the Requests are composed, and they
-  # stay composed whatever happens to those objects; until then none is, and the
-  # XR is not Ready, where Crossplane would call an XR composing nothing Ready. A
-  # Usage of each object in `after` holds back its delete until this XR is gone.
+  # The Device comes first in `after`, as if the spec named it. Once every object
+  # in `after` is Ready the Requests are composed, and they stay composed whatever
+  # happens to those objects; until then none is, and the XR is not Ready, where
+  # Crossplane would call an XR composing nothing Ready. A Usage of each object in
+  # `after` holds back its delete until this XR is gone.
   - step: requests
     functionRef:
       name: crossplane-contrib-function-go-templating
@@ -38,6 +39,7 @@ spec:
           {{- $old := default (dict) $xr.status }}
           {{- /* <device>--<slug>--<8 hex>, at most 63 characters */}}
           {{- $device := $xr.spec.deviceRef.name }}
+          {{- $after = prepend $after (dict "kind" "Device" "name" $device) }}
           {{- $slug := regexReplaceAll "[^a-z0-9]+" (lower $xr.spec.name) "-" | trimAll "-" }}
           {{- $slug = trunc (int (max 0 (sub 51 (len $device)))) $slug | trimSuffix "-" }}
           {{- $want := printf "%s--%s--%s" $device $slug (sha256sum $xr.spec.name | trunc 8) }}

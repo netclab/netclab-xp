@@ -6,12 +6,13 @@ from functools import partial
 
 import pytest
 from conftest import (
-    EXAMPLES,
+    DEVICES,
     IOSXE,
     check,
     in_namespace,
     ready,
     recorded,
+    requests,
     status,
 )
 from conftest import answered as _answered
@@ -19,7 +20,6 @@ from conftest import answered as _answered
 KIND = "ikev2proposal"
 answered = partial(_answered, KIND)
 XR = "r1--classical-proposal--3a16aab3"
-DEVICES = [in_namespace(p) for p in EXAMPLES if p.parent.name == "device"]
 
 
 def example(policy=None, name=XR, **spec):
@@ -62,7 +62,7 @@ def test_an_object_under_another_name_composes_nothing(render, device, name, wan
     assert ready(rendered) == "False"
     # Under the name it wants, the object composes its Request.
     xr["metadata"]["name"] = wants
-    assert list(render(KIND, xr, required=DEVICES).resources) == ["proposal"]
+    assert requests(render(KIND, xr, required=DEVICES).resources) == ["proposal"]
 
 
 @pytest.mark.parametrize(

@@ -6,20 +6,20 @@ from functools import partial
 
 import pytest
 from conftest import (
-    EXAMPLES,
+    DEVICES,
     IOSXE,
     check,
     in_namespace,
     observed,
     ready,
     recorded,
+    requests,
     status,
 )
 from conftest import answered as _answered
 
 KIND = "ikev2profile"
 XR = "r1--classical-profile--cdf1f733"
-DEVICES = [in_namespace(p) for p in EXAMPLES if p.parent.name == "device"]
 answered = partial(_answered, KIND)
 
 
@@ -74,7 +74,7 @@ def test_an_object_under_another_name_composes_nothing(render):
     assert rendered.composite["status"]["wantsName"] == XR
     assert ready(rendered) == "False"
     xr["metadata"]["name"] = XR
-    assert sorted(first(render, xr)) == ["ppk-mark", "profile"]
+    assert requests(first(render, xr)) == ["ppk-mark", "profile"]
 
 
 @pytest.mark.parametrize(
@@ -229,7 +229,7 @@ def test_back_in_observe_the_rpc_stays_and_only_reads(render, rpc, previous):
 def test_the_rpc_waits_for_the_profile(render):
     xr = example("FullControl")
     resources = first(render, xr)
-    assert sorted(resources) == ["ppk-mark", "profile"]
+    assert requests(resources) == ["ppk-mark", "profile"]
     before = [
         observed(resources["profile"], False),
         observed(resources["ppk-mark"], True),

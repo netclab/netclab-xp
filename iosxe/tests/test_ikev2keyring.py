@@ -8,13 +8,14 @@ from functools import partial
 
 import pytest
 from conftest import (
-    EXAMPLES,
+    DEVICES,
     IOSXE,
     _secrets,
     check,
     in_namespace,
     observed,
     recorded,
+    requests,
     secrets,
     status,
 )
@@ -24,7 +25,6 @@ KIND = "ikev2keyring"
 XR = "r1--classical-keyring--eb60cb7d"
 answered = partial(_answered, KIND)
 KEYS = ["psk-r3", "ppk-r3"]
-DEVICES = [in_namespace(p) for p in EXAMPLES if p.parent.name == "device"]
 VALUES = {
     "ike-keys": {"psk": "TestPsk123", "ppk-hex": "48656C6C6F506F737451756172746E756D"}
 }
@@ -177,7 +177,7 @@ def test_mark_changes_with_the_key_and_nothing_else(marks, change, changed):
 
 def test_missing_secret_composes_nothing_new(render):
     rendered = render(KIND, example(), required=DEVICES)
-    assert rendered.resources == {}
+    assert requests(rendered.resources) == []
     assert rendered.composite["status"]["missingSecrets"] == [
         "ike-keys/psk",
         "ike-keys/ppk-hex",
@@ -190,7 +190,7 @@ def test_missing_secret_keeps_what_was_composed(render):
     composed = with_keys(render).resources
     before = [observed(r, True) for r in composed.values()]
     rendered = render(KIND, example(), before, DEVICES)
-    assert sorted(rendered.resources) == sorted(["keyring", *KEYS])
+    assert requests(rendered.resources) == sorted(["keyring", *KEYS])
     for key in KEYS:
         assert rendered.resources[key]["spec"] == composed[key]["spec"]
     assert ready(rendered) == "False"
@@ -199,7 +199,7 @@ def test_missing_secret_keeps_what_was_composed(render):
 def test_missing_key_is_named(render):
     rendered = with_keys(render, values={"ike-keys": {"psk": "TestPsk123"}})
     assert rendered.composite["status"]["missingSecrets"] == ["ike-keys/ppk-hex"]
-    assert sorted(rendered.resources) == ["keyring", "psk-r3"]
+    assert requests(rendered.resources) == ["keyring", "psk-r3"]
 
 
 @pytest.mark.parametrize(("key_ready", "written"), [(True, True), (False, False)])
@@ -228,7 +228,7 @@ def test_written_follows_the_key_request(render, key_ready, written):
 )
 def test_keys_wait_for_the_keyring(rendered, render, before, composed):
     seen = [observed(rendered[XR][name], ready) for name, ready in before.items()]
-    assert sorted(render(KIND, example(), seen).resources) == sorted(composed)
+    assert requests(render(KIND, example(), seen).resources) == sorted(composed)
 
 
 def first(render, xr):
@@ -418,7 +418,7 @@ def test_back_in_observe_a_key_s_request_stays_and_only_reads(render, previous):
     composed = with_keys(render, example(previous)).resources
     before = [observed(r, True) for r in composed.values()]
     rendered = render(KIND, example(None), before, DEVICES + secrets(VALUES))
-    assert sorted(rendered.resources) == sorted(["keyring", *KEYS])
+    assert requests(rendered.resources) == sorted(["keyring", *KEYS])
     for key in KEYS:
         spec = rendered.resources[key]["spec"]
         assert spec["managementPolicies"] == ["Observe"]
@@ -427,7 +427,7 @@ def test_back_in_observe_a_key_s_request_stays_and_only_reads(render, previous):
 
 def test_observe_writes_no_key_and_needs_no_secret(render):
     rendered = render(KIND, example(None), required=DEVICES)
-    assert sorted(rendered.resources) == ["keyring"]
+    assert requests(rendered.resources) == ["keyring"]
     assert rendered.composite["status"]["missingSecrets"] == []
 
 

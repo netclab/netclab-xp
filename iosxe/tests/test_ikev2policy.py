@@ -5,12 +5,20 @@ import json
 from functools import partial
 
 import pytest
-from conftest import EXAMPLES, IOSXE, check, in_namespace, ready, recorded, status
+from conftest import (
+    DEVICES,
+    IOSXE,
+    check,
+    in_namespace,
+    ready,
+    recorded,
+    requests,
+    status,
+)
 from conftest import answered as _answered
 
 KIND = "ikev2policy"
 XR = "r1--classical-policy--17d97755"
-DEVICES = [in_namespace(p) for p in EXAMPLES if p.parent.name == "device"]
 answered = partial(_answered, KIND)
 
 
@@ -52,7 +60,7 @@ def test_an_object_under_another_name_composes_nothing(render, name, want):
     assert wants.startswith(want) and len(wants) <= 63
     assert ready(rendered) == "False"
     xr["metadata"]["name"] = wants
-    assert list(render(KIND, xr, required=DEVICES).resources) == ["policy"]
+    assert requests(render(KIND, xr, required=DEVICES).resources) == ["policy"]
 
 
 @pytest.mark.parametrize(

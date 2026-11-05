@@ -188,18 +188,26 @@ def functions(request, tmp_path_factory):
 def render(tmp_path_factory, functions):
     """Renders an XR with the composition of its directory under apis/, `required` as the
     resources it requires (unless given, the other examples, all Ready, and the Secrets),
-    and `observed` as
-    the resources it composed before: the XR as rendered, and its composed resources by
-    composition-resource-name."""
+    and `observed` as the resources it composed before, with the Usage of its Device
+    Ready unless given, as a cluster has it at once: the XR as rendered, and its composed
+    resources by composition-resource-name."""
     tmp = tmp_path_factory.mktemp("render")
     functions, engine_args = functions
     examples = [observed(in_namespace(p), True) for p in EXAMPLES]
     renders = count()
+    name = "crossplane.io/composition-resource-name"
 
     def _render(directory, xr, observed=(), required=None):
         n = next(renders)
         path = tmp / f"xr-{n}.yaml"
         path.write_text(yaml.safe_dump(xr))
+        observed = list(observed)
+        device = xr.get("spec", {}).get("deviceRef", {}).get("name")
+        usage = f"after-device-{device}"
+        if device and not any(
+            o["metadata"].get("annotations", {}).get(name) == usage for o in observed
+        ):
+            observed.append(device_usage(usage))
         observed_path = tmp / f"observed-{n}.yaml"
         observed_path.write_text(yaml.safe_dump_all(observed))
         if required is None:
@@ -227,7 +235,6 @@ def render(tmp_path_factory, functions):
             check=True,
         )
         docs = [d for d in yaml.safe_load_all(result.stdout) if d]
-        name = "crossplane.io/composition-resource-name"
         return Rendered(
             docs[0], {d["metadata"]["annotations"][name]: d for d in docs[1:]}
         )
@@ -249,6 +256,35 @@ def observed(resource, ready):
         ]
     }
     return out
+
+
+# The examples' Devices, Ready: every object waits on its Device before it composes.
+DEVICES = [
+    observed(in_namespace(p), True) for p in EXAMPLES if p.parent.name == "device"
+]
+
+
+def device_usage(resource_name):
+    """The Usage of an XR's Device as composed before, Ready."""
+    return observed(
+        {
+            "apiVersion": "protection.crossplane.io/v1beta1",
+            "kind": "Usage",
+            "metadata": {
+                "name": resource_name,
+                "namespace": NAMESPACE,
+                "annotations": {
+                    "crossplane.io/composition-resource-name": resource_name
+                },
+            },
+        },
+        True,
+    )
+
+
+def requests(resources):
+    """The names of the composed resources but the Usages of `after`, sorted."""
+    return sorted(r for r in resources if not r.startswith("after-"))
 
 
 @pytest.fixture(scope="session")
