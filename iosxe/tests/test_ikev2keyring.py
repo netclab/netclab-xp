@@ -411,6 +411,28 @@ def test_only_full_control_removes_a_key(render, policy, removes):
         assert ("REMOVE" in actions) is removes
 
 
+@pytest.mark.parametrize(("policy", "held"), [("Manage", False), ("FullControl", True)])
+def test_full_control_deletes_the_keyring_only_after_the_ppk_line(render, policy, held):
+    # A PPK's removal enters the keyring, which would make it again once deleted.
+    composed = with_keys(render, example(policy)).resources
+    before = [observed(composed[r], True) for r in ["keyring", *KEYS]]
+    resources = render(
+        KIND, example(policy), before, DEVICES + secrets(VALUES)
+    ).resources
+    usage = resources.get("keyring-by-ppk-r3")
+    assert (usage is not None) is held
+    # A PSK's removal deletes its mark alone.
+    assert "keyring-by-psk-r3" not in resources
+    if held:
+        assert usage["spec"]["of"]["resourceRef"] == {
+            "name": before[0]["metadata"]["name"]
+        }
+        assert usage["spec"]["by"]["resourceRef"] == {
+            "name": before[2]["metadata"]["name"]
+        }
+        assert usage["spec"]["replayDeletion"] is True
+
+
 @pytest.mark.parametrize("previous", ["Manage", "FullControl"])
 def test_back_in_observe_a_key_s_request_stays_and_only_reads(render, previous):
     # Dropped, a Request composed in FullControl would be deleted with its REMOVE, and

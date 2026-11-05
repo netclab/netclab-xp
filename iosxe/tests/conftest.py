@@ -283,8 +283,8 @@ def device_usage(resource_name):
 
 
 def requests(resources):
-    """The names of the composed resources but the Usages of `after`, sorted."""
-    return sorted(r for r in resources if not r.startswith("after-"))
+    """The names of the composed Requests, sorted: no Usage."""
+    return sorted(name for name, r in resources.items() if r["kind"] == "Request")
 
 
 @pytest.fixture(scope="session")
