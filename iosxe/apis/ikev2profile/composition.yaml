@@ -21,6 +21,8 @@ spec:
   # nothing in its traffic. The XR is not Ready until the mark is there, so what
   # waits on the profile in `after` comes up with the line in place. In
   # FullControl a Usage holds back the profile's DELETE until the line is removed.
+  # Back in Observe that Request stays and only reads, so neither the change of
+  # mode nor the object's delete takes the line or its mark off.
   # The status is the last GET in the shape of the spec; Ready means the mode's
   # writes would change nothing.
   # Once every object in `after` is Ready the Requests are composed, and they
@@ -311,6 +313,18 @@ spec:
                 name: {{ (index $observed "ppk").resource.metadata.name }}
             replayDeletion: true
           {{- end }}
+          {{- end }}
+          {{- /* back in Observe the RPC stays, reading only: dropped, it would be deleted as
+            the mode before left it, and FullControl's REMOVE take the line and its mark off */}}
+          {{- if and (eq $policy "Observe") (hasKey $observed "ppk") }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: ppk
+              gotemplating.fn.crossplane.io/ready: "True"
+          spec: {{ merge (dict "managementPolicies" (list "Observe")) (index $observed "ppk").resource.spec | toJson }}
           {{- end }}
           {{- end }}{{ end }}{{ end }}
           {{- end }}

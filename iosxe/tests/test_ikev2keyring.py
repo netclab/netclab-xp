@@ -411,6 +411,20 @@ def test_only_full_control_removes_a_key(render, policy, removes):
         assert ("REMOVE" in actions) is removes
 
 
+@pytest.mark.parametrize("previous", ["Manage", "FullControl"])
+def test_back_in_observe_a_key_s_request_stays_and_only_reads(render, previous):
+    # Dropped, a Request composed in FullControl would be deleted with its REMOVE, and
+    # the key and its mark taken off the router.
+    composed = with_keys(render, example(previous)).resources
+    before = [observed(r, True) for r in composed.values()]
+    rendered = render(KIND, example(None), before, DEVICES + secrets(VALUES))
+    assert sorted(rendered.resources) == sorted(["keyring", *KEYS])
+    for key in KEYS:
+        spec = rendered.resources[key]["spec"]
+        assert spec["managementPolicies"] == ["Observe"]
+        assert spec["forProvider"] == composed[key]["spec"]["forProvider"]
+
+
 def test_observe_writes_no_key_and_needs_no_secret(render):
     rendered = render(KIND, example(None), required=DEVICES)
     assert sorted(rendered.resources) == ["keyring"]

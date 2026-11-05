@@ -19,7 +19,9 @@ spec:
   # at once; where the package took the keyring over and the mark is missing, it
   # writes the mark alone, and a key the router holds stays as it is. Whether the
   # package took it over, status.origin, comes from a read of the keyrings' names
-  # before the keyring's Request writes, and stays.
+  # before the keyring's Request writes, and stays. Back in Observe the key
+  # Requests stay and only read, so neither the change of mode nor the object's
+  # delete takes a key or its mark off.
   # Once every object in `after` is Ready the Requests are composed, and they
   # stay composed whatever happens to those objects; until then none is, and the
   # XR is not Ready, where Crossplane would call an XR composing nothing Ready. A
@@ -384,6 +386,21 @@ spec:
           spec: {{ .resource.spec | toJson }}
           {{- end }}{{ end }}
           {{- end }}{{ end }}
+          {{- /* back in Observe a key's Request stays, reading only: dropped, it would be
+            deleted as the mode before left it, and FullControl's REMOVE take the key and its
+            mark off */}}
+          {{- if not $writes }}
+          {{- range $name, $r := $observed }}{{ if or (hasPrefix "psk-" $name) (hasPrefix "ppk-" $name) }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: {{ $name }}
+              gotemplating.fn.crossplane.io/ready: "True"
+          spec: {{ merge (dict "managementPolicies" (list "Observe")) $r.resource.spec | toJson }}
+          {{- end }}{{ end }}
+          {{- end }}
           {{- end }}{{ end }}{{ end }}
           {{- end }}
           {{- $status := dict }}

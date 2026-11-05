@@ -210,6 +210,22 @@ def test_the_rpc_is_composed_to_write_a_ppk_keyring(rpc, policy, drop, composed)
     assert (rpc(policy, drop=drop) is not None) is composed
 
 
+@pytest.mark.parametrize("previous", ["Manage", "FullControl"])
+def test_back_in_observe_the_rpc_stays_and_only_reads(render, rpc, previous):
+    # Dropped, an RPC composed in FullControl would be deleted with its REMOVE, and the
+    # line and its mark taken off the router.
+    xr = example(None)
+    resources = first(render, xr)
+    before = [
+        observed(resources["profile"], True),
+        observed(resources["ppk-mark"], True),
+        observed(rpc(previous), True),
+    ]
+    spec = render(KIND, xr, before, DEVICES).resources["ppk"]["spec"]
+    assert spec["managementPolicies"] == ["Observe"]
+    assert spec["forProvider"] == rpc(previous)["spec"]["forProvider"]
+
+
 def test_the_rpc_waits_for_the_profile(render):
     xr = example("FullControl")
     resources = first(render, xr)
