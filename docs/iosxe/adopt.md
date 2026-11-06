@@ -341,9 +341,9 @@ section, so the Secrets have to hold the keys the router has; see [Keys](#keys).
 
 ## Keys
 
-A pre-shared key or a PPK is held in a Secret in the namespace, and the spec names the
-Secret and its key. Status never shows a key, and the router does not give one back in a
-form that can be compared, so a key is never part of `status.drift`.
+A pre-shared key or a PPK is held in an entry of a Secret in the namespace, and the spec
+names the Secret and the entry. Status never shows a key, and the router does not give one
+back in a form that can be compared, so a key is never part of `status.drift`.
 
 `status.observed` shows only whether a key is there. On IOS XE 17.18 a PPK is not shown at
 all:
@@ -374,52 +374,9 @@ other Secrets; the pull request adds only the reference, and the PPK's id:
 +        key: ppk-hex
 ```
 
-A Secret that the spec names and the namespace lacks is listed, and nothing is written for
-the object until it exists:
-
-```yaml
-status:
-  missingSecrets: [ike-keys/psk]
-```
-
-When a key is written:
-
-| event | the key on the router |
-|---|---|
-| Step 5, taking over a section that exists | not written |
-| the key's value changes in its Secret | written, on every router whose object names it |
-| `Replace`, any write of the section | written |
-| the Secret is deleted and made again | written once |
-| the annotation `iosxe.netclab.dev/rewrite-keys` changes | written once |
-
-Taking over writes no key, so a wrong value in the Secret does not reach the router. A
-rotation changes the value in the Secret, and both ends of a tunnel that name the same
-Secret get the new key within seconds. Writing a key clears the peer's IKEv2 SA, since an
-SA in place would go on without the new key. The tunnel interface goes line protocol down
-and carries no traffic until IKEv2 sets up a new SA on the new key;
-`kubectl get tunnelinterface` shows it in `OPER` and `IKE-SA`.
-
-The annotation, on r1's keyring:
-
-```bash
-kubectl annotate ikev2keyring r1--classical-keyring--eb60cb7d -n ipsec \
-  iosxe.netclab.dev/rewrite-keys=1
-```
-
-```console
-<marks and SA, from the run>
-```
-
-While a Secret the spec names is missing, the object is not Ready, nothing is taken off the
-router, and nothing new is written.
-
-To tell which value it wrote, the package keeps a mark of each key, never the key, in an
-EEM environment variable on the router named `netclab-` and 8 hex digits:
-
-```console
-r1#show running-config | include ^event manager environment netclab-
-<from the run>
-```
+Taking over in Step 5 writes no key, so a wrong value in the Secret does not reach the
+router; Step 6, and any later write under `Replace`, writes it. Once the section is the
+package's, a key is rotated in its Secret, as in [Rotate keys](keys.md).
 
 ## Going back
 

@@ -64,7 +64,7 @@ spec:
   in its `after` are Ready.
 - Keys live in Secrets, which the objects name, so the objects go to Git without them. A
   key changed in its Secret is written to every router whose object names it, and the
-  peer's IKEv2 SA is renegotiated on it.
+  peer's IKEv2 SA is renegotiated on it, as in [Rotate keys](keys.md).
 - Each object has a mode: `Observe` reads, `Merge` writes the fields of its spec,
   `Replace` makes the section its spec. A router configured by hand is taken over one
   section at a time, as in [Adopt a router](adopt.md).
