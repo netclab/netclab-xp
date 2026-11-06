@@ -81,6 +81,7 @@ nav:
   - IOS XE:
       - Overview: iosxe/index.md
       - Part 9: iosxe/part9.md
+      - Overlay: iosxe/overlay.md
       - Adopt a router: iosxe/adopt.md
 
 extra:
