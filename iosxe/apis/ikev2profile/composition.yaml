@@ -9,18 +9,18 @@ spec:
   mode: Pipeline
   pipeline:
   # One Request owns the profile over RESTCONF, with pre-shared keys both ways,
-  # the one method of this version. Observe only reads; Manage PATCHes the
-  # fields of the spec, a merge; FullControl PUTs the profile and DELETEs it with
+  # the one method of this version. Observe only reads; Merge PATCHes the
+  # fields of the spec; Replace PUTs the profile and DELETEs it with
   # the object. Lines the spec has no field for, such as description, are beyond
-  # the spec, and FullControl takes them off.
+  # the spec, and Replace takes them off.
   # `keyring ppk` is outside 17.18's YANG and no read returns it, so the package
   # keeps a mark of the line it wrote in an EEM variable, which one Request reads
-  # in every mode. In Manage and FullControl another writes the line and the mark
+  # in every mode. In Merge and Replace another writes the line and the mark
   # over cli-rpc, once the profile's Request is Ready, and clears the peers' SAs
   # only when it replaces a mark of its own: taking over a profile changes
   # nothing in its traffic. The XR is not Ready until the mark is there, so what
   # waits on the profile in `after` comes up with the line in place. In
-  # FullControl a Usage holds back the profile's DELETE until the line is removed.
+  # Replace a Usage holds back the profile's DELETE until the line is removed.
   # Back in Observe that Request stays and only reads, so neither the change of
   # mode nor the object's delete takes the line or its mark off.
   # The status is the last GET in the shape of the spec; Ready means the mode's
@@ -161,7 +161,7 @@ spec:
           spec:
             {{- if eq $policy "Observe" }}
             managementPolicies: ["Observe"]
-            {{- else if eq $policy "Manage" }}
+            {{- else if eq $policy "Merge" }}
             managementPolicies: ["Observe", "Create", "Update"]
             {{- else }}
             managementPolicies: ["*"]
@@ -174,12 +174,12 @@ spec:
                 Authorization: ["Basic {{ $auth }}"]
               payload:
                 baseUrl: {{ $url | quote }}
-                body: {{ (ternary $put $patch (eq $policy "FullControl")) | toJson | quote }}
+                body: {{ (ternary $put $patch (eq $policy "Replace")) | toJson | quote }}
               mappings:
               - action: OBSERVE
                 method: GET
                 url: .payload.baseUrl
-              {{- if eq $policy "Manage" }}
+              {{- if eq $policy "Merge" }}
               - action: CREATE
                 method: PATCH
                 url: {{ $native | quote | quote }}
@@ -188,7 +188,7 @@ spec:
                 method: PATCH
                 url: {{ $native | quote | quote }}
                 body: .payload.body
-              {{- else if eq $policy "FullControl" }}
+              {{- else if eq $policy "Replace" }}
               - action: CREATE
                 method: PUT
                 url: .payload.baseUrl
@@ -208,14 +208,14 @@ spec:
                 logic: |
                   if .response.statusCode != 200 then false else
                     .response.body["Cisco-IOS-XE-crypto:profile"][0] as $p
-                  {{- if eq $policy "FullControl" }}
+                  {{- if eq $policy "Replace" }}
                     | ($p | .match.identity.remote.address.ipv4 |= (. // [] | map(.["ipv4-mask"] //= "255.255.255.255")
                         | sort_by(.["ipv4-address"])))
                       == {{ $profile | toJson }}
                   {{- else }}
                     | {{ $mine | toJson }} - [$p.match.identity.remote.address.ipv4[]? | .["ipv4-address"]] == []
                     {{- if $ring }} and $p.keyring.local.name == {{ $ring | toJson }}{{ end }}
-                    {{- if eq $policy "Manage" }}
+                    {{- if eq $policy "Merge" }}
                       and ($p.authentication.local // {} | has("pre-share")) and ($p.authentication.remote // {} | has("pre-share"))
                     {{- end }}
                   {{- end }}
@@ -265,7 +265,7 @@ spec:
             annotations:
               gotemplating.fn.crossplane.io/composition-resource-name: ppk
           spec:
-            {{- if eq $policy "Manage" }}
+            {{- if eq $policy "Merge" }}
             managementPolicies: ["Observe", "Create", "Update"]
             {{- else }}
             managementPolicies: ["*"]
@@ -291,7 +291,7 @@ spec:
                 method: POST
                 url: {{ $rpc | quote | quote }}
                 body: .payload.body
-              {{- if eq $policy "FullControl" }}
+              {{- if eq $policy "Replace" }}
               - action: REMOVE
                 method: POST
                 url: {{ $rpc | quote | quote }}
@@ -306,9 +306,9 @@ spec:
                   .response.statusCode == 200 and
                     ((.response.body["Cisco-IOS-XE-eem:environment"][0].value // "") | split(" ")[0]) == {{ $mark | quote }}
 
-          {{- /* ---- FullControl: the profile's DELETE waits on the line ---- */}}
+          {{- /* ---- Replace: the profile's DELETE waits on the line ---- */}}
           {{- /* the line's removal enters the profile, which makes it again once deleted */}}
-          {{- if and (eq $policy "FullControl") (hasKey $observed "profile") (hasKey $observed "ppk") }}
+          {{- if and (eq $policy "Replace") (hasKey $observed "profile") (hasKey $observed "ppk") }}
           ---
           apiVersion: protection.crossplane.io/v1beta1
           kind: Usage
@@ -333,7 +333,7 @@ spec:
 
           {{- /* ---- back in Observe ---- */}}
           {{- /* back in Observe the RPC stays, reading only: dropped, it would be deleted as
-            the mode before left it, and FullControl's REMOVE take the line and its mark off */}}
+            the mode before left it, and Replace's REMOVE take the line and its mark off */}}
           {{- if and (eq $policy "Observe") (hasKey $observed "ppk") }}
           ---
           apiVersion: http.m.crossplane.io/v1alpha2
@@ -370,17 +370,17 @@ spec:
               {{- $more := list }}
               {{- $missing := list }}{{ range $mine }}{{ if not (has . $theirs) }}{{ $missing = append $missing . }}{{ end }}{{ end }}
               {{- if $missing }}{{ $drift = append $drift (dict "field" "remoteAddresses" "device" $theirs "spec" $mine) }}{{ end }}
-              {{- if or $mine (eq $policy "FullControl") }}
+              {{- if or $mine (eq $policy "Replace") }}
                 {{- $beyond := list }}{{ range $theirs }}{{ if not (has . $mine) }}{{ $beyond = append $beyond . }}{{ end }}{{ end }}
                 {{- if $beyond }}{{ $more = append $more (dict "field" "remoteAddresses" "device" $beyond) }}{{ end }}
               {{- end }}
               {{- $theirRing := ternary (list $their) list (ne $their "") }}
               {{- if $ring }}
                 {{- if ne $their $ring }}{{ $drift = append $drift (dict "field" "keyring" "device" $theirRing "spec" (list $ring)) }}{{ end }}
-              {{- else if and (eq $policy "FullControl") $their }}
+              {{- else if and (eq $policy "Replace") $their }}
                 {{- $more = append $more (dict "field" "keyring" "device" $theirRing) }}
               {{- end }}
-              {{- if eq $policy "FullControl" }}
+              {{- if eq $policy "Replace" }}
                 {{- $preshare := dict "local" (dict "pre-share" (dict)) "remote" (dict "pre-share" (dict)) }}
                 {{- if ne (get $p "authentication" | default dict | toJson) ($preshare | toJson) }}{{ $more = append $more (dict "field" "authentication" "device" (list (get $p "authentication" | default dict | toJson))) }}{{ end }}
                 {{- range $k, $v := $keyring }}{{ if ne $k "local" }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}{{ end }}
@@ -411,13 +411,13 @@ spec:
             {{- /* after a write that succeeded the response is still the GET before it: the router has the spec, the next GET shows it */}}
             {{- $undid := dict "drift" list "extra" list }}
             {{- range default list $old.drift }}{{ if ne .field "ppkKeyring" }}{{ $_ := set $undid "drift" (append $undid.drift .) }}{{ end }}{{ end }}
-            {{- if eq $policy "FullControl" }}{{ range default list $old.extra }}{{ if ne .field "ppkKeyring" }}{{ $_ := set $undid "extra" (append $undid.extra .) }}{{ end }}{{ end }}{{ end }}
+            {{- if eq $policy "Replace" }}{{ range default list $old.extra }}{{ if ne .field "ppkKeyring" }}{{ $_ := set $undid "extra" (append $undid.extra .) }}{{ end }}{{ end }}{{ end }}
             {{- if or $undid.drift $undid.extra }}
               {{- $_ := set $undid "time" (dateInZone "2006-01-02T15:04:05Z" (now) "UTC") }}
               {{- $_ := set $status "reverted" $undid }}
             {{- end }}
             {{- $_ := set $status "drift" list }}
-            {{- if eq $policy "FullControl" }}{{ $_ := set $status "extra" list }}{{ end }}
+            {{- if eq $policy "Replace" }}{{ $_ := set $status "extra" list }}{{ end }}
             {{- $present = true }}
           {{- end }}
           {{- end }}
@@ -432,14 +432,14 @@ spec:
             {{- $theirPpk := ternary (list $foundRing) list (ne $foundRing "") }}
             {{- if $ppk }}
               {{- if ne $foundRing $ppk }}{{ $drift = append $drift (dict "field" "ppkKeyring" "device" $theirPpk "spec" (list $ppk)) }}{{ end }}
-            {{- else if and (eq $policy "FullControl") $foundRing }}
+            {{- else if and (eq $policy "Replace") $foundRing }}
               {{- $more = append $more (dict "field" "ppkKeyring" "device" $theirPpk) }}
             {{- end }}
             {{- $_ := set $status "drift" $drift }}
             {{- $_ := set $status "extra" $more }}
           {{- end }}
           {{- $marked := or (not $ppk) (eq $policy "Observe") (eq $foundMark $mark) }}
-          {{- $ready := and $present $marked (not $status.drift) (or (ne $policy "FullControl") (not $status.extra)) }}
+          {{- $ready := and $present $marked (not $status.drift) (or (ne $policy "Replace") (not $status.extra)) }}
           ---
           apiVersion: {{ $xr.apiVersion }}
           kind: {{ $xr.kind }}

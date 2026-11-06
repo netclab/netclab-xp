@@ -13,9 +13,9 @@ spec:
   # set, sorted in the body too; a PATCH adds to them. The router refuses a
   # profile naming a missing transform-set or IKEv2 profile, and their delete
   # while it names them. What else the router holds in `set`, such as pfs, the
-  # spec has no field for, so FullControl takes it off.
-  # Observe only reads; Manage PATCHes the fields of the spec, a merge;
-  # FullControl PUTs the profile and DELETEs it with the object. The status is
+  # spec has no field for, so Replace takes it off.
+  # Observe only reads; Merge PATCHes the fields of the spec;
+  # Replace PUTs the profile and DELETEs it with the object. The status is
   # the last GET in the shape of the spec; Ready means the mode's write would
   # change nothing.
   # The Device comes first in `after`, as if the spec named it. Once every object
@@ -133,7 +133,7 @@ spec:
           spec:
             {{- if eq $policy "Observe" }}
             managementPolicies: ["Observe"]
-            {{- else if eq $policy "Manage" }}
+            {{- else if eq $policy "Merge" }}
             managementPolicies: ["Observe", "Create", "Update"]
             {{- else }}
             managementPolicies: ["*"]
@@ -146,12 +146,12 @@ spec:
                 Authorization: ["Basic {{ $auth }}"]
               payload:
                 baseUrl: {{ $url | quote }}
-                body: {{ (ternary $put $patch (eq $policy "FullControl")) | toJson | quote }}
+                body: {{ (ternary $put $patch (eq $policy "Replace")) | toJson | quote }}
               mappings:
               - action: OBSERVE
                 method: GET
                 url: .payload.baseUrl
-              {{- if eq $policy "Manage" }}
+              {{- if eq $policy "Merge" }}
               - action: CREATE
                 method: PATCH
                 url: {{ $native | quote | quote }}
@@ -160,7 +160,7 @@ spec:
                 method: PATCH
                 url: {{ $native | quote | quote }}
                 body: .payload.body
-              {{- else if eq $policy "FullControl" }}
+              {{- else if eq $policy "Replace" }}
               - action: CREATE
                 method: PUT
                 url: .payload.baseUrl
@@ -180,7 +180,7 @@ spec:
                     .response.body["Cisco-IOS-XE-crypto:profile"][0] as $p
                     | ($p.set // {}) as $s
                     | ($s["transform-set"] // [] | sort) as $router
-                  {{- if eq $policy "FullControl" }}
+                  {{- if eq $policy "Replace" }}
                     | $router == {{ $mine | toJson }} and ($s["ikev2-profile"] // "") == {{ $ike | toJson }}
                       and ($s | del(.["transform-set"], .["ikev2-profile"])) == {} and ($p | del(.name, .set)) == {}
                   {{- else }}
@@ -211,17 +211,17 @@ spec:
               {{- $more := list }}
               {{- $missing := list }}{{ range $mine }}{{ if not (has . $theirs) }}{{ $missing = append $missing . }}{{ end }}{{ end }}
               {{- if $missing }}{{ $drift = append $drift (dict "field" "transformSets" "device" $theirs "spec" $mine) }}{{ end }}
-              {{- if or $mine (eq $policy "FullControl") }}
+              {{- if or $mine (eq $policy "Replace") }}
                 {{- $beyond := list }}{{ range $theirs }}{{ if not (has . $mine) }}{{ $beyond = append $beyond . }}{{ end }}{{ end }}
                 {{- if $beyond }}{{ $more = append $more (dict "field" "transformSets" "device" $beyond) }}{{ end }}
               {{- end }}
               {{- $theirIke := ternary (list $their) list (ne $their "") }}
               {{- if $ike }}
                 {{- if ne $their $ike }}{{ $drift = append $drift (dict "field" "ikev2Profile" "device" $theirIke "spec" (list $ike)) }}{{ end }}
-              {{- else if and (eq $policy "FullControl") $their }}
+              {{- else if and (eq $policy "Replace") $their }}
                 {{- $more = append $more (dict "field" "ikev2Profile" "device" $theirIke) }}
               {{- end }}
-              {{- if eq $policy "FullControl" }}
+              {{- if eq $policy "Replace" }}
                 {{- range $k, $v := $s }}
                   {{- if not (has $k (list "transform-set" "ikev2-profile")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}
                 {{- end }}
@@ -244,18 +244,18 @@ spec:
             {{- end }}
           {{- else if and $method (ge $code 200) (lt $code 300) }}
             {{- /* after a write that succeeded the response is still the GET before it: the router has the spec, the next GET shows it */}}
-            {{- $undid := dict "drift" (default list $old.drift) "extra" (ternary (default list $old.extra) list (eq $policy "FullControl")) }}
+            {{- $undid := dict "drift" (default list $old.drift) "extra" (ternary (default list $old.extra) list (eq $policy "Replace")) }}
             {{- if or $undid.drift $undid.extra }}
               {{- $_ := set $undid "time" (dateInZone "2006-01-02T15:04:05Z" (now) "UTC") }}
               {{- $_ := set $status "reverted" $undid }}
             {{- end }}
             {{- $_ := set $status "drift" list }}
-            {{- if eq $policy "FullControl" }}{{ $_ := set $status "extra" list }}{{ end }}
+            {{- if eq $policy "Replace" }}{{ $_ := set $status "extra" list }}{{ end }}
             {{- $present = true }}
           {{- end }}
           {{- end }}
           {{- end }}
-          {{- $ready := and $present (not $status.drift) (or (ne $policy "FullControl") (not $status.extra)) }}
+          {{- $ready := and $present (not $status.drift) (or (ne $policy "Replace") (not $status.extra)) }}
           ---
           apiVersion: {{ $xr.apiVersion }}
           kind: {{ $xr.kind }}

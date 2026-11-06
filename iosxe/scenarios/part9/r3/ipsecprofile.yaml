@@ -3,7 +3,7 @@ kind: IpsecProfile
 metadata:
   name: r3--classical-ipsec--461c477a
 spec:
-  managementPolicy: FullControl
+  managementPolicy: Replace
   deviceRef:
     name: r3
   after:

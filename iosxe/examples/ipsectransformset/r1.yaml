@@ -3,7 +3,7 @@ kind: IpsecTransformSet
 metadata:
   name: r1--classical-ts--771f3cb2
 spec:
-  managementPolicy: FullControl
+  managementPolicy: Replace
   deviceRef:
     name: r1
   name: CLASSICAL-TS

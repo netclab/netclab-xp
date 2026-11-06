@@ -72,12 +72,12 @@ def test_an_object_under_another_name_composes_nothing(render, name, want):
     [
         (None, ["Observe"], []),
         (
-            "Manage",
+            "Merge",
             ["Observe", "Create", "Update"],
             [("CREATE", "PATCH"), ("UPDATE", "PATCH")],
         ),
         (
-            "FullControl",
+            "Replace",
             ["*"],
             [("CREATE", "PUT"), ("UPDATE", "PUT"), ("REMOVE", "DELETE")],
         ),
@@ -102,7 +102,7 @@ def test_the_mode_decides_what_the_request_may_do(render, policy, policies, writ
     ],
 )
 def test_manage_sends_the_patch_the_router_merged(render, spec, recording):
-    for_provider = request(render, example("Manage", **spec))["spec"]["forProvider"]
+    for_provider = request(render, example("Merge", **spec))["spec"]["forProvider"]
     sent = recorded(KIND, recording)["request"]
     assert json.loads(for_provider["payload"]["body"]) == sent["body"]
     writes = [m for m in for_provider["mappings"] if m["action"] != "OBSERVE"]
@@ -119,13 +119,13 @@ def test_manage_sends_the_patch_the_router_merged(render, spec, recording):
         ({"keyBits": 128}, "transform-set-key-bit-128"),
     ],
 )
-def test_full_control_puts_what_the_router_then_returns(render, spec, state):
-    body = request(render, example("FullControl", **spec))["spec"]["forProvider"]
+def test_replace_puts_what_the_router_then_returns(render, spec, state):
+    body = request(render, example("Replace", **spec))["spec"]["forProvider"]
     assert json.loads(body["payload"]["body"]) == recorded(KIND, state)["body"]
 
 
 @pytest.mark.parametrize(
-    ("drop", "spec", "state", "manage", "full_control"),
+    ("drop", "spec", "state", "merge", "replace"),
     [
         ((), {}, "transform-set-applied", True, True),
         ((), {}, "transform-set-patched", True, True),
@@ -135,16 +135,16 @@ def test_full_control_puts_what_the_router_then_returns(render, spec, state):
         ((), {}, "transform-set-transport", False, False),
         ((), {}, "transform-set-aes-with-hmac", False, False),
         ((), {}, "transform-set-absent", False, False),
-        # The spec leaves the length out: Manage leaves it, FullControl puts back
+        # The spec leaves the length out: Merge leaves it, Replace puts back
         # the router's default.
         (("keyBits",), {}, "transform-set-applied", True, False),
         (("keyBits",), {}, "transform-set-key-bit-128", True, True),
     ],
 )
 def test_check_is_the_mode_write_changing_nothing(
-    render, drop, spec, state, manage, full_control
+    render, drop, spec, state, merge, replace
 ):
-    for policy, expected in [("Manage", manage), ("FullControl", full_control)]:
+    for policy, expected in [("Merge", merge), ("Replace", replace)]:
         req = request(render, example(policy, drop, **spec))
         assert check(req, "expectedResponseCheck", recorded(KIND, state)) is expected
 
@@ -210,17 +210,17 @@ def test_a_section_gone_from_the_router_is_not_ready(after_get):
             "False",
         ),
         (
-            "Manage",
+            "Merge",
             (),
             "transform-set-key-bit-128",
             [{"field": "keyBits", "device": ["128"], "spec": ["256"]}],
             [],
             "False",
         ),
-        # A field the spec leaves out: compared in FullControl alone.
-        ("Manage", ("keyBits",), "transform-set-applied", [], [], "True"),
+        # A field the spec leaves out: compared in Replace alone.
+        ("Merge", ("keyBits",), "transform-set-applied", [], [], "True"),
         (
-            "FullControl",
+            "Replace",
             ("keyBits",),
             "transform-set-applied",
             [],
@@ -228,9 +228,9 @@ def test_a_section_gone_from_the_router_is_not_ready(after_get):
             "False",
         ),
         # The router's default where the spec leaves the field out is no extra.
-        ("FullControl", ("keyBits",), "transform-set-key-bit-128", [], [], "True"),
+        ("Replace", ("keyBits",), "transform-set-key-bit-128", [], [], "True"),
         (
-            "FullControl",
+            "Replace",
             ("keyBits",),
             "transform-set-aes-with-hmac",
             [{"field": "esp", "device": ["esp-aes"], "spec": ["esp-gcm"]}],
@@ -252,7 +252,7 @@ def test_drift_and_extra_follow_the_mode(
 
 
 def test_a_write_that_succeeded_records_what_it_put_back(render):
-    xr = example("Manage")
+    xr = example("Merge")
     req = request(render, xr)
     before = render(KIND, xr, [answered(req, "transform-set-transport")], DEVICES)
     xr["status"] = status(before)
@@ -266,7 +266,7 @@ def test_a_write_that_succeeded_records_what_it_put_back(render):
 
 
 def test_a_write_that_failed_changes_nothing(render):
-    xr = example("Manage")
+    xr = example("Merge")
     req = request(render, xr)
     before = render(KIND, xr, [answered(req, "transform-set-transport")], DEVICES)
     xr["status"] = status(before)

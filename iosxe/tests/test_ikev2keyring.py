@@ -30,7 +30,7 @@ VALUES = {
 }
 
 
-def example(policy="FullControl", origin="Created"):
+def example(policy="Replace", origin="Created"):
     """The example in `policy`, with `origin` in its status: until then nothing writes."""
     xr = in_namespace(IOSXE / "examples" / KIND / "r1.yaml")
     if policy:
@@ -254,12 +254,12 @@ def test_an_object_under_another_name_composes_nothing(render):
     [
         (None, ["Observe"], []),
         (
-            "Manage",
+            "Merge",
             ["Observe", "Create", "Update"],
             [("CREATE", "PATCH"), ("UPDATE", "PATCH")],
         ),
         (
-            "FullControl",
+            "Replace",
             ["*"],
             [("CREATE", "PUT"), ("UPDATE", "PUT"), ("REMOVE", "DELETE")],
         ),
@@ -276,7 +276,7 @@ def test_the_mode_decides_what_the_request_may_do(render, policy, policies, writ
 
 
 def test_manage_sends_the_patch_the_router_merged_without_keys(render):
-    for_provider = first(render, example("Manage"))["keyring"]["spec"]["forProvider"]
+    for_provider = first(render, example("Merge"))["keyring"]["spec"]["forProvider"]
     sent = recorded(KIND, "keyring-patch")["request"]
     assert json.loads(for_provider["payload"]["body"]) == sent["body"]
     writes = [m for m in for_provider["mappings"] if m["action"] != "OBSERVE"]
@@ -285,34 +285,34 @@ def test_manage_sends_the_patch_the_router_merged_without_keys(render):
     }
 
 
-def test_full_control_puts_the_psk_the_router_then_returns(render):
+def test_replace_puts_the_psk_the_router_then_returns(render):
     body = first(render, example())["keyring"]["spec"]["forProvider"]["payload"]["body"]
     assert json.loads(_secrets(body)) == recorded(KIND, "keyring-applied")["body"]
 
 
 @pytest.mark.parametrize(
-    ("state", "manage", "full_control"),
+    ("state", "merge", "replace"),
     [
         ("keyring-applied", True, True),
         # A key's value is never compared: the router may give it back encrypted.
         ("keyring-other-psk", True, True),
         ("keyring-patched", True, True),
-        # A peer's description: Manage leaves it, FullControl takes it off.
+        # A peer's description: Merge leaves it, Replace takes it off.
         ("keyring-described", True, False),
-        # FullControl's PUT carries the PSK; Manage leaves keys alone.
+        # Replace's PUT carries the PSK; Merge leaves keys alone.
         ("keyring-no-psk", True, False),
         ("keyring-absent", False, False),
     ],
 )
-def test_check_is_the_mode_write_changing_nothing(render, state, manage, full_control):
-    for policy, expected in [("Manage", manage), ("FullControl", full_control)]:
+def test_check_is_the_mode_write_changing_nothing(render, state, merge, replace):
+    for policy, expected in [("Merge", merge), ("Replace", replace)]:
         request = first(render, example(policy))["keyring"]
         assert (
             check(request, "expectedResponseCheck", recorded(KIND, state)) is expected
         )
 
 
-@pytest.mark.parametrize("policy", ["Manage", "FullControl"])
+@pytest.mark.parametrize("policy", ["Merge", "Replace"])
 def test_until_the_origin_is_known_the_keyring_is_only_read(render, policy):
     # A write that creates the keyring would leave no GET to tell the origin by.
     composed = first(render, example(policy, origin=None))
@@ -334,7 +334,7 @@ def test_until_the_origin_is_known_the_keyring_is_only_read(render, policy):
     ],
 )
 def test_the_names_tell_the_origin_then_the_keyring_is_written(render, state, origin):
-    xr = example("FullControl", origin=None)
+    xr = example("Replace", origin=None)
     before = [answered(first(render, xr)["origin"], state)]
     rendered = render(KIND, xr, before, DEVICES + secrets(VALUES))
     assert status(rendered)["origin"] == origin
@@ -370,7 +370,7 @@ def body(request):
 
 @pytest.mark.parametrize("key", ["psk", "ppk"])
 def test_taking_over_writes_only_the_mark_of_a_key_the_router_holds(render, key):
-    rendered = keys_after(render, example("Manage"), "keyring-applied", "TakenOver")
+    rendered = keys_after(render, example("Merge"), "keyring-applied", "TakenOver")
     assert (
         body(rendered[f"{key}-r3"])
         == recorded(KIND, f"{key}-mark-rpc")["request"]["body"]
@@ -378,7 +378,7 @@ def test_taking_over_writes_only_the_mark_of_a_key_the_router_holds(render, key)
 
 
 def test_taking_over_writes_a_psk_the_router_lacks(render):
-    rendered = keys_after(render, example("Manage"), "keyring-no-psk", "TakenOver")
+    rendered = keys_after(render, example("Merge"), "keyring-no-psk", "TakenOver")
     clis = body(rendered["psk-r3"])["Cisco-IOS-XE-cli-rpc:input"]["config-clis"]
     assert " pre-shared-key {{ ike-keys:lab:psk }}" in clis.splitlines()[2]
 
@@ -393,16 +393,14 @@ def test_taking_over_writes_a_psk_the_router_lacks(render):
     ],
 )
 def test_the_key_is_written_with_its_mark_and_the_clear(render, origin, marks):
-    rendered = keys_after(render, example("Manage"), "keyring-applied", origin, marks)
+    rendered = keys_after(render, example("Merge"), "keyring-applied", origin, marks)
     for key in KEYS:
         clis = body(rendered[key])["Cisco-IOS-XE-cli-rpc:input"]["config-clis"]
         assert clis.splitlines()[-1] == "do clear crypto ikev2 sa remote 10.0.23.2"
 
 
-@pytest.mark.parametrize(
-    ("policy", "removes"), [("Manage", False), ("FullControl", True)]
-)
-def test_only_full_control_removes_a_key(render, policy, removes):
+@pytest.mark.parametrize(("policy", "removes"), [("Merge", False), ("Replace", True)])
+def test_only_replace_removes_a_key(render, policy, removes):
     rendered = keys_after(render, example(policy), "keyring-applied", "Created")
     for key in KEYS:
         actions = [
@@ -411,8 +409,8 @@ def test_only_full_control_removes_a_key(render, policy, removes):
         assert ("REMOVE" in actions) is removes
 
 
-@pytest.mark.parametrize(("policy", "held"), [("Manage", False), ("FullControl", True)])
-def test_full_control_deletes_the_keyring_only_after_the_ppk_line(render, policy, held):
+@pytest.mark.parametrize(("policy", "held"), [("Merge", False), ("Replace", True)])
+def test_replace_deletes_the_keyring_only_after_the_ppk_line(render, policy, held):
     # A PPK's removal enters the keyring, which would make it again once deleted.
     composed = with_keys(render, example(policy)).resources
     before = [observed(composed[r], True) for r in ["keyring", *KEYS]]
@@ -433,9 +431,9 @@ def test_full_control_deletes_the_keyring_only_after_the_ppk_line(render, policy
         assert usage["spec"]["replayDeletion"] is True
 
 
-@pytest.mark.parametrize("previous", ["Manage", "FullControl"])
+@pytest.mark.parametrize("previous", ["Merge", "Replace"])
 def test_back_in_observe_a_key_s_request_stays_and_only_reads(render, previous):
-    # Dropped, a Request composed in FullControl would be deleted with its REMOVE, and
+    # Dropped, a Request composed in Replace would be deleted with its REMOVE, and
     # the key and its mark taken off the router.
     composed = with_keys(render, example(previous)).resources
     before = [observed(r, True) for r in composed.values()]
@@ -467,22 +465,22 @@ def test_a_thin_object_shows_a_key_only_as_there(render):
 @pytest.mark.parametrize(
     ("policy", "state", "drift", "extra"),
     [
-        ("Manage", "keyring-described", [], []),
+        ("Merge", "keyring-described", [], []),
         (
-            "FullControl",
+            "Replace",
             "keyring-described",
             [],
             [{"field": "peers[R3].description", "device": ['"made by hand"']}],
         ),
-        ("Manage", "keyring-no-psk", [], []),
+        ("Merge", "keyring-no-psk", [], []),
         (
-            "FullControl",
+            "Replace",
             "keyring-no-psk",
             [{"field": "peers[R3].preSharedKey", "device": [], "spec": ["present"]}],
             [],
         ),
         (
-            "Manage",
+            "Merge",
             "keyring-absent",
             [],
             [],

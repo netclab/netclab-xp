@@ -86,12 +86,12 @@ def test_the_name_gives_the_interface_number(render):
     [
         (None, ["Observe"], []),
         (
-            "Manage",
+            "Merge",
             ["Observe", "Create", "Update"],
             [("CREATE", "PATCH"), ("UPDATE", "PATCH")],
         ),
         (
-            "FullControl",
+            "Replace",
             ["*"],
             [("CREATE", "PUT"), ("UPDATE", "PUT"), ("REMOVE", "DELETE")],
         ),
@@ -108,7 +108,7 @@ def test_the_mode_decides_what_the_request_may_do(render, policy, policies, writ
 
 
 def test_manage_sends_the_patch_the_router_merged(render):
-    for_provider = request(render, example("Manage"))["spec"]["forProvider"]
+    for_provider = request(render, example("Merge"))["spec"]["forProvider"]
     sent = recorded(KIND, "tunnel-patch")["request"]
     assert json.loads(for_provider["payload"]["body"]) == sent["body"]
     writes = [m for m in for_provider["mappings"] if m["action"] != "OBSERVE"]
@@ -117,20 +117,20 @@ def test_manage_sends_the_patch_the_router_merged(render):
     }
 
 
-def test_full_control_puts_what_the_router_then_returns(render):
-    body = request(render, example("FullControl"))["spec"]["forProvider"]
+def test_replace_puts_what_the_router_then_returns(render):
+    body = request(render, example("Replace"))["spec"]["forProvider"]
     assert (
         json.loads(body["payload"]["body"]) == recorded(KIND, "tunnel-applied")["body"]
     )
 
 
 @pytest.mark.parametrize(
-    ("state", "manage", "full_control"),
+    ("state", "merge", "replace"),
     [
         ("tunnel-applied", True, True),
-        # A line the spec cannot hold: Manage leaves it, FullControl takes it off.
+        # A line the spec cannot hold: Merge leaves it, Replace takes it off.
         ("tunnel-shutdown", True, False),
-        # Manage's PATCH over a description made by hand, merged by the router.
+        # Merge's PATCH over a description made by hand, merged by the router.
         ("tunnel-patched", True, False),
         # A value of the spec the router lacks.
         ("tunnel-host-mask", False, False),
@@ -140,8 +140,8 @@ def test_full_control_puts_what_the_router_then_returns(render):
         ("tunnel-absent", False, False),
     ],
 )
-def test_check_is_the_mode_write_changing_nothing(render, state, manage, full_control):
-    for policy, expected in [("Manage", manage), ("FullControl", full_control)]:
+def test_check_is_the_mode_write_changing_nothing(render, state, merge, replace):
+    for policy, expected in [("Merge", merge), ("Replace", replace)]:
         req = request(render, example(policy))
         assert check(req, "expectedResponseCheck", recorded(KIND, state)) is expected
 
@@ -204,23 +204,23 @@ def test_a_section_gone_from_the_router_is_not_ready(after_get):
             "False",
         ),
         (
-            "Manage",
+            "Merge",
             "tunnel-no-protection",
             [{"field": "ipsecProfile", "device": [], "spec": ["CLASSICAL-IPSEC"]}],
             [],
             "False",
         ),
-        # A line the spec cannot hold: compared in FullControl alone.
-        ("Manage", "tunnel-patched", [], [], "True"),
+        # A line the spec cannot hold: compared in Replace alone.
+        ("Merge", "tunnel-patched", [], [], "True"),
         (
-            "FullControl",
+            "Replace",
             "tunnel-patched",
             [],
             [{"field": "description", "device": ['"made by hand"']}],
             "False",
         ),
         (
-            "FullControl",
+            "Replace",
             "tunnel-shutdown",
             [],
             [{"field": "shutdown", "device": ["[null]"]}],
@@ -238,7 +238,7 @@ def test_drift_and_extra_follow_the_mode(
 
 
 def test_a_write_that_succeeded_records_what_it_put_back(render):
-    xr = example("Manage")
+    xr = example("Merge")
     req = request(render, xr)
     before = render(KIND, xr, [answered(req, "tunnel-other-destination")], DEVICES)
     xr["status"] = status(before)
@@ -252,7 +252,7 @@ def test_a_write_that_succeeded_records_what_it_put_back(render):
 
 
 def test_a_write_that_failed_changes_nothing(render):
-    xr = example("Manage")
+    xr = example("Merge")
     req = request(render, xr)
     before = render(KIND, xr, [answered(req, "tunnel-other-destination")], DEVICES)
     xr["status"] = status(before)
@@ -268,7 +268,7 @@ def masks(render):
     """The mask in the body for each prefix length of MASKS, one render each."""
     out = {}
     for length in MASKS:
-        xr = example("FullControl", ipv4Address=f"192.168.100.1/{length}")
+        xr = example("Replace", ipv4Address=f"192.168.100.1/{length}")
         body = request(render, xr)["spec"]["forProvider"]["payload"]["body"]
         tunnel = json.loads(body)["Cisco-IOS-XE-native:Tunnel"][0]
         out[length] = tunnel["ip"]["address"]["primary"]["mask"]

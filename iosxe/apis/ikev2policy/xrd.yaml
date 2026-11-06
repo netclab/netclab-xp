@@ -44,10 +44,10 @@ spec:
               managementPolicy:
                 type: string
                 description: >-
-                  Observe reads the policy on the router; Manage writes the
-                  fields of the spec; FullControl makes the policy the spec,
+                  Observe reads the policy on the router; Merge writes the
+                  fields of the spec; Replace makes the policy the spec,
                   and removes it with the object.
-                enum: [Observe, Manage, FullControl]
+                enum: [Observe, Merge, Replace]
                 default: Observe
               deviceRef:
                 type: object
@@ -133,7 +133,7 @@ spec:
                 type: array
                 description: >-
                   Values the router has beyond the spec, in the fields the spec
-                  sets; in FullControl, in every field, a field the spec cannot
+                  sets; in Replace, in every field, a field the spec cannot
                   hold, such as match, given as JSON.
                 items:
                   type: object

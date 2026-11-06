@@ -61,10 +61,10 @@ spec:
               managementPolicy:
                 type: string
                 description: >-
-                  Observe reads the tunnel interface on the router; Manage writes
-                  the fields of the spec; FullControl makes the interface the
+                  Observe reads the tunnel interface on the router; Merge writes
+                  the fields of the spec; Replace makes the interface the
                   spec, and removes it with the object.
-                enum: [Observe, Manage, FullControl]
+                enum: [Observe, Merge, Replace]
                 default: Observe
               deviceRef:
                 type: object
@@ -175,7 +175,7 @@ spec:
               extra:
                 type: array
                 description: >-
-                  In FullControl, what the router has beyond the spec; a field the
+                  In Replace, what the router has beyond the spec; a field the
                   spec cannot hold, such as description or shutdown, given as JSON.
                 items:
                   type: object

@@ -46,10 +46,10 @@ spec:
               managementPolicy:
                 type: string
                 description: >-
-                  Observe reads the keyring on the router; Manage writes the
-                  fields of the spec; FullControl makes the keyring the spec, and
+                  Observe reads the keyring on the router; Merge writes the
+                  fields of the spec; Replace makes the keyring the spec, and
                   removes it with the object. Keys follow their own rules.
-                enum: [Observe, Manage, FullControl]
+                enum: [Observe, Merge, Replace]
                 default: Observe
               deviceRef:
                 type: object
@@ -207,7 +207,7 @@ spec:
               extra:
                 type: array
                 description: >-
-                  Peers the router has beyond the spec; in FullControl also a field
+                  Peers the router has beyond the spec; in Replace also a field
                   the spec cannot hold, such as a peer's description, given as JSON.
                 items:
                   type: object

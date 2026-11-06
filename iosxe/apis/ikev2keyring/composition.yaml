@@ -8,18 +8,18 @@ spec:
     kind: Ikev2Keyring
   mode: Pipeline
   pipeline:
-  # One Request owns the keyring. Observe only reads; Manage PATCHes the peers
-  # and their addresses, a merge without keys; FullControl PUTs the keyring with
+  # One Request owns the keyring. Observe only reads; Merge PATCHes the peers
+  # and their addresses, without keys; Replace PUTs the keyring with
   # its PSKs, since a PUT without one removes it, and DELETEs it with the object.
   # The status is the last GET in the shape of the spec, a key only as whether it
   # is there; Ready means the mode's writes would change nothing.
-  # In Manage and FullControl each key has a Request of its own, once the
+  # In Merge and Replace each key has a Request of its own, once the
   # keyring's is Ready, which observes only the key's mark, an EEM variable. Its
   # RPC writes the key, the mark, and clears the peer's SA, so the key is in use
   # at once; where the package took the keyring over and the mark is missing, it
   # writes the mark alone, and a key the router holds stays as it is. Whether the
   # package took it over, status.origin, comes from a read of the keyrings' names
-  # before the keyring's Request writes, and stays. In FullControl a Usage holds
+  # before the keyring's Request writes, and stays. In Replace a Usage holds
   # back the keyring's DELETE until each PPK line is removed. Back in Observe the
   # key Requests stay and only read, so neither the change of mode nor the
   # object's delete takes a key or its mark off.
@@ -248,7 +248,7 @@ spec:
           spec:
             {{- if or (eq $policy "Observe") (not $origin) }}
             managementPolicies: ["Observe"]
-            {{- else if eq $policy "Manage" }}
+            {{- else if eq $policy "Merge" }}
             managementPolicies: ["Observe", "Create", "Update"]
             {{- else }}
             managementPolicies: ["*"]
@@ -261,12 +261,12 @@ spec:
                 Authorization: ["Basic {{ $auth }}"]
               payload:
                 baseUrl: {{ $url | quote }}
-                body: {{ (ternary (dict "Cisco-IOS-XE-crypto:keyring" (list (dict "name" $xr.spec.name "peer" $put))) $patch (eq $policy "FullControl")) | toJson | quote }}
+                body: {{ (ternary (dict "Cisco-IOS-XE-crypto:keyring" (list (dict "name" $xr.spec.name "peer" $put))) $patch (eq $policy "Replace")) | toJson | quote }}
               mappings:
               - action: OBSERVE
                 method: GET
                 url: .payload.baseUrl
-              {{- if eq $policy "Manage" }}
+              {{- if eq $policy "Merge" }}
               - action: CREATE
                 method: PATCH
                 url: {{ $native | quote | quote }}
@@ -275,7 +275,7 @@ spec:
                 method: PATCH
                 url: {{ $native | quote | quote }}
                 body: .payload.body
-              {{- else if eq $policy "FullControl" }}
+              {{- else if eq $policy "Replace" }}
               - action: CREATE
                 method: PUT
                 url: .payload.baseUrl
@@ -296,7 +296,7 @@ spec:
                   if .response.statusCode != 200 then false else
                     .response.body["Cisco-IOS-XE-crypto:keyring"][0] as $k
                     | [$k.peer[]? | {name, address: (.address.ipv4["ipv4-address"] // ""), psk: has("pre-shared-key")}] as $router
-                  {{- if eq $policy "FullControl" }}
+                  {{- if eq $policy "Replace" }}
                     | ($router | sort_by(.name)) == ({{ $owned | toJson }} | map(. + {psk: true}) | sort_by(.name))
                       and ([$k.peer[]? | del(.name, .address, .["pre-shared-key"])] | all(. == {}))
                       and ($k | del(.name, .peer)) == {}
@@ -346,7 +346,7 @@ spec:
             annotations:
               gotemplating.fn.crossplane.io/composition-resource-name: {{ $k.resource }}
           spec:
-            {{- if eq $policy "Manage" }}
+            {{- if eq $policy "Merge" }}
             managementPolicies: ["Observe", "Create", "Update"]
             {{- else }}
             managementPolicies: ["*"]
@@ -372,7 +372,7 @@ spec:
                 method: POST
                 url: {{ $rpc | quote | quote }}
                 body: .payload.body
-              {{- if eq $policy "FullControl" }}
+              {{- if eq $policy "Replace" }}
               {{- /* a PSK goes with its peer; a PPK leaves the peer */}}
               {{- if eq $k.type "psk" }}
               - action: REMOVE
@@ -406,7 +406,7 @@ spec:
 
           {{- /* ---- back in Observe ---- */}}
           {{- /* back in Observe a key's Request stays, reading only: dropped, it would be
-            deleted as the mode before left it, and FullControl's REMOVE take the key and its
+            deleted as the mode before left it, and Replace's REMOVE take the key and its
             mark off */}}
           {{- if not $writes }}
           {{- range $name, $r := $observed }}{{ if or (hasPrefix "psk-" $name) (hasPrefix "ppk-" $name) }}
@@ -421,9 +421,9 @@ spec:
           {{- end }}{{ end }}
           {{- end }}
 
-          {{- /* ---- FullControl: the keyring's DELETE waits on each PPK line ---- */}}
+          {{- /* ---- Replace: the keyring's DELETE waits on each PPK line ---- */}}
           {{- /* a PPK's removal enters the keyring, which makes it again once deleted */}}
-          {{- if and (eq $policy "FullControl") (hasKey $observed "keyring") }}
+          {{- if and (eq $policy "Replace") (hasKey $observed "keyring") }}
           {{- range $keys }}{{ if and (eq .type "ppk") (hasKey $observed .resource) }}
           ---
           apiVersion: protection.crossplane.io/v1beta1
@@ -483,16 +483,16 @@ spec:
                   {{- if and $mine.address (ne $their $mine.address) }}
                     {{- $drift = append $drift (dict "field" (printf "peers[%s].address" $mine.name) "device" (ternary (list $their) list (ne $their "")) "spec" (list $mine.address)) }}
                   {{- end }}
-                  {{- if and (eq $policy "FullControl") (not (hasKey . "pre-shared-key")) }}
+                  {{- if and (eq $policy "Replace") (not (hasKey . "pre-shared-key")) }}
                     {{- $drift = append $drift (dict "field" (printf "peers[%s].preSharedKey" $mine.name) "device" list "spec" (list "present")) }}
                   {{- end }}
                 {{- end }}
               {{- end }}
-              {{- if or $mineNames (eq $policy "FullControl") }}
+              {{- if or $mineNames (eq $policy "Replace") }}
                 {{- $beyond := list }}{{ range $theirNames }}{{ if not (has . $mineNames) }}{{ $beyond = append $beyond . }}{{ end }}{{ end }}
                 {{- if $beyond }}{{ $more = append $more (dict "field" "peers" "device" $beyond) }}{{ end }}
               {{- end }}
-              {{- if eq $policy "FullControl" }}
+              {{- if eq $policy "Replace" }}
                 {{- range $name := $theirNames }}{{ range $k, $v := get $router $name }}
                   {{- if not (has $k (list "name" "address" "pre-shared-key")) }}{{ $more = append $more (dict "field" (printf "peers[%s].%s" $name $k) "device" (list (toJson $v))) }}{{ end }}
                 {{- end }}{{ end }}
@@ -510,13 +510,13 @@ spec:
             {{- end }}
           {{- else if and $method (ge $code 200) (lt $code 300) }}
             {{- /* after a write that succeeded the response is still the GET before it: the router has the spec, the next GET shows it */}}
-            {{- $undid := dict "drift" (default list $old.drift) "extra" (ternary (default list $old.extra) list (eq $policy "FullControl")) }}
+            {{- $undid := dict "drift" (default list $old.drift) "extra" (ternary (default list $old.extra) list (eq $policy "Replace")) }}
             {{- if or $undid.drift $undid.extra }}
               {{- $_ := set $undid "time" (dateInZone "2006-01-02T15:04:05Z" (now) "UTC") }}
               {{- $_ := set $status "reverted" $undid }}
             {{- end }}
             {{- $_ := set $status "drift" list }}
-            {{- if eq $policy "FullControl" }}{{ $_ := set $status "extra" list }}{{ end }}
+            {{- if eq $policy "Replace" }}{{ $_ := set $status "extra" list }}{{ end }}
             {{- $present = true }}
           {{- end }}
           {{- end }}
@@ -532,7 +532,7 @@ spec:
           {{- end }}
           {{- $_ := set $status "keys" $written }}
           {{- $_ := set $status "missingSecrets" $missing }}
-          {{- $ready := and $present (not $hold) (not $missing) (not $status.drift) (or (ne $policy "FullControl") (not $status.extra)) }}
+          {{- $ready := and $present (not $hold) (not $missing) (not $status.drift) (or (ne $policy "Replace") (not $status.extra)) }}
           ---
           apiVersion: {{ $xr.apiVersion }}
           kind: {{ $xr.kind }}

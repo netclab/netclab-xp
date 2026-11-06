@@ -3,7 +3,7 @@ kind: Ikev2Proposal
 metadata:
   name: r1--classical-proposal--3a16aab3
 spec:
-  managementPolicy: FullControl
+  managementPolicy: Replace
   deviceRef:
     name: r1
   name: CLASSICAL-PROPOSAL

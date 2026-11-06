@@ -87,7 +87,7 @@ record() { # record <kind>/<state> <url>: the status code and the body, as the p
   echo "$1: HTTP $code"
 }
 
-patch() { # patch <kind>/<state> <body>: Manage's PATCH on native, sent and recorded with
+patch() { # patch <kind>/<state> <body>: Merge's PATCH on native, sent and recorded with
   # the router's answer; fails unless 2xx
   waitsync
   local body code
@@ -173,7 +173,7 @@ ikev2proposal() { # iosxe/examples/ikev2proposal/r1.yaml
   record ikev2proposal/proposal-with-prf "$url"
   put '.group = {"nineteen": [null]}'
   record ikev2proposal/proposal-other-group "$url"
-  # Manage's write over group 19 alone: a merge keeps 19 beside the example's 20
+  # Merge's write over group 19 alone: a merge keeps 19 beside the example's 20
   patch ikev2proposal/proposal-patch \
     "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {proposal: [$p]}}}}')"
   record ikev2proposal/proposal-patched "$url"
@@ -201,7 +201,7 @@ ikev2policy() { # iosxe/examples/ikev2policy/r1.yaml, on the proposal of iosxe/e
   record ikev2policy/policy-other-proposal "$url"
   put '.match = {"fvrf": {"any": [null]}}'
   record ikev2policy/policy-with-match "$url"
-  # Manage's write over `default` alone: a merge keeps it beside the example's proposal
+  # Merge's write over `default` alone: a merge keeps it beside the example's proposal
   put '.proposal = [{"proposals": "default"}]'
   patch ikev2policy/policy-patch \
     "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {policy: [$p]}}}}')"
@@ -241,7 +241,7 @@ ikev2keyring() { # iosxe/examples/ikev2keyring/r1.yaml
   record ikev2keyring/keyring-other-psk "$url"
   write PUT "$url" "$(body)"
   record ikev2keyring/keyring-no-psk "$url"
-  # Manage's write over another address and another PSK: a merge puts the address back
+  # Merge's write over another address and another PSK: a merge puts the address back
   # and leaves the PSK
   write PUT "$url" "$(body OtherPsk456 | jq -c '.["Cisco-IOS-XE-crypto:keyring"][0].peer[0].address.ipv4["ipv4-address"] = "10.0.23.9"')"
   patch ikev2keyring/keyring-patch "$(body | jq -c '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {keyring: .["Cisco-IOS-XE-crypto:keyring"]}}}}')"
@@ -314,7 +314,7 @@ event manager environment $var \"$(sha8 CLASSICAL-KEYRING) $place CLASSICAL-KEYR
   record ikev2profile/profile-other-address "$url"
   put '.match.identity.remote.address.ipv4 += [{"ipv4-address": "10.0.12.2", "ipv4-mask": "255.255.255.255"}]'
   record ikev2profile/profile-extra-address "$url"
-  # Manage's write over another address and a description made by hand: a merge adds
+  # Merge's write over another address and a description made by hand: a merge adds
   # the spec's address and keeps both
   put '.match.identity.remote.address.ipv4 = [{"ipv4-address": "10.0.12.9", "ipv4-mask": "255.255.255.255"}]
     | .description = "made by hand"'
@@ -343,7 +343,7 @@ ipsectransformset() { # iosxe/examples/ipsectransformset/r1.yaml
   record ipsectransformset/transform-set-transport "$url"
   put '.esp = "esp-aes" | .["esp-hmac"] = "esp-sha256-hmac"'
   record ipsectransformset/transform-set-aes-with-hmac "$url"
-  # Manage's write over a section that differs in every field: the router drops esp-hmac
+  # Merge's write over a section that differs in every field: the router drops esp-hmac
   # itself when esp becomes esp-gcm
   put '.esp = "esp-aes" | .["key-bit"] = "192" | .["esp-hmac"] = "esp-sha256-hmac" | .mode = {"transport-choice": {}}'
   patch ipsectransformset/transform-set-patch \
@@ -389,7 +389,7 @@ ipsecprofile() { # iosxe/examples/ipsecprofile/r1.yaml, on transform-sets and an
   record ipsecprofile/profile-no-ikev2-profile "$url"
   put '.set.pfs = {"group": "group20"}'
   record ipsecprofile/profile-with-pfs "$url"
-  # Manage's write over OTHER-TS alone and no IKEv2 profile: a merge keeps OTHER-TS
+  # Merge's write over OTHER-TS alone and no IKEv2 profile: a merge keeps OTHER-TS
   put '.set = {"transform-set": ["OTHER-TS"]}'
   patch ipsecprofile/profile-patch \
     "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ipsec": {profile: [$p]}}}}')"
@@ -479,7 +479,7 @@ tunnelinterface() { # iosxe/examples/tunnelinterface/r1.yaml, on part 9's IPsec 
   record tunnelinterface/tunnel-no-protection "$url"
   put '.shutdown = [null]'
   record tunnelinterface/tunnel-shutdown "$url"
-  # Manage's write over another destination and mask, and a description made by hand:
+  # Merge's write over another destination and mask, and a description made by hand:
   # a merge puts back the spec's and keeps the description
   put '.ip.address.primary.mask = "255.255.255.255" | .description = "made by hand"
     | .["Cisco-IOS-XE-tunnel:tunnel"]["destination-config"].ipv4 = "10.0.23.9"'

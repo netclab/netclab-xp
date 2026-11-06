@@ -12,11 +12,11 @@ spec:
   # carries the mode: without one the router makes a GRE tunnel. The router
   # returns `ipsec ipv4` as both `ipv4-mode` and `ipv4`, so the body carries
   # both. Lines the spec has no field for, such as description or shutdown, are
-  # beyond the spec, and FullControl takes them off. The router refuses a tunnel
+  # beyond the spec, and Replace takes them off. The router refuses a tunnel
   # naming a missing IPsec profile, and the profile's delete while a tunnel
   # names it.
-  # Observe only reads; Manage PATCHes the fields of the spec, a merge;
-  # FullControl PUTs the interface and DELETEs it with the object. The status is
+  # Observe only reads; Merge PATCHes the fields of the spec;
+  # Replace PUTs the interface and DELETEs it with the object. The status is
   # the last GET in the shape of the spec; Ready means the mode's write would
   # change nothing.
   # Once the tunnel's Request exists, two Requests only read the router: the
@@ -155,7 +155,7 @@ spec:
           {{- with $spec.source }}{{ $checks = append $checks (printf "$u.source == %s" (toJson .)) }}{{ end }}
           {{- with $spec.destination }}{{ $checks = append $checks (printf "$u[\"destination-config\"].ipv4 == %s" (toJson .)) }}{{ end }}
           {{- with $spec.ipsecProfile }}{{ $checks = append $checks (printf "$u.protection[\"Cisco-IOS-XE-crypto:ipsec\"][\"profile-option\"].name == %s" (toJson .)) }}{{ end }}
-          {{- if eq $policy "FullControl" }}
+          {{- if eq $policy "Replace" }}
             {{- $checks = append $checks "($t | del(.name, .ip, .[\"Cisco-IOS-XE-tunnel:tunnel\"])) == {}" }}
             {{- $checks = append $checks "(($t.ip // {}) | del(.address)) == {}" }}
             {{- $checks = append $checks "(($t.ip.address // {}) | del(.primary)) == {}" }}
@@ -170,7 +170,7 @@ spec:
           spec:
             {{- if eq $policy "Observe" }}
             managementPolicies: ["Observe"]
-            {{- else if eq $policy "Manage" }}
+            {{- else if eq $policy "Merge" }}
             managementPolicies: ["Observe", "Create", "Update"]
             {{- else }}
             managementPolicies: ["*"]
@@ -183,12 +183,12 @@ spec:
                 Authorization: ["Basic {{ $auth }}"]
               payload:
                 baseUrl: {{ $url | quote }}
-                body: {{ (ternary $put $patch (eq $policy "FullControl")) | toJson | quote }}
+                body: {{ (ternary $put $patch (eq $policy "Replace")) | toJson | quote }}
               mappings:
               - action: OBSERVE
                 method: GET
                 url: .payload.baseUrl
-              {{- if eq $policy "Manage" }}
+              {{- if eq $policy "Merge" }}
               - action: CREATE
                 method: PATCH
                 url: {{ $native | quote | quote }}
@@ -197,7 +197,7 @@ spec:
                 method: PATCH
                 url: {{ $native | quote | quote }}
                 body: .payload.body
-              {{- else if eq $policy "FullControl" }}
+              {{- else if eq $policy "Replace" }}
               - action: CREATE
                 method: PUT
                 url: .payload.baseUrl
@@ -281,11 +281,11 @@ spec:
                 {{- $theirs := ternary (list (get $router $f)) list (hasKey $router $f) }}
                 {{- if hasKey $spec $f }}
                   {{- if ne (get $router $f | toString) (get $spec $f | toString) }}{{ $drift = append $drift (dict "field" $f "device" $theirs "spec" (list (get $spec $f))) }}{{ end }}
-                {{- else if and (eq $policy "FullControl") (hasKey $router $f) }}
+                {{- else if and (eq $policy "Replace") (hasKey $router $f) }}
                   {{- $more = append $more (dict "field" $f "device" $theirs) }}
                 {{- end }}
               {{- end }}
-              {{- if eq $policy "FullControl" }}
+              {{- if eq $policy "Replace" }}
                 {{- range $k, $v := $t }}{{ if not (has $k (list "name" "ip" "Cisco-IOS-XE-tunnel:tunnel")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}{{ end }}
                 {{- range $k, $v := $ip }}{{ if ne $k "address" }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}{{ end }}
                 {{- range $k, $v := $addr }}{{ if ne $k "primary" }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}{{ end }}
@@ -303,13 +303,13 @@ spec:
             {{- end }}
           {{- else if and $method (ge $code 200) (lt $code 300) }}
             {{- /* after a write that succeeded the response is still the GET before it: the router has the spec, the next GET shows it */}}
-            {{- $undid := dict "drift" (default list $old.drift) "extra" (ternary (default list $old.extra) list (eq $policy "FullControl")) }}
+            {{- $undid := dict "drift" (default list $old.drift) "extra" (ternary (default list $old.extra) list (eq $policy "Replace")) }}
             {{- if or $undid.drift $undid.extra }}
               {{- $_ := set $undid "time" (dateInZone "2006-01-02T15:04:05Z" (now) "UTC") }}
               {{- $_ := set $status "reverted" $undid }}
             {{- end }}
             {{- $_ := set $status "drift" list }}
-            {{- if eq $policy "FullControl" }}{{ $_ := set $status "extra" list }}{{ end }}
+            {{- if eq $policy "Replace" }}{{ $_ := set $status "extra" list }}{{ end }}
             {{- $present = true }}
           {{- end }}
           {{- end }}
@@ -347,7 +347,7 @@ spec:
           {{- end }}{{ end }}{{ end }}
           {{- end }}
           {{- if $oper }}{{ $_ := set $status "oper" $oper }}{{ end }}
-          {{- $ready := and $present (not $status.drift) (or (ne $policy "FullControl") (not $status.extra)) }}
+          {{- $ready := and $present (not $status.drift) (or (ne $policy "Replace") (not $status.extra)) }}
           ---
           apiVersion: {{ $xr.apiVersion }}
           kind: {{ $xr.kind }}

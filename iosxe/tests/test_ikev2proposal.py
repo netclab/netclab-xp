@@ -71,12 +71,12 @@ def test_an_object_under_another_name_composes_nothing(render, device, name, wan
         (None, ["Observe"], []),
         ("Observe", ["Observe"], []),
         (
-            "Manage",
+            "Merge",
             ["Observe", "Create", "Update"],
             [("CREATE", "PATCH"), ("UPDATE", "PATCH")],
         ),
         (
-            "FullControl",
+            "Replace",
             ["*"],
             [("CREATE", "PUT"), ("UPDATE", "PUT"), ("REMOVE", "DELETE")],
         ),
@@ -95,7 +95,7 @@ def test_the_mode_decides_what_the_request_may_do(render, policy, policies, writ
 
 
 def test_manage_sends_the_patch_the_router_merged(render):
-    request = render(KIND, example("Manage"), required=DEVICES).resources["proposal"]
+    request = render(KIND, example("Merge"), required=DEVICES).resources["proposal"]
     for_provider = request["spec"]["forProvider"]
     sent = recorded(KIND, "proposal-patch")["request"]
     assert json.loads(for_provider["payload"]["body"]) == sent["body"]
@@ -105,22 +105,20 @@ def test_manage_sends_the_patch_the_router_merged(render):
     }
 
 
-def test_full_control_puts_what_the_router_then_returns(render):
-    request = render(KIND, example("FullControl"), required=DEVICES).resources[
-        "proposal"
-    ]
+def test_replace_puts_what_the_router_then_returns(render):
+    request = render(KIND, example("Replace"), required=DEVICES).resources["proposal"]
     body = request["spec"]["forProvider"]["payload"]["body"]
     assert json.loads(body) == recorded(KIND, "proposal-applied")["body"]
 
 
 @pytest.mark.parametrize(
-    ("state", "manage", "full_control"),
+    ("state", "merge", "replace"),
     [
         ("proposal-applied", True, True),
-        # Beyond the spec: Manage leaves it, FullControl takes it off.
+        # Beyond the spec: Merge leaves it, Replace takes it off.
         ("proposal-extra-encryption", True, False),
         ("proposal-with-prf", True, False),
-        # Manage's PATCH over group 19 alone, merged by the router.
+        # Merge's PATCH over group 19 alone, merged by the router.
         ("proposal-patched", True, False),
         # The spec's values not on the router.
         ("proposal-other-integrity", False, False),
@@ -128,8 +126,8 @@ def test_full_control_puts_what_the_router_then_returns(render):
         ("proposal-absent", False, False),
     ],
 )
-def test_check_is_the_mode_write_changing_nothing(render, state, manage, full_control):
-    for policy, expected in [("Manage", manage), ("FullControl", full_control)]:
+def test_check_is_the_mode_write_changing_nothing(render, state, merge, replace):
+    for policy, expected in [("Merge", merge), ("Replace", replace)]:
         request = render(KIND, example(policy), required=DEVICES).resources["proposal"]
         assert (
             check(request, "expectedResponseCheck", recorded(KIND, state)) is expected
@@ -178,23 +176,23 @@ def test_a_section_gone_from_the_router_is_not_ready(after_get):
     ("policy", "state", "drift", "extra", "is_ready"),
     [
         (
-            "Manage",
+            "Merge",
             "proposal-extra-encryption",
             [],
             [{"field": "encryption", "device": ["aes-cbc-128"]}],
             "True",
         ),
         (
-            "FullControl",
+            "Replace",
             "proposal-extra-encryption",
             [],
             [{"field": "encryption", "device": ["aes-cbc-128"]}],
             "False",
         ),
-        # A field the spec leaves out: compared in FullControl alone.
-        ("Manage", "proposal-with-prf", [], [], "True"),
+        # A field the spec leaves out: compared in Replace alone.
+        ("Merge", "proposal-with-prf", [], [], "True"),
         (
-            "FullControl",
+            "Replace",
             "proposal-with-prf",
             [],
             [{"field": "prf", "device": ["sha384"]}],
@@ -219,7 +217,7 @@ def test_drift_and_extra_follow_the_mode(
 
 
 def test_a_write_that_succeeded_records_what_it_put_back(render):
-    xr = example("Manage")
+    xr = example("Merge")
     request = render(KIND, xr, required=DEVICES).resources["proposal"]
     before = render(KIND, xr, [answered(request, "proposal-other-group")], DEVICES)
     xr["status"] = status(before)
@@ -240,7 +238,7 @@ def test_a_write_that_succeeded_records_what_it_put_back(render):
 
 
 def test_a_write_that_failed_changes_nothing(render):
-    xr = example("Manage")
+    xr = example("Merge")
     request = render(KIND, xr, required=DEVICES).resources["proposal"]
     before = render(KIND, xr, [answered(request, "proposal-other-group")], DEVICES)
     xr["status"] = status(before)

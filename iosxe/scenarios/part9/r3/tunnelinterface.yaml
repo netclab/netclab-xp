@@ -3,7 +3,7 @@ kind: TunnelInterface
 metadata:
   name: r3--tunnel0--d311cfe5
 spec:
-  managementPolicy: FullControl
+  managementPolicy: Replace
   deviceRef:
     name: r3
   after:

@@ -3,7 +3,7 @@ kind: Ikev2Policy
 metadata:
   name: r3--classical-policy--17d97755
 spec:
-  managementPolicy: FullControl
+  managementPolicy: Replace
   deviceRef:
     name: r3
   after:

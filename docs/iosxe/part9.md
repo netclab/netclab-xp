@@ -35,7 +35,7 @@ kubectl kustomize --load-restrictor LoadRestrictionsNone iosxe/scenarios/part9 \
 <from the run>
 ```
 
-Every object is in `FullControl`. The objects come up in the order their `after` gives,
+Every object is in `Replace`. The objects come up in the order their `after` gives,
 the tunnel last:
 
 ```bash

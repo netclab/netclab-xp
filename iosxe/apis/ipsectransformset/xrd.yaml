@@ -49,10 +49,10 @@ spec:
               managementPolicy:
                 type: string
                 description: >-
-                  Observe reads the transform-set on the router; Manage writes
-                  the fields of the spec; FullControl makes the transform-set the
+                  Observe reads the transform-set on the router; Merge writes
+                  the fields of the spec; Replace makes the transform-set the
                   spec, and removes it with the object.
-                enum: [Observe, Manage, FullControl]
+                enum: [Observe, Merge, Replace]
                 default: Observe
               deviceRef:
                 type: object
@@ -149,7 +149,7 @@ spec:
               extra:
                 type: array
                 description: >-
-                  In FullControl, the values the router has where the spec leaves
+                  In Replace, the values the router has where the spec leaves
                   a field out, the router's defaults aside; a field the spec cannot
                   hold is given as JSON.
                 items:

@@ -10,7 +10,7 @@ spec:
   pipeline:
   # One Request owns the proposal over RESTCONF. The algorithms are presence
   # leaves in YANG, so a set in the spec is a set of leaf names on the router.
-  # Observe only reads; Manage PATCHes what the spec sets, a merge; FullControl
+  # Observe only reads; Merge PATCHes what the spec sets; Replace
   # PUTs the proposal and DELETEs it with the object. The status is the last GET
   # in the shape of the spec; Ready means the mode's write would change nothing.
   # The Device comes first in `after`, as if the spec named it. Once every object
@@ -144,7 +144,7 @@ spec:
           spec:
             {{- if eq $policy "Observe" }}
             managementPolicies: ["Observe"]
-            {{- else if eq $policy "Manage" }}
+            {{- else if eq $policy "Merge" }}
             managementPolicies: ["Observe", "Create", "Update"]
             {{- else }}
             managementPolicies: ["*"]
@@ -157,12 +157,12 @@ spec:
                 Authorization: ["Basic {{ $auth }}"]
               payload:
                 baseUrl: {{ $url | quote }}
-                body: {{ (ternary $put $patch (eq $policy "FullControl")) | toJson | quote }}
+                body: {{ (ternary $put $patch (eq $policy "Replace")) | toJson | quote }}
               mappings:
               - action: OBSERVE
                 method: GET
                 url: .payload.baseUrl
-              {{- if eq $policy "Manage" }}
+              {{- if eq $policy "Merge" }}
               - action: CREATE
                 method: PATCH
                 url: {{ $native | quote | quote }}
@@ -171,7 +171,7 @@ spec:
                 method: PATCH
                 url: {{ $native | quote | quote }}
                 body: .payload.body
-              {{- else if eq $policy "FullControl" }}
+              {{- else if eq $policy "Replace" }}
               - action: CREATE
                 method: PUT
                 url: .payload.baseUrl
@@ -191,7 +191,7 @@ spec:
                     (.response.body["Cisco-IOS-XE-crypto:proposal"][0]
                       | {encryption: (.encryption // {} | keys), integrity: (.integrity // {} | keys),
                          prf: (.prf // {} | keys), group: (.group // {} | keys)}) as $router
-                  {{- if eq $policy "FullControl" }}
+                  {{- if eq $policy "Replace" }}
                     | $router == {{ $owned | toJson }}
                   {{- else }}
                     | {{ $set | toJson }} | all(to_entries[]; .value - $router[.key] == [])
@@ -230,7 +230,7 @@ spec:
                 {{- $theirs := get $router $f }}
                 {{- $missing := list }}{{ range $mine }}{{ if not (has . $theirs) }}{{ $missing = append $missing . }}{{ end }}{{ end }}
                 {{- if $missing }}{{ $drift = append $drift (dict "field" $f "device" $theirs "spec" $mine) }}{{ end }}
-                {{- if or $mine (eq $policy "FullControl") }}
+                {{- if or $mine (eq $policy "Replace") }}
                   {{- $beyond := list }}{{ range $theirs }}{{ if not (has . $mine) }}{{ $beyond = append $beyond . }}{{ end }}{{ end }}
                   {{- if $beyond }}{{ $more = append $more (dict "field" $f "device" $beyond) }}{{ end }}
                 {{- end }}
@@ -247,18 +247,18 @@ spec:
             {{- end }}
           {{- else if and $method (ge $code 200) (lt $code 300) }}
             {{- /* after a write that succeeded the response is still the GET before it: the router has the spec, the next GET shows it */}}
-            {{- $undid := dict "drift" (default list $old.drift) "extra" (ternary (default list $old.extra) list (eq $policy "FullControl")) }}
+            {{- $undid := dict "drift" (default list $old.drift) "extra" (ternary (default list $old.extra) list (eq $policy "Replace")) }}
             {{- if or $undid.drift $undid.extra }}
               {{- $_ := set $undid "time" (dateInZone "2006-01-02T15:04:05Z" (now) "UTC") }}
               {{- $_ := set $status "reverted" $undid }}
             {{- end }}
             {{- $_ := set $status "drift" list }}
-            {{- if eq $policy "FullControl" }}{{ $_ := set $status "extra" list }}{{ end }}
+            {{- if eq $policy "Replace" }}{{ $_ := set $status "extra" list }}{{ end }}
             {{- $present = true }}
           {{- end }}
           {{- end }}
           {{- end }}
-          {{- $ready := and $present (not $status.drift) (or (ne $policy "FullControl") (not $status.extra)) }}
+          {{- $ready := and $present (not $status.drift) (or (ne $policy "Replace") (not $status.extra)) }}
           ---
           apiVersion: {{ $xr.apiVersion }}
           kind: {{ $xr.kind }}

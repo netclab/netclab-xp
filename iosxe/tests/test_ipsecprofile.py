@@ -70,12 +70,12 @@ def test_an_object_under_another_name_composes_nothing(render, name, want):
     [
         (None, ["Observe"], []),
         (
-            "Manage",
+            "Merge",
             ["Observe", "Create", "Update"],
             [("CREATE", "PATCH"), ("UPDATE", "PATCH")],
         ),
         (
-            "FullControl",
+            "Replace",
             ["*"],
             [("CREATE", "PUT"), ("UPDATE", "PUT"), ("REMOVE", "DELETE")],
         ),
@@ -92,7 +92,7 @@ def test_the_mode_decides_what_the_request_may_do(render, policy, policies, writ
 
 
 def test_manage_sends_the_patch_the_router_merged(render):
-    for_provider = request(render, example("Manage"))["spec"]["forProvider"]
+    for_provider = request(render, example("Merge"))["spec"]["forProvider"]
     sent = recorded(KIND, "profile-patch")["request"]
     assert json.loads(for_provider["payload"]["body"]) == sent["body"]
     writes = [m for m in for_provider["mappings"] if m["action"] != "OBSERVE"]
@@ -101,21 +101,21 @@ def test_manage_sends_the_patch_the_router_merged(render):
     }
 
 
-def test_full_control_puts_what_the_router_then_returns(render):
-    body = request(render, example("FullControl"))["spec"]["forProvider"]
+def test_replace_puts_what_the_router_then_returns(render):
+    body = request(render, example("Replace"))["spec"]["forProvider"]
     assert (
         json.loads(body["payload"]["body"]) == recorded(KIND, "profile-applied")["body"]
     )
 
 
 @pytest.mark.parametrize(
-    ("state", "manage", "full_control"),
+    ("state", "merge", "replace"),
     [
         ("profile-applied", True, True),
-        # Beyond the spec: Manage leaves it, FullControl takes it off.
+        # Beyond the spec: Merge leaves it, Replace takes it off.
         ("profile-extra-transform-set", True, False),
         ("profile-with-pfs", True, False),
-        # Manage's PATCH over OTHER-TS alone, merged by the router.
+        # Merge's PATCH over OTHER-TS alone, merged by the router.
         ("profile-patched", True, False),
         # A value of the spec the router lacks.
         ("profile-other-transform-set", False, False),
@@ -123,8 +123,8 @@ def test_full_control_puts_what_the_router_then_returns(render):
         ("profile-absent", False, False),
     ],
 )
-def test_check_is_the_mode_write_changing_nothing(render, state, manage, full_control):
-    for policy, expected in [("Manage", manage), ("FullControl", full_control)]:
+def test_check_is_the_mode_write_changing_nothing(render, state, merge, replace):
+    for policy, expected in [("Merge", merge), ("Replace", replace)]:
         req = request(render, example(policy))
         assert check(req, "expectedResponseCheck", recorded(KIND, state)) is expected
 
@@ -169,23 +169,23 @@ def test_a_section_gone_from_the_router_is_not_ready(after_get):
     ("policy", "state", "drift", "extra", "is_ready"),
     [
         (
-            "Manage",
+            "Merge",
             "profile-extra-transform-set",
             [],
             [{"field": "transformSets", "device": ["OTHER-TS"]}],
             "True",
         ),
         (
-            "FullControl",
+            "Replace",
             "profile-extra-transform-set",
             [],
             [{"field": "transformSets", "device": ["OTHER-TS"]}],
             "False",
         ),
-        # A field the spec cannot hold: compared in FullControl alone.
-        ("Manage", "profile-with-pfs", [], [], "True"),
+        # A field the spec cannot hold: compared in Replace alone.
+        ("Merge", "profile-with-pfs", [], [], "True"),
         (
-            "FullControl",
+            "Replace",
             "profile-with-pfs",
             [],
             [{"field": "pfs", "device": ['{"group":"group20"}']}],
@@ -223,7 +223,7 @@ def test_drift_and_extra_follow_the_mode(
 
 
 def test_a_write_that_succeeded_records_what_it_put_back(render):
-    xr = example("Manage")
+    xr = example("Merge")
     req = request(render, xr)
     before = render(KIND, xr, [answered(req, "profile-no-ikev2-profile")], DEVICES)
     xr["status"] = status(before)
@@ -237,7 +237,7 @@ def test_a_write_that_succeeded_records_what_it_put_back(render):
 
 
 def test_a_write_that_failed_changes_nothing(render):
-    xr = example("Manage")
+    xr = example("Merge")
     req = request(render, xr)
     before = render(KIND, xr, [answered(req, "profile-no-ikev2-profile")], DEVICES)
     xr["status"] = status(before)

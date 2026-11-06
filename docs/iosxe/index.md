@@ -39,7 +39,7 @@ kind: Ikev2Keyring
 metadata:
   name: r1--classical-keyring--eb60cb7d
 spec:
-  managementPolicy: FullControl
+  managementPolicy: Replace
   deviceRef:
     name: r1
   name: CLASSICAL-KEYRING
@@ -65,12 +65,12 @@ spec:
 - Keys live in Secrets, which the objects name, so the objects go to Git without them. A
   key changed in its Secret is written to every router whose object names it, and the
   peer's IKEv2 SA is renegotiated on it.
-- Each object has a mode: `Observe` reads, `Manage` writes the fields of its spec,
-  `FullControl` makes the section its spec. A router configured by hand is taken over one
+- Each object has a mode: `Observe` reads, `Merge` writes the fields of its spec,
+  `Replace` makes the section its spec. A router configured by hand is taken over one
   section at a time, as in [Adopt a router](adopt.md).
 - The tunnel's object shows its interface state, and its IKEv2 SA with the other router:
   `active`, `pending` or `none`.
-- Deleting the objects in `FullControl` removes everything they configured.
+- Deleting the objects in `Replace` removes everything they configured.
 
 The package supports tunnels with the PPK and without it, and pre-shared keys stored on
 the router in clear or as type 6 (`password encryption aes`).

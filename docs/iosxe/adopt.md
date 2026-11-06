@@ -66,8 +66,8 @@ has. Every object has a mode, `spec.managementPolicy`:
 | mode | on the router | deleting the object |
 |---|---|---|
 | `Observe` (default) | reads the section, writes nothing | leaves the section |
-| `Manage` | merges the intent into the section, and puts it back after a change by hand; the rest of the section stays | leaves the section |
-| `FullControl` | replaces the section with the intent: what the intent lacks is removed | removes the section |
+| `Merge` | merges the intent into the section, and puts it back after a change by hand; the rest of the section stays | leaves the section |
+| `Replace` | replaces the section with the intent: what the intent lacks is removed | removes the section |
 
 `Observe` is the default, so an object that leaves the field out only reads. Keys follow
 their own rules, in [Keys](#keys).
@@ -275,19 +275,19 @@ hand, each change shows as drift, and a pull request copies it from `status.obse
 the intent. Step 5 ends this: from then on a change is made in the intent, in the
 repository, and a change by hand is put back.
 
-## Step 5, Manage: Merge the intent into the section
+## Step 5, Merge the intent into the section
 
-A pull request sets `Manage` on every object but `LEGACY_PROPOSAL`, which stays observed:
+A pull request sets `Merge` on every object but `LEGACY_PROPOSAL`, which stays observed:
 
 ```diff
  spec:
-+  managementPolicy: Manage
++  managementPolicy: Merge
    deviceRef:
      name: r1
 ```
 
-`Manage` merges the intent into the section. If the object was Ready before the pull
-request, the router does not change: the intent already matches the section. `Manage` needs every field the router needs, so a thin object
+In `Merge` the intent is merged into the section. If the object was Ready before the pull
+request, the router does not change: the intent already matches the section. `Merge` needs every field the router needs, so a thin object
 is refused here. Taking over writes the keys' marks and the profile's `keyring ppk` with
 its mark, and leaves the tunnel's SA as it is:
 
@@ -298,21 +298,21 @@ its mark, and leaves the tunnel's SA as it is:
 From now on a change by hand to a field of the spec is put back at the next poll, and
 recorded. A change to the section is a pull request to its intent.
 
-`Manage` adds and corrects, and never removes. A field the spec leaves out is not
+`Merge` adds and corrects, and never removes. A field the spec leaves out is not
 compared. A list in the spec has to be on the router, and what the router has beyond it
 stays, as does the description on r1's Tunnel0. The same change by hand as in Step 4,
-group 19 in place of 20, under `Manage`: 20 is put back, 19 stays and shows in
+group 19 in place of 20, under `Merge`: 20 is put back, 19 stays and shows in
 `status.extra`, and the object is Ready:
 
 ```yaml
 <status of the proposal, from the run>
 ```
 
-Removing it from the router takes `FullControl`.
+Removing it from the router takes `Replace`.
 
-## Step 6, FullControl: Replace the section with the intent
+## Step 6, Replace the section with the intent
 
-Optional. `FullControl` replaces the section with the intent: what the intent lacks is
+Optional. In `Replace` the section is replaced with the intent: what the intent lacks is
 removed at the next poll, so `status.extra` empties, and deleting the object removes the
 section from the router. The object is Ready when the section is its intent. A pull request
 sets it on every object but `LEGACY_PROPOSAL`, with `after`, as [Part 9](part9.md) has it,
@@ -320,8 +320,8 @@ so that an object is written after those it names:
 
 ```diff
  spec:
--  managementPolicy: Manage
-+  managementPolicy: FullControl
+-  managementPolicy: Merge
++  managementPolicy: Replace
    deviceRef:
      name: r1
 +  after:
@@ -336,7 +336,7 @@ At the next poll group 19 is taken off the router, and the description off Tunne
 <status of the proposal and the tunnel, from the run>
 ```
 
-`FullControl` writes the section's keys from their Secrets with every write of the
+`Replace` writes the section's keys from their Secrets with every write of the
 section, so the Secrets have to hold the keys the router has; see [Keys](#keys).
 
 ## Keys
@@ -388,7 +388,7 @@ When a key is written:
 |---|---|
 | Step 5, taking over a section that exists | not written |
 | the key's value changes in its Secret | written, on every router whose object names it |
-| `FullControl`, any write of the section | written |
+| `Replace`, any write of the section | written |
 | the Secret is deleted and made again | written once |
 | the annotation `iosxe.netclab.dev/rewrite-keys` changes | written once |
 
@@ -423,9 +423,9 @@ r1#show running-config | include ^event manager environment netclab-
 
 ## Going back
 
-A pull request that lowers the mode, to `Manage` or to `Observe`, from any mode: the
+A pull request that lowers the mode, to `Merge` or to `Observe`, from any mode: the
 router does not change, keys and marks included. Deleting an object in `Observe` or
-`Manage` leaves its section on the router as it is:
+`Merge` leaves its section on the router as it is:
 
 ```console
 <r3 after its objects lowered to Observe and deleted, from the run>

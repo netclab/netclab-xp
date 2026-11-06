@@ -3,7 +3,7 @@ kind: Ikev2Keyring
 metadata:
   name: r3--classical-keyring--eb60cb7d
 spec:
-  managementPolicy: FullControl
+  managementPolicy: Replace
   deviceRef:
     name: r3
   name: CLASSICAL-KEYRING

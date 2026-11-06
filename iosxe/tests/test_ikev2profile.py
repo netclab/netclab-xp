@@ -82,12 +82,12 @@ def test_an_object_under_another_name_composes_nothing(render):
     [
         (None, ["Observe"], []),
         (
-            "Manage",
+            "Merge",
             ["Observe", "Create", "Update"],
             [("CREATE", "PATCH"), ("UPDATE", "PATCH")],
         ),
         (
-            "FullControl",
+            "Replace",
             ["*"],
             [("CREATE", "PUT"), ("UPDATE", "PUT"), ("REMOVE", "DELETE")],
         ),
@@ -104,7 +104,7 @@ def test_the_mode_decides_what_the_request_may_do(render, policy, policies, writ
 
 
 def test_manage_sends_the_patch_the_router_merged(render):
-    for_provider = first(render, example("Manage"))["profile"]["spec"]["forProvider"]
+    for_provider = first(render, example("Merge"))["profile"]["spec"]["forProvider"]
     sent = recorded(KIND, "profile-patch")["request"]
     assert json.loads(for_provider["payload"]["body"]) == sent["body"]
     writes = [m for m in for_provider["mappings"] if m["action"] != "OBSERVE"]
@@ -113,32 +113,30 @@ def test_manage_sends_the_patch_the_router_merged(render):
     }
 
 
-def test_full_control_puts_what_the_router_then_returns(render):
-    for_provider = first(render, example("FullControl"))["profile"]["spec"][
-        "forProvider"
-    ]
+def test_replace_puts_what_the_router_then_returns(render):
+    for_provider = first(render, example("Replace"))["profile"]["spec"]["forProvider"]
     body = json.loads(for_provider["payload"]["body"])
     assert body == recorded(KIND, "profile-applied")["body"]
 
 
 @pytest.mark.parametrize(
-    ("state", "manage", "full_control"),
+    ("state", "merge", "replace"),
     [
         ("profile-applied", True, True),
         # The router leaves out a host's mask after some writes.
         ("profile-no-mask", True, True),
-        # Beyond the spec: Manage leaves it, FullControl takes it off.
+        # Beyond the spec: Merge leaves it, Replace takes it off.
         ("profile-described", True, False),
         ("profile-extra-address", True, False),
-        # Manage's PATCH over another address and a description, merged by the router.
+        # Merge's PATCH over another address and a description, merged by the router.
         ("profile-patched", True, False),
         # A value of the spec the router lacks.
         ("profile-other-address", False, False),
         ("profile-absent", False, False),
     ],
 )
-def test_check_is_the_mode_write_changing_nothing(render, state, manage, full_control):
-    for policy, expected in [("Manage", manage), ("FullControl", full_control)]:
+def test_check_is_the_mode_write_changing_nothing(render, state, merge, replace):
+    for policy, expected in [("Merge", merge), ("Replace", replace)]:
         profile = first(render, example(policy))["profile"]
         assert (
             check(profile, "expectedResponseCheck", recorded(KIND, state)) is expected
@@ -163,7 +161,7 @@ def rpc(render):
 
 
 def test_taking_over_writes_the_line_and_its_mark_and_clears_nothing(rpc):
-    for_provider = rpc("Manage")["spec"]["forProvider"]
+    for_provider = rpc("Merge")["spec"]["forProvider"]
     sent = recorded(KIND, "ppk-rpc")["request"]
     assert json.loads(for_provider["payload"]["body"]) == sent["body"]
     writes = {m["action"]: m for m in for_provider["mappings"]}
@@ -171,20 +169,20 @@ def test_taking_over_writes_the_line_and_its_mark_and_clears_nothing(rpc):
         sent["method"],
         sent["url"],
     )
-    # Manage never removes the line.
+    # Merge never removes the line.
     assert "REMOVE" not in writes
 
 
 def test_a_changed_ppk_keyring_clears_the_peers_sas(rpc):
     body = json.loads(
-        rpc("FullControl", "ppk-mark-other")["spec"]["forProvider"]["payload"]["body"]
+        rpc("Replace", "ppk-mark-other")["spec"]["forProvider"]["payload"]["body"]
     )
     clis = body["Cisco-IOS-XE-cli-rpc:input"]["config-clis"].splitlines()
     assert clis[-1] == "do clear crypto ikev2 sa remote 10.0.23.2"
 
 
-def test_full_control_removes_the_line_its_mark_and_the_sas(rpc):
-    mappings = rpc("FullControl")["spec"]["forProvider"]["mappings"]
+def test_replace_removes_the_line_its_mark_and_the_sas(rpc):
+    mappings = rpc("Replace")["spec"]["forProvider"]["mappings"]
     remove = next(m for m in mappings if m["action"] == "REMOVE")
     clis = json.loads(remove["body"])["Cisco-IOS-XE-cli-rpc:input"]["config-clis"]
     assert clis.splitlines() == [
@@ -199,20 +197,20 @@ def test_full_control_removes_the_line_its_mark_and_the_sas(rpc):
 @pytest.mark.parametrize(
     ("policy", "drop", "composed"),
     [
-        ("Manage", (), True),
-        ("FullControl", (), True),
+        ("Merge", (), True),
+        ("Replace", (), True),
         # Observe writes nothing; without a PPK keyring there is nothing to write.
         (None, (), False),
-        ("FullControl", ("ppkKeyring",), False),
+        ("Replace", ("ppkKeyring",), False),
     ],
 )
 def test_the_rpc_is_composed_to_write_a_ppk_keyring(rpc, policy, drop, composed):
     assert (rpc(policy, drop=drop) is not None) is composed
 
 
-@pytest.mark.parametrize("previous", ["Manage", "FullControl"])
+@pytest.mark.parametrize("previous", ["Merge", "Replace"])
 def test_back_in_observe_the_rpc_stays_and_only_reads(render, rpc, previous):
-    # Dropped, an RPC composed in FullControl would be deleted with its REMOVE, and the
+    # Dropped, an RPC composed in Replace would be deleted with its REMOVE, and the
     # line and its mark taken off the router.
     xr = example(None)
     resources = first(render, xr)
@@ -227,7 +225,7 @@ def test_back_in_observe_the_rpc_stays_and_only_reads(render, rpc, previous):
 
 
 def test_the_rpc_waits_for_the_profile(render):
-    xr = example("FullControl")
+    xr = example("Replace")
     resources = first(render, xr)
     assert requests(resources) == ["ppk-mark", "profile"]
     before = [
@@ -237,8 +235,8 @@ def test_the_rpc_waits_for_the_profile(render):
     assert "ppk" not in render(KIND, xr, before, DEVICES).resources
 
 
-@pytest.mark.parametrize(("policy", "held"), [("Manage", False), ("FullControl", True)])
-def test_full_control_deletes_the_profile_only_after_the_line(render, policy, held):
+@pytest.mark.parametrize(("policy", "held"), [("Merge", False), ("Replace", True)])
+def test_replace_deletes_the_profile_only_after_the_line(render, policy, held):
     # The line's removal enters the profile, which would make it again once deleted.
     xr = example(policy)
     resources = first(render, xr)
@@ -265,8 +263,7 @@ def test_full_control_deletes_the_profile_only_after_the_line(render, policy, he
 )
 def test_the_rpc_checks_its_mark(rpc, mark, written):
     assert (
-        check(rpc("FullControl"), "expectedResponseCheck", recorded(KIND, mark))
-        is written
+        check(rpc("Replace"), "expectedResponseCheck", recorded(KIND, mark)) is written
     )
 
 
@@ -301,7 +298,7 @@ def test_a_thin_object_shows_the_router_in_the_shape_of_the_spec(
     [("ppk-mark-absent", None), ("ppk-mark-other", "OLD-KEYRING")],
 )
 def test_the_ppk_keyring_is_shown_from_its_mark_not_the_spec(render, mark, shown):
-    rendered = seen(render, example("FullControl"), mark=mark)
+    rendered = seen(render, example("Replace"), mark=mark)
     assert status(rendered)["observed"].get("ppkKeyring") == shown
 
 
@@ -318,7 +315,7 @@ def test_a_section_gone_from_the_router_is_not_ready(render):
     [
         # Not Ready until the mark is there, so what waits on it waits for the line.
         (
-            "FullControl",
+            "Replace",
             (),
             "profile-applied",
             "ppk-mark-absent",
@@ -326,9 +323,9 @@ def test_a_section_gone_from_the_router_is_not_ready(render):
             [],
             "False",
         ),
-        ("FullControl", (), "profile-applied", "ppk-mark-applied", [], [], "True"),
+        ("Replace", (), "profile-applied", "ppk-mark-applied", [], [], "True"),
         (
-            "Manage",
+            "Merge",
             (),
             "profile-applied",
             "ppk-mark-other",
@@ -342,9 +339,9 @@ def test_a_section_gone_from_the_router_is_not_ready(render):
             [],
             "False",
         ),
-        # A PPK keyring the spec leaves out: compared in FullControl alone.
+        # A PPK keyring the spec leaves out: compared in Replace alone.
         (
-            "Manage",
+            "Merge",
             ("ppkKeyring",),
             "profile-applied",
             "ppk-mark-applied",
@@ -353,7 +350,7 @@ def test_a_section_gone_from_the_router_is_not_ready(render):
             "True",
         ),
         (
-            "FullControl",
+            "Replace",
             ("ppkKeyring",),
             "profile-applied",
             "ppk-mark-applied",
@@ -362,9 +359,9 @@ def test_a_section_gone_from_the_router_is_not_ready(render):
             "False",
         ),
         # A line the spec cannot hold.
-        ("Manage", (), "profile-described", "ppk-mark-applied", [], [], "True"),
+        ("Merge", (), "profile-described", "ppk-mark-applied", [], [], "True"),
         (
-            "FullControl",
+            "Replace",
             (),
             "profile-described",
             "ppk-mark-applied",
@@ -373,7 +370,7 @@ def test_a_section_gone_from_the_router_is_not_ready(render):
             "False",
         ),
         (
-            "Manage",
+            "Merge",
             (),
             "profile-extra-address",
             "ppk-mark-applied",
@@ -409,7 +406,7 @@ def test_drift_and_extra_follow_the_mode(
 
 def test_a_write_that_succeeded_records_what_it_put_back(render):
     # The profile's write alone: no PPK keyring, so no RPC.
-    xr = example("Manage", ("ppkKeyring",))
+    xr = example("Merge", ("ppkKeyring",))
     resources = first(render, xr)
     mark = answered(resources["ppk-mark"], "ppk-mark-applied")
     before = render(
@@ -428,7 +425,7 @@ def test_a_write_that_succeeded_records_what_it_put_back(render):
 
 
 def test_a_write_that_failed_changes_nothing(render):
-    xr = example("Manage", ("ppkKeyring",))
+    xr = example("Merge", ("ppkKeyring",))
     resources = first(render, xr)
     mark = answered(resources["ppk-mark"], "ppk-mark-applied")
     before = render(

@@ -3,7 +3,7 @@ kind: Ikev2Profile
 metadata:
   name: r3--classical-profile--cdf1f733
 spec:
-  managementPolicy: FullControl
+  managementPolicy: Replace
   deviceRef:
     name: r3
   after:
