@@ -1,0 +1,27 @@
+# Scenario: part 9's tunnel as an overlay of static VTIs.
+#
+# The routers' GigabitEthernet2 in a front-door VRF WAN, and Tunnel0 in a VRF OVERLAY:
+# part 9's objects with three fields more. Both VRFs, GigabitEthernet2 in WAN and a route
+# in WAN to the other end are made by hand before the scenario: the package reads VRFs,
+# it does not make them.
+#
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone iosxe/scenarios/overlay \
+#     | kubectl apply -f -
+#
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone iosxe/scenarios/overlay \
+#     | kubectl delete -f -
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../part9
+
+patches:
+  - target: {kind: Ikev2Policy}
+    patch: '[{"op": "add", "path": "/spec/fvrf", "value": "WAN"}]'
+  - target: {kind: Ikev2Profile}
+    patch: '[{"op": "add", "path": "/spec/fvrf", "value": "WAN"}]'
+  - target: {kind: TunnelInterface}
+    patch: |-
+      [{"op": "add", "path": "/spec/fvrf", "value": "WAN"},
+       {"op": "add", "path": "/spec/vrf", "value": "OVERLAY"}]
