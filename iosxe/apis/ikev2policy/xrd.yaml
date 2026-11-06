@@ -96,6 +96,12 @@ spec:
                 items:
                   type: string
                   minLength: 1
+              fvrf:
+                type: string
+                description: >-
+                  The front-door VRF the policy matches, by name, or any; without
+                  it the policy matches the global table alone.
+                minLength: 1
             required:
             - deviceRef
             - name
@@ -113,6 +119,15 @@ spec:
                     type: array
                     items:
                       type: string
+                  fvrf:
+                    type: string
+              missingVrfs:
+                type: array
+                description: >-
+                  VRFs the spec names that the Device does not list; the policy
+                  is not applied until they are there.
+                items:
+                  type: string
               drift:
                 type: array
                 description: Fields whose values in the spec the router lacks.
@@ -134,7 +149,7 @@ spec:
                 description: >-
                   Values the router has beyond the spec, in the fields the spec
                   sets; in Replace, in every field, a field the spec cannot
-                  hold, such as match, given as JSON.
+                  hold, such as a match beyond fvrf, given as JSON.
                 items:
                   type: object
                   properties:

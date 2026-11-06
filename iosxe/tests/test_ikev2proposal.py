@@ -94,7 +94,7 @@ def test_the_mode_decides_what_the_request_may_do(render, policy, policies, writ
     ] == writes
 
 
-def test_manage_sends_the_patch_the_router_merged(render):
+def test_merge_sends_the_patch_the_router_merged(render):
     request = render(KIND, example("Merge"), required=DEVICES).resources["proposal"]
     for_provider = request["spec"]["forProvider"]
     sent = recorded(KIND, "proposal-patch")["request"]

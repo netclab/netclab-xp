@@ -101,7 +101,7 @@ def test_the_mode_decides_what_the_request_may_do(render, policy, policies, writ
         ({"keyBits": 128}, "transform-set-patch-key-bit-128"),
     ],
 )
-def test_manage_sends_the_patch_the_router_merged(render, spec, recording):
+def test_merge_sends_the_patch_the_router_merged(render, spec, recording):
     for_provider = request(render, example("Merge", **spec))["spec"]["forProvider"]
     sent = recorded(KIND, recording)["request"]
     assert json.loads(for_provider["payload"]["body"]) == sent["body"]

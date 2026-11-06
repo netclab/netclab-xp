@@ -11,6 +11,7 @@ from conftest import (
     DEVICES,
     IOSXE,
     check,
+    devices,
     in_namespace,
     observed,
     ready,
@@ -107,7 +108,7 @@ def test_the_mode_decides_what_the_request_may_do(render, policy, policies, writ
     ] == writes
 
 
-def test_manage_sends_the_patch_the_router_merged(render):
+def test_merge_sends_the_patch_the_router_merged(render):
     for_provider = request(render, example("Merge"))["spec"]["forProvider"]
     sent = recorded(KIND, "tunnel-patch")["request"]
     assert json.loads(for_provider["payload"]["body"]) == sent["body"]
@@ -132,6 +133,9 @@ def test_replace_puts_what_the_router_then_returns(render):
         ("tunnel-shutdown", True, False),
         # Merge's PATCH over a description made by hand, merged by the router.
         ("tunnel-patched", True, False),
+        # A VRF the spec leaves out: Merge leaves it, Replace takes it off.
+        ("tunnel-vrf-wan", True, False),
+        ("tunnel-forwarding-overlay", True, False),
         # A value of the spec the router lacks.
         ("tunnel-host-mask", False, False),
         ("tunnel-other-destination", False, False),
@@ -384,3 +388,91 @@ def test_state_never_holds_back_ready(render, rendered):
         for name, r in rendered[XR].items()
     ]
     assert ready(render(KIND, xr, before)) == "True"
+
+
+# Both VRFs of an overlay, and Devices that list them.
+VRFS = {"vrf": "OVERLAY", "fvrf": "WAN"}
+LISTED = devices(["OVERLAY", "WAN"])
+
+
+def tunnel(render, xr, required=LISTED):
+    return render(KIND, xr, required=required).resources["tunnel"]
+
+
+def test_merge_sends_the_vrfs_the_router_merged(render):
+    body = tunnel(render, example("Merge", **VRFS))["spec"]["forProvider"]["payload"]
+    sent = recorded(KIND, "tunnel-vrfs-patch")["request"]
+    assert json.loads(body["body"]) == sent["body"]
+
+
+def test_replace_puts_the_vrfs_the_router_then_returns(render):
+    body = tunnel(render, example("Replace", **VRFS))["spec"]["forProvider"]["payload"]
+    assert json.loads(body["body"]) == recorded(KIND, "tunnel-vrfs-patched")["body"]
+
+
+@pytest.mark.parametrize(
+    ("state", "expected"),
+    [
+        ("tunnel-vrfs-patched", True),
+        # One VRF of the two, or none.
+        ("tunnel-vrf-wan", False),
+        ("tunnel-forwarding-overlay", False),
+        ("tunnel-applied", False),
+    ],
+)
+def test_check_with_both_vrfs(render, state, expected):
+    for policy in ["Merge", "Replace"]:
+        req = tunnel(render, example(policy, **VRFS))
+        assert check(req, "expectedResponseCheck", recorded(KIND, state)) is expected
+
+
+@pytest.mark.parametrize(
+    ("policy", "spec", "state", "drift", "extra"),
+    [
+        (
+            "Merge",
+            VRFS,
+            "tunnel-applied",
+            [
+                {"field": "vrf", "device": [], "spec": ["OVERLAY"]},
+                {"field": "fvrf", "device": [], "spec": ["WAN"]},
+            ],
+            [],
+        ),
+        ("Merge", {}, "tunnel-vrfs-patched", [], []),
+        (
+            "Replace",
+            {},
+            "tunnel-vrfs-patched",
+            [],
+            [
+                {"field": "vrf", "device": ["OVERLAY"]},
+                {"field": "fvrf", "device": ["WAN"]},
+            ],
+        ),
+    ],
+)
+def test_the_vrfs_in_status(render, policy, spec, state, drift, extra):
+    xr = example(policy, **spec)
+    rendered = render(KIND, xr, [answered(tunnel(render, xr), state)], LISTED)
+    assert status(rendered)["drift"] == drift
+    assert status(rendered)["extra"] == extra
+
+
+def test_the_router_s_vrfs_are_observed(render):
+    xr = thin()
+    rendered = render(
+        KIND, xr, [answered(tunnel(render, xr), "tunnel-vrfs-patched")], LISTED
+    )
+    observed_ = status(rendered)["observed"]
+    assert (observed_["vrf"], observed_["fvrf"]) == ("OVERLAY", "WAN")
+
+
+@pytest.mark.parametrize(
+    ("listed", "missing"), [(["WAN"], ["OVERLAY"]), ([], ["OVERLAY", "WAN"])]
+)
+def test_a_vrf_the_device_does_not_list_holds_the_tunnel_back(render, listed, missing):
+    rendered = render(KIND, example("Replace", **VRFS), required=devices(listed))
+    assert requests(rendered.resources) == []
+    assert status(rendered)["missingVrfs"] == missing
+    assert ready(rendered) == "False"

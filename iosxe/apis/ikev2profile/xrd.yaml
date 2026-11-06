@@ -109,6 +109,12 @@ spec:
                 type: string
                 description: Name of the IKEv2 keyring on the router that holds the post-quantum preshared keys.
                 minLength: 1
+              fvrf:
+                type: string
+                description: >-
+                  The front-door VRF the profile matches, by name, or any; without
+                  it the profile matches the global table alone.
+                minLength: 1
             required:
             - deviceRef
             - name
@@ -133,6 +139,15 @@ spec:
                     type: string
                   ppkKeyring:
                     type: string
+                  fvrf:
+                    type: string
+              missingVrfs:
+                type: array
+                description: >-
+                  VRFs the spec names that the Device does not list; the profile
+                  is not applied until they are there.
+                items:
+                  type: string
               drift:
                 type: array
                 description: Fields whose values in the spec the router lacks.

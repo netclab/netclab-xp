@@ -264,6 +264,14 @@ DEVICES = [
 ]
 
 
+def devices(vrfs):
+    """The examples' Devices, Ready, listing these VRFs as read from the router."""
+    out = copy.deepcopy(DEVICES)
+    for d in out:
+        d["status"]["vrfs"] = list(vrfs)
+    return out
+
+
 def device_usage(resource_name):
     """The Usage of an XR's Device as composed before, Ready."""
     return observed(

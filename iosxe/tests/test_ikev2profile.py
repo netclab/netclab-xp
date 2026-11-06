@@ -9,6 +9,7 @@ from conftest import (
     DEVICES,
     IOSXE,
     check,
+    devices,
     in_namespace,
     observed,
     ready,
@@ -23,7 +24,7 @@ XR = "r1--classical-profile--cdf1f733"
 answered = partial(_answered, KIND)
 
 
-def example(policy=None, drop=()):
+def example(policy=None, drop=(), fvrf=None):
     xr = in_namespace(IOSXE / "examples" / KIND / "r1.yaml")
     # No `after`: the requests are composed at once.
     del xr["spec"]["after"]
@@ -33,7 +34,13 @@ def example(policy=None, drop=()):
         del xr["spec"]["managementPolicy"]
     for field in drop:
         del xr["spec"][field]
+    if fvrf:
+        xr["spec"]["fvrf"] = fvrf
     return xr
+
+
+# The Devices, listing the VRF the examples with an fVRF name.
+WAN = devices(["WAN"])
 
 
 def thin(name="CLASSICAL-PROFILE", xr_name=XR):
@@ -103,7 +110,7 @@ def test_the_mode_decides_what_the_request_may_do(render, policy, policies, writ
     ] == writes
 
 
-def test_manage_sends_the_patch_the_router_merged(render):
+def test_merge_sends_the_patch_the_router_merged(render):
     for_provider = first(render, example("Merge"))["profile"]["spec"]["forProvider"]
     sent = recorded(KIND, "profile-patch")["request"]
     assert json.loads(for_provider["payload"]["body"]) == sent["body"]
@@ -439,3 +446,91 @@ def test_a_write_that_failed_changes_nothing(render):
     rendered = render(KIND, xr, [after, mark], DEVICES)
     assert status(rendered) == xr["status"]
     assert ready(rendered) == "False"
+
+
+def with_fvrf(policy, fvrf="WAN"):
+    """The example with an fVRF and no PPK keyring, whose RPC these tests leave aside."""
+    return example(policy, ("ppkKeyring",), fvrf)
+
+
+def test_merge_sends_the_fvrf_the_router_merged(render):
+    body = render(KIND, with_fvrf("Merge"), required=WAN).resources["profile"]["spec"][
+        "forProvider"
+    ]["payload"]["body"]
+    assert json.loads(body) == recorded(KIND, "profile-fvrf-patch")["request"]["body"]
+
+
+@pytest.mark.parametrize(
+    ("fvrf", "state"), [("WAN", "profile-fvrf-wan"), ("any", "profile-fvrf-any")]
+)
+def test_replace_puts_the_fvrf_the_router_then_returns(render, fvrf, state):
+    body = render(KIND, with_fvrf("Replace", fvrf), required=WAN).resources["profile"][
+        "spec"
+    ]["forProvider"]["payload"]["body"]
+    assert json.loads(body) == recorded(KIND, state)["body"]
+
+
+@pytest.mark.parametrize(
+    ("state", "merge", "replace"),
+    [
+        ("profile-fvrf-wan", True, True),
+        ("profile-fvrf-patched", True, True),
+        # Another fVRF, or none.
+        ("profile-fvrf-any", False, False),
+        ("profile-applied", False, False),
+    ],
+)
+def test_check_with_an_fvrf(render, state, merge, replace):
+    for policy, expected in [("Merge", merge), ("Replace", replace)]:
+        request = render(KIND, with_fvrf(policy), required=WAN).resources["profile"]
+        assert (
+            check(request, "expectedResponseCheck", recorded(KIND, state)) is expected
+        )
+
+
+@pytest.mark.parametrize(
+    ("xr", "state", "observed", "drift", "extra"),
+    [
+        (with_fvrf("Merge"), "profile-fvrf-wan", "WAN", [], []),
+        (
+            with_fvrf("Merge"),
+            "profile-fvrf-any",
+            "any",
+            [{"field": "fvrf", "device": ["any"], "spec": ["WAN"]}],
+            [],
+        ),
+        # A front-door VRF the spec leaves out: compared in Replace alone.
+        (example("Merge", ("ppkKeyring",)), "profile-fvrf-wan", "WAN", [], []),
+        (
+            example("Replace", ("ppkKeyring",)),
+            "profile-fvrf-wan",
+            "WAN",
+            [],
+            [{"field": "fvrf", "device": ["WAN"]}],
+        ),
+    ],
+)
+def test_the_fvrf_in_status(render, xr, state, observed, drift, extra):
+    resources = render(KIND, xr, required=WAN).resources
+    before = [
+        answered(resources["profile"], state),
+        answered(resources["ppk-mark"], "ppk-mark-absent"),
+    ]
+    rendered = render(KIND, xr, before, WAN)
+    assert status(rendered)["observed"].get("fvrf") == observed
+    assert status(rendered)["drift"] == drift
+    assert status(rendered)["extra"] == extra
+
+
+def test_a_vrf_the_device_does_not_list_holds_the_profile_back(render):
+    xr = with_fvrf("Replace")
+    rendered = render(KIND, xr, required=devices(["OTHER"]))
+    assert requests(rendered.resources) == []
+    assert status(rendered)["missingVrfs"] == ["WAN"]
+    assert ready(rendered) == "False"
+    assert requests(render(KIND, xr, required=WAN).resources) == ["ppk-mark", "profile"]
+
+
+def test_any_is_no_vrf_to_wait_on(render):
+    rendered = render(KIND, with_fvrf("Replace", "any"), required=devices([]))
+    assert requests(rendered.resources) == ["ppk-mark", "profile"]

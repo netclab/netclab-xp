@@ -275,7 +275,7 @@ def test_the_mode_decides_what_the_request_may_do(render, policy, policies, writ
     ] == writes
 
 
-def test_manage_sends_the_patch_the_router_merged_without_keys(render):
+def test_merge_sends_the_patch_the_router_merged_without_keys(render):
     for_provider = first(render, example("Merge"))["keyring"]["spec"]["forProvider"]
     sent = recorded(KIND, "keyring-patch")["request"]
     assert json.loads(for_provider["payload"]["body"]) == sent["body"]

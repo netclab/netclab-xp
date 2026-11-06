@@ -1,0 +1,54 @@
+{
+  "request": {
+    "method": "PATCH",
+    "url": "https://172.18.0.101/restconf/data/Cisco-IOS-XE-native:native",
+    "body": {
+      "Cisco-IOS-XE-native:native": {
+        "interface": {
+          "Tunnel": [
+            {
+              "name": 0,
+              "ip": {
+                "address": {
+                  "primary": {
+                    "address": "192.168.100.1",
+                    "mask": "255.255.255.0"
+                  }
+                }
+              },
+              "Cisco-IOS-XE-tunnel:tunnel": {
+                "source": "GigabitEthernet2",
+                "destination-config": {
+                  "ipv4": "10.0.23.2"
+                },
+                "mode": {
+                  "ipsec": {
+                    "ipv4-mode": {},
+                    "ipv4": {}
+                  }
+                },
+                "protection": {
+                  "Cisco-IOS-XE-crypto:ipsec": {
+                    "profile-option": {
+                      "name": "CLASSICAL-IPSEC"
+                    }
+                  }
+                },
+                "vrf-config": {
+                  "vrf-common": {
+                    "vrf": "WAN"
+                  }
+                }
+              },
+              "vrf": {
+                "forwarding": "OVERLAY"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "statusCode": 204,
+  "body": ""
+}

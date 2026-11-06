@@ -70,6 +70,10 @@ until_() { # until_ <what> <command>...: until the command succeeds, for at most
   done
 }
 
+vrf() { # vrf <name>: a `vrf definition` with IPv4, as an fVRF and `vrf forwarding` need
+  write PUT "$NATIVE/vrf/definition=$1" "{\"Cisco-IOS-XE-native:definition\": [{\"name\": \"$1\", \"address-family\": {\"ipv4\": {}}}]}"
+}
+
 onpeer() { # onpeer <command>...: the command's writes and waits on PEER
   local BASE=https://$PEER/restconf
   "$@"
@@ -115,12 +119,20 @@ rpc() { # rpc <kind>/<state> <lines>: config-ios-cli-rpc, sent and recorded with
   jq -e '.body["Cisco-IOS-XE-cli-rpc:output"].result == "RPC request successful"' "$FIXTURES/$1.json" > /dev/null
 }
 
-device() { # the names the Device reads, before and with part 9's sections and LEGACY_PROPOSAL
+device() { # the names the Device reads, before and with part 9's sections and LEGACY_PROPOSAL,
+  # and the VRFs, before and with one of each syntax
   local config="$NATIVE/crypto?fields=Cisco-IOS-XE-crypto:ikev2(proposal/name;policy/name;keyring/name;profile/name);Cisco-IOS-XE-crypto:ipsec(transform-set/tag;profile/name)"
   local tunnels="$NATIVE/interface?fields=Tunnel/name"
+  local vrfs="$NATIVE?fields=vrf/definition(name);ip/vrf(name)"
   local crypto=$NATIVE/crypto/Cisco-IOS-XE-crypto
   record device/config-absent "$config"
   record device/tunnels-absent "$tunnels"
+  record device/vrfs-absent "$vrfs"
+  vrf WAN
+  write PUT "$NATIVE/ip/vrf=LEGACY-VRF" '{"Cisco-IOS-XE-native:vrf": [{"name": "LEGACY-VRF"}]}'
+  record device/vrfs-two "$vrfs"
+  write DELETE "$NATIVE/ip/vrf=LEGACY-VRF"
+  write DELETE "$NATIVE/vrf/definition=WAN"
   write PUT "$crypto:ikev2/proposal=CLASSICAL-PROPOSAL" '{"Cisco-IOS-XE-crypto:proposal": [{"name": "CLASSICAL-PROPOSAL",
     "encryption": {"aes-cbc-256": [null]}, "integrity": {"sha512": [null]}, "group": {"twenty": [null]}}]}'
   write PUT "$crypto:ikev2/proposal=LEGACY_PROPOSAL" '{"Cisco-IOS-XE-crypto:proposal": [{"name": "LEGACY_PROPOSAL",
@@ -201,6 +213,18 @@ ikev2policy() { # iosxe/examples/ikev2policy/r1.yaml, on the proposal of iosxe/e
   record ikev2policy/policy-other-proposal "$url"
   put '.match = {"fvrf": {"any": [null]}}'
   record ikev2policy/policy-with-match "$url"
+  # The router refuses a VRF's name in place of `any`, by PUT or PATCH: through no `match`.
+  put .
+  vrf WAN
+  put '.match = {"fvrf": {"name": "WAN"}}'
+  record ikev2policy/policy-fvrf-wan "$url"
+  put '.match = {"fvrf": {"name": "WAN"}, "address": {"local-ip": ["10.0.12.1"]}}'
+  record ikev2policy/policy-fvrf-and-address "$url"
+  # Merge's write of fvrf WAN over a policy with no `match`
+  put .
+  patch ikev2policy/policy-fvrf-patch \
+    "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {policy: [$p | .match = {"fvrf": {"name": "WAN"}}]}}}}')"
+  record ikev2policy/policy-fvrf-patched "$url"
   # Merge's write over `default` alone: a merge keeps it beside the example's proposal
   put '.proposal = [{"proposals": "default"}]'
   patch ikev2policy/policy-patch \
@@ -209,6 +233,7 @@ ikev2policy() { # iosxe/examples/ikev2policy/r1.yaml, on the proposal of iosxe/e
 
   write DELETE "$url"
   write DELETE "$proposal"
+  write DELETE "$NATIVE/vrf/definition=WAN"
 }
 
 ikev2keyring() { # iosxe/examples/ikev2keyring/r1.yaml
@@ -314,6 +339,17 @@ event manager environment $var \"$(sha8 CLASSICAL-KEYRING) $place CLASSICAL-KEYR
   record ikev2profile/profile-other-address "$url"
   put '.match.identity.remote.address.ipv4 += [{"ipv4-address": "10.0.12.2", "ipv4-mask": "255.255.255.255"}]'
   record ikev2profile/profile-extra-address "$url"
+  vrf WAN
+  put '.match.fvrf = {"name": "WAN"}'
+  record ikev2profile/profile-fvrf-wan "$url"
+  # `any` in place of a VRF's name, which the router takes for a policy by PUT
+  put '.match.fvrf = {"any": [null]}'
+  record ikev2profile/profile-fvrf-any "$url"
+  # Merge's write of fvrf WAN over a profile with no fvrf
+  put .
+  patch ikev2profile/profile-fvrf-patch \
+    "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {profile: [$p | .match.fvrf = {"name": "WAN"}]}}}}')"
+  record ikev2profile/profile-fvrf-patched "$url"
   # Merge's write over another address and a description made by hand: a merge adds
   # the spec's address and keeps both
   put '.match.identity.remote.address.ipv4 = [{"ipv4-address": "10.0.12.9", "ipv4-mask": "255.255.255.255"}]
@@ -324,6 +360,7 @@ event manager environment $var \"$(sha8 CLASSICAL-KEYRING) $place CLASSICAL-KEYR
 
   write DELETE "$url"
   write DELETE "$keyring"
+  write DELETE "$NATIVE/vrf/definition=WAN"
 }
 
 ipsectransformset() { # iosxe/examples/ipsectransformset/r1.yaml
@@ -438,6 +475,10 @@ tunnelinterface() { # iosxe/examples/tunnelinterface/r1.yaml, on part 9's IPsec 
       '[.["Cisco-IOS-XE-crypto-oper:crypto-ikev2-sa"][]?["sa-data"] | select(.["remote-ip-addr"] == "10.0.23.2")
         | .["sa-status"]] | index($s) != null' > /dev/null
   }
+  sa_gone() { # no SA to 10.0.23.2, as a tunnel deleted before can leave one pending a while
+    curl_ "$sa" | jq -e '[.["Cisco-IOS-XE-crypto-oper:crypto-ikev2-sa"][]?["sa-data"]
+      | select(.["remote-ip-addr"] == "10.0.23.2")] | length == 0' > /dev/null 2>&1 || [ -z "$(curl_ "$sa")" ]
+  }
   oper_is() { # oper_is <state>: Tunnel0's oper-status
     curl_ "$oper" | jq -e --arg s "if-oper-state-$1" '.["Cisco-IOS-XE-interfaces-oper:oper-status"] == $s' > /dev/null
   }
@@ -446,6 +487,7 @@ tunnelinterface() { # iosxe/examples/tunnelinterface/r1.yaml, on part 9's IPsec 
   absent "$url"
   record tunnelinterface/tunnel-absent "$url"
   record tunnelinterface/oper-absent "$oper"
+  until_ "without an SA" sa_gone
   record tunnelinterface/sa-none "$sa"
 
   stack "$NATIVE" R3 10.0.23.2
@@ -479,6 +521,18 @@ tunnelinterface() { # iosxe/examples/tunnelinterface/r1.yaml, on part 9's IPsec 
   record tunnelinterface/tunnel-no-protection "$url"
   put '.shutdown = [null]'
   record tunnelinterface/tunnel-shutdown "$url"
+  vrf WAN
+  vrf OVERLAY
+  put '.["Cisco-IOS-XE-tunnel:tunnel"]["vrf-config"] = {"vrf-common": {"vrf": "WAN"}}'
+  record tunnelinterface/tunnel-vrf-wan "$url"
+  put '.vrf = {"forwarding": "OVERLAY"}'
+  record tunnelinterface/tunnel-forwarding-overlay "$url"
+  # Merge's write of both VRFs over a tunnel in neither
+  put .
+  patch tunnelinterface/tunnel-vrfs-patch \
+    "$(jq -nc --argjson t "$example" '{"Cisco-IOS-XE-native:native": {interface: {Tunnel: [$t
+      | .vrf = {"forwarding": "OVERLAY"} | .["Cisco-IOS-XE-tunnel:tunnel"]["vrf-config"] = {"vrf-common": {"vrf": "WAN"}}]}}}')"
+  record tunnelinterface/tunnel-vrfs-patched "$url"
   # Merge's write over another destination and mask, and a description made by hand:
   # a merge puts back the spec's and keeps the description
   put '.ip.address.primary.mask = "255.255.255.255" | .description = "made by hand"
@@ -489,6 +543,8 @@ tunnelinterface() { # iosxe/examples/tunnelinterface/r1.yaml, on part 9's IPsec 
 
   write DELETE "$url"
   unstack "$NATIVE"
+  write DELETE "$NATIVE/vrf/definition=OVERLAY"
+  write DELETE "$NATIVE/vrf/definition=WAN"
 }
 
 mkdir -p "$FIXTURES"

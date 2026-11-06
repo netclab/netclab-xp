@@ -11,8 +11,12 @@ spec:
   # One Request owns the policy over RESTCONF. The router refuses a policy
   # naming a proposal that is missing or incomplete, and a proposal's delete
   # while a policy names it, so the order of the two is the router's. With no
-  # `match` the policy matches everything; the spec has none, so a `match` on
-  # the router is beyond the spec, and Replace takes it off.
+  # `match` the policy matches the global table alone; `fvrf` matches a
+  # front-door VRF by name, or any. The rest of a `match` is beyond the spec, and
+  # Replace takes it off. The router refuses a VRF's name in place of `any` by
+  # PUT and PATCH, and `any` in place of a name by PATCH: such a change goes
+  # through no `fvrf`. A VRF the Device does not list holds the Requests back,
+  # as `after` does, and `status.missingVrfs` names it.
   # Observe only reads; Merge PATCHes the proposals of the spec;
   # Replace PUTs the policy and DELETEs it with the object. The status is the
   # last GET in the shape of the spec; Ready means the mode's write would change
@@ -104,13 +108,21 @@ spec:
           {{- end }}{{ end }}
           {{- if not $ready }}{{ $waiting = true }}{{ end }}
           {{- end }}
-          {{- $hold := and $waiting (not (hasKey $observed "policy")) }}
           {{- $mine := sortAlpha (default list $xr.spec.proposals) }}
+          {{- $fvrf := $xr.spec.fvrf | default "" }}
+          {{- $match := dict }}
+          {{- if eq $fvrf "any" }}{{ $_ := set $match "fvrf" (dict "any" (list nil)) }}{{ else if $fvrf }}{{ $_ := set $match "fvrf" (dict "name" $fvrf) }}{{ end }}
+
+          {{- /* ---- the VRFs it names that the Device does not list ---- */}}
+          {{- $dev := dict }}
+          {{- with index $extra "device" }}{{ with .items }}{{ $dev = (index . 0).resource }}{{ end }}{{ end }}
+          {{- $missingVrfs := list }}
+          {{- if and $dev $fvrf (ne $fvrf "any") (not (has $fvrf (dig "status" "vrfs" list $dev))) }}{{ $missingVrfs = list $fvrf }}{{ end }}
+          {{- /* until it is composed; then the Requests stay, as with `after` */}}
+          {{- $hold := and (or $waiting $missingVrfs) (not (hasKey $observed "policy")) }}
 
           {{- /* ---- its Requests, once nothing holds them back ---- */}}
-          {{- if not $hold }}
-          {{- with .extraResources }}{{ with index . "device" }}{{ with .items }}
-          {{- $dev := (index . 0).resource }}
+          {{- if and (not $hold) $dev }}
           {{- $cred := $dev.spec.credentialsSecretRef }}
           {{- $auth := printf "{{ %s:%s:%s }}" $cred.name $ns $cred.key }}
           {{- $native := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native" $dev.spec.address }}
@@ -118,6 +130,7 @@ spec:
           {{- $proposals := list }}
           {{- range $mine }}{{ $proposals = append $proposals (dict "proposals" .) }}{{ end }}
           {{- $body := dict "name" $xr.spec.name "proposal" $proposals }}
+          {{- if $match }}{{ $_ := set $body "match" $match }}{{ end }}
           {{- $put := dict "Cisco-IOS-XE-crypto:policy" (list $body) }}
           {{- /* a merge on native, which exists, creates the policy if it does not */}}
           {{- $patch := dict "Cisco-IOS-XE-native:native" (dict "crypto" (dict "Cisco-IOS-XE-crypto:ikev2" (dict "policy" (list $body)))) }}
@@ -177,12 +190,12 @@ spec:
                     .response.body["Cisco-IOS-XE-crypto:policy"][0] as $p
                     | ([$p.proposal[]?.proposals] | sort) as $router
                   {{- if eq $policy "Replace" }}
-                    | $router == {{ $mine | toJson }} and ($p | del(.name, .proposal)) == {}
+                    | $router == {{ $mine | toJson }} and ($p | del(.name, .proposal)) == {{ ternary (dict "match" $match) dict (gt (len $match) 0) | toJson }}
                   {{- else }}
                     | {{ $mine | toJson }} - $router == []
+                    {{- if $match }} and $p.match.fvrf == {{ $match.fvrf | toJson }}{{ end }}
                   {{- end }}
                   end
-          {{- end }}{{ end }}{{ end }}
           {{- end }}
 
           {{- /* ---- the status: the last GET in the shape of the spec, and Ready ---- */}}
@@ -207,12 +220,27 @@ spec:
                 {{- $beyond := list }}{{ range $theirs }}{{ if not (has . $mine) }}{{ $beyond = append $beyond . }}{{ end }}{{ end }}
                 {{- if $beyond }}{{ $more = append $more (dict "field" "proposals" "device" $beyond) }}{{ end }}
               {{- end }}
+              {{- /* the front-door VRF on the router: a name, `any`, or none */}}
+              {{- $theirMatch := deepCopy (get $p "match" | default dict) }}
+              {{- $their := "" }}
+              {{- with get $theirMatch "fvrf" }}{{ if hasKey . "any" }}{{ $their = "any" }}{{ else }}{{ $their = get . "name" | default "" }}{{ end }}{{ end }}
+              {{- $_ := unset $theirMatch "fvrf" }}
+              {{- $theirVrf := ternary (list $their) list (ne $their "") }}
+              {{- if $fvrf }}
+                {{- if ne $their $fvrf }}{{ $drift = append $drift (dict "field" "fvrf" "device" $theirVrf "spec" (list $fvrf)) }}{{ end }}
+              {{- else if and (eq $policy "Replace") $their }}
+                {{- $more = append $more (dict "field" "fvrf" "device" $theirVrf) }}
+              {{- end }}
               {{- if eq $policy "Replace" }}
+                {{- if $theirMatch }}{{ $more = append $more (dict "field" "match" "device" (list (toJson $theirMatch))) }}{{ end }}
                 {{- range $k, $v := $p }}
-                  {{- if not (has $k (list "name" "proposal")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}
+                  {{- if not (has $k (list "name" "proposal" "match")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}
                 {{- end }}
               {{- end }}
-              {{- $_ := set $status "observed" (ternary (dict "proposals" $theirs) dict (gt (len $theirs) 0)) }}
+              {{- $seen := dict }}
+              {{- if $theirs }}{{ $_ := set $seen "proposals" $theirs }}{{ end }}
+              {{- if $their }}{{ $_ := set $seen "fvrf" $their }}{{ end }}
+              {{- $_ := set $status "observed" $seen }}
               {{- $_ := set $status "drift" $drift }}
               {{- $_ := set $status "extra" $more }}
               {{- $present = true }}
@@ -235,6 +263,7 @@ spec:
           {{- end }}
           {{- end }}
           {{- end }}
+          {{- if $missingVrfs }}{{ $_ := set $status "missingVrfs" $missingVrfs }}{{ end }}
           {{- $ready := and $present (not $status.drift) (or (ne $policy "Replace") (not $status.extra)) }}
           ---
           apiVersion: {{ $xr.apiVersion }}

@@ -1,0 +1,51 @@
+{
+  "request": {
+    "method": "PATCH",
+    "url": "https://172.18.0.101/restconf/data/Cisco-IOS-XE-native:native",
+    "body": {
+      "Cisco-IOS-XE-native:native": {
+        "crypto": {
+          "Cisco-IOS-XE-crypto:ikev2": {
+            "profile": [
+              {
+                "name": "CLASSICAL-PROFILE",
+                "authentication": {
+                  "local": {
+                    "pre-share": {}
+                  },
+                  "remote": {
+                    "pre-share": {}
+                  }
+                },
+                "keyring": {
+                  "local": {
+                    "name": "CLASSICAL-KEYRING"
+                  }
+                },
+                "match": {
+                  "identity": {
+                    "remote": {
+                      "address": {
+                        "ipv4": [
+                          {
+                            "ipv4-address": "10.0.23.2",
+                            "ipv4-mask": "255.255.255.255"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "fvrf": {
+                    "name": "WAN"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "statusCode": 204,
+  "body": ""
+}

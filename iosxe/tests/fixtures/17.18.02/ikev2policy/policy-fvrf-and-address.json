@@ -1,0 +1,25 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-crypto:policy": [
+      {
+        "name": "CLASSICAL-POLICY",
+        "match": {
+          "address": {
+            "local-ip": [
+              "10.0.12.1"
+            ]
+          },
+          "fvrf": {
+            "name": "WAN"
+          }
+        },
+        "proposal": [
+          {
+            "proposals": "CLASSICAL-PROPOSAL"
+          }
+        ]
+      }
+    ]
+  }
+}

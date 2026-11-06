@@ -81,3 +81,10 @@ spec:
                     exists:
                       type: boolean
                       description: Whether an object of that name for this Device is in the namespace.
+              vrfs:
+                type: array
+                description: >-
+                  The names of the router's VRFs, of vrf definition and ip vrf, as
+                  of the last poll.
+                items:
+                  type: string

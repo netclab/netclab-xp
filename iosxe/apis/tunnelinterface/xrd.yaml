@@ -131,6 +131,18 @@ spec:
                 type: string
                 description: Name of the IPsec profile on the router that protects the tunnel.
                 minLength: 1
+              vrf:
+                type: string
+                description: >-
+                  The VRF of the tunnel interface, vrf forwarding: the table its
+                  address and the traffic it carries are in.
+                minLength: 1
+              fvrf:
+                type: string
+                description: >-
+                  The front-door VRF, tunnel vrf: the table the tunnel's source and
+                  destination are in.
+                minLength: 1
             required:
             - deviceRef
             - name
@@ -156,6 +168,17 @@ spec:
                     type: string
                   ipsecProfile:
                     type: string
+                  vrf:
+                    type: string
+                  fvrf:
+                    type: string
+              missingVrfs:
+                type: array
+                description: >-
+                  VRFs the spec names that the Device does not list; the tunnel
+                  interface is not applied until they are there.
+                items:
+                  type: string
               drift:
                 type: array
                 description: Fields whose values in the spec the router lacks.

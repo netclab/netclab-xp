@@ -11,10 +11,12 @@ spec:
   # A Device configures nothing. Its first Request reads the hostname, so the
   # Device is Ready only when the router answers with these credentials. Two
   # more read the names of the router's sections of the package's kinds, the
-  # crypto ones in one GET and the tunnels in another; each is Ready once its GET
-  # has answered, so a Ready Device has read every section. The status lists each
-  # section with the name its object must have, and whether an object of that name
-  # for this Device is in the namespace, once both reads have answered.
+  # crypto ones in one GET and the tunnels in another, and a third the names of
+  # its VRFs, of `vrf definition` and `ip vrf`; each is Ready once its GET has
+  # answered, so a Ready Device has read them all. The status lists each section
+  # with the name its object must have, and whether an object of that name for
+  # this Device is in the namespace, once both reads of the sections have
+  # answered; and the VRFs, which an object naming one waits on.
   - step: requests
     functionRef:
       name: crossplane-contrib-function-go-templating
@@ -36,12 +38,12 @@ spec:
           {{- /* ---- whether each read has answered ---- */}}
           {{- /* whether each read has answered; a 204 is a router with no such section */}}
           {{- $answered := dict }}
-          {{- range $name := list "config" "tunnels" }}
+          {{- range $name := list "config" "tunnels" "vrfs" }}
             {{- $code := int (dig $name "resource" "status" "response" "statusCode" 0 $observed) }}
             {{- $_ := set $answered $name (or (eq $code 200) (eq $code 204)) }}
           {{- end }}
 
-          {{- /* ---- what it requires, and the three Requests it reads the router with ---- */}}
+          {{- /* ---- what it requires, and the four Requests it reads the router with ---- */}}
           ---
           apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
           kind: ExtraResources
@@ -56,7 +58,8 @@ spec:
           {{- range $name, $url := dict
                 "hostname" (printf "%s/hostname" $native)
                 "config" (printf "%s/crypto?fields=Cisco-IOS-XE-crypto:ikev2(proposal/name;policy/name;keyring/name;profile/name);Cisco-IOS-XE-crypto:ipsec(transform-set/tag;profile/name)" $native)
-                "tunnels" (printf "%s/interface?fields=Tunnel/name" $native) }}
+                "tunnels" (printf "%s/interface?fields=Tunnel/name" $native)
+                "vrfs" (printf "%s?fields=vrf/definition(name);ip/vrf(name)" $native) }}
           ---
           apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
@@ -119,7 +122,20 @@ spec:
           {{- end }}
           {{- end }}{{ end }}{{ end }}
 
-          {{- /* ---- the status: each section with the name of its object ---- */}}
+          {{- /* ---- the router's VRFs ---- */}}
+          {{- /* the names of both syntaxes, as the last read found them; a 204 is none */}}
+          {{- $vrfs := list }}
+          {{- with index $observed "vrfs" }}{{ with .resource.status }}{{ with .response }}
+          {{- if eq (int (.statusCode | default 0)) 200 }}
+            {{- $n := get (fromYaml .body) "Cisco-IOS-XE-native:native" | default dict }}
+            {{- range (dig "vrf" "definition" list $n) }}{{ $vrfs = append $vrfs .name }}{{ end }}
+            {{- range (dig "ip" "vrf" list $n) }}{{ $vrfs = append $vrfs .name }}{{ end }}
+          {{- end }}
+          {{- end }}{{ end }}{{ end }}
+
+          {{- /* ---- the status: each section with the name of its object, and the VRFs ---- */}}
+          {{- $status := dict }}
+          {{- if get $answered "vrfs" }}{{ $_ := set $status "vrfs" ($vrfs | uniq | sortAlpha) }}{{ end }}
           {{- if and (get $answered "config") (get $answered "tunnels") }}
           {{- $config := list }}
           {{- range $kind := $kinds }}
@@ -131,11 +147,13 @@ spec:
               {{- $config = append $config (dict "kind" $kind "name" . "xr" $want "exists" (has $want (get $have $kind))) }}
             {{- end }}
           {{- end }}
+          {{- $_ := set $status "config" $config }}
+          {{- end }}
+          {{- if $status }}
           ---
           apiVersion: {{ $xr.apiVersion }}
           kind: {{ $xr.kind }}
-          status:
-            config: {{ $config | toJson }}
+          status: {{ $status | toJson }}
           {{- end }}
 
   - step: auto-ready
