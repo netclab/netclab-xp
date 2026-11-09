@@ -137,10 +137,14 @@ spec:
           {{- $var := printf "netclab-%s" (sha256sum $place | trunc 8) }}
           {{- $mark := "" }}
           {{- if $ppk }}{{ $mark = sha256sum (ternary (printf "%s/%s" $ppk $rewrite) $ppk (ne $rewrite "")) | trunc 8 }}{{ end }}
-          {{- /* the mark on the router, as the read last found it */}}
+          {{- /* the mark on the router, as the read last found it: after a 404 provider-http
+            keeps the last 200 and sets Synced to False, so only a Synced read counts */}}
           {{- $found := list }}
-          {{- with index $observed "ppk-mark" }}{{ with .resource.status }}{{ with .response }}
-          {{- if eq (int (.statusCode | default 0)) 200 }}
+          {{- with index $observed "ppk-mark" }}{{ with .resource.status }}
+          {{- $synced := false }}
+          {{- range .conditions }}{{ if and (eq .type "Synced") (eq .status "True") }}{{ $synced = true }}{{ end }}{{ end }}
+          {{- with .response }}
+          {{- if and $synced (eq (int (.statusCode | default 0)) 200) }}
           {{- $found = splitList " " (index (index (fromYaml .body) "Cisco-IOS-XE-eem:environment") 0 "value") }}
           {{- end }}
           {{- end }}{{ end }}{{ end }}

@@ -58,13 +58,14 @@ def first(render, xr):
     return render(KIND, xr, required=DEVICES).resources
 
 
-def seen(render, xr, profile="profile-applied", mark="ppk-mark-absent"):
-    """The XR rendered with the profile's GET in `profile` and the mark's in `mark`, and
-    the RPC, where it composes one, answered with the same mark."""
+def seen(render, xr, profile="profile-applied", mark="ppk-mark-absent", synced=True):
+    """The XR rendered with the profile's GET in `profile` and the mark's in `mark`, the
+    mark's Request `synced` or not, and the RPC, where it composes one, answered with the
+    same mark."""
     resources = first(render, xr)
     before = [
         answered(resources["profile"], profile),
-        answered(resources["ppk-mark"], mark),
+        answered(resources["ppk-mark"], mark, synced=synced),
     ]
     rendered = render(KIND, xr, before, DEVICES)
     if "ppk" not in rendered.resources:
@@ -307,6 +308,25 @@ def test_a_thin_object_shows_the_router_in_the_shape_of_the_spec(
 def test_the_ppk_keyring_is_shown_from_its_mark_not_the_spec(render, mark, shown):
     rendered = seen(render, example("Replace"), mark=mark)
     assert status(rendered)["observed"].get("ppkKeyring") == shown
+
+
+@pytest.mark.parametrize(
+    ("synced", "extra", "is_ready"),
+    [
+        (True, [{"field": "ppkKeyring", "device": ["CLASSICAL-KEYRING"]}], "False"),
+        # The mark taken off: its GET answered 404, the body is still the last 200's.
+        (False, [], "True"),
+    ],
+)
+def test_a_mark_read_before_a_404_is_not_read_again(render, synced, extra, is_ready):
+    rendered = seen(
+        render,
+        example("Replace", ("ppkKeyring",)),
+        mark="ppk-mark-applied",
+        synced=synced,
+    )
+    assert status(rendered)["extra"] == extra
+    assert ready(rendered) == is_ready
 
 
 def test_a_section_gone_from_the_router_is_not_ready(render):

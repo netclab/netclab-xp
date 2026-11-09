@@ -321,11 +321,22 @@ def recorded(kind, state):
     return json.loads((FIXTURES / kind / f"{state}.json").read_text())
 
 
-def answered(kind, request, state, method="GET", status=None):
+def answered(kind, request, state, method="GET", status=None, synced=True):
     """The Request as provider-http leaves it after `method`: the router's answer the one
     recorded for `kind` in `state`; after a write answered with `status`, the body is still
-    that GET's, which provider-http keeps until the next GET."""
+    that GET's, which provider-http keeps until the next GET. Not `synced`: a later GET of
+    an Observe Request answered 404, and the body is still the last 200's."""
     out = observed(request, True)
+    out["status"]["conditions"].append(
+        {"type": "Synced", "status": "True", "reason": "ReconcileSuccess"}
+        if synced
+        else {
+            "type": "Synced",
+            "status": "False",
+            "reason": "ReconcileError",
+            "message": "observe failed: external resource does not exist",
+        }
+    )
     response = recorded(kind, state)
     body = response["body"]
     out["status"]["requestDetails"] = {"method": method}
