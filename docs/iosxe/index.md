@@ -8,12 +8,15 @@ in [Part 9](part9.md):
 
 ```console
 $ kubectl get tunnelinterface -n lab
-<from the run>
+NAME                    DEVICE   INTERFACE   TUNNEL-MODE   ADDRESS            MODE      OPER    IKE-SA   WANTS-NAME   SYNCED   READY   COMPOSITION                          AGE
+r1--tunnel0--d311cfe5   r1       Tunnel0     ipsec-ipv4    192.168.100.1/24   Replace   ready   1/1                   True     True    tunnelinterfaces.iosxe.netclab.dev   5m54s
+r3--tunnel0--d311cfe5   r3       Tunnel0     ipsec-ipv4    192.168.100.2/24   Replace   ready   1/1                   True     True    tunnelinterfaces.iosxe.netclab.dev   5m54s
 ```
 
 ```console
 r1#show crypto ikev2 sa detailed | include READY|Quantum
-<from the run>
+2         10.0.12.1/500         10.0.23.2/500         none/none            READY
+      Quantum-safe Encryption using Manual PPK
 ```
 
 ## One Kubernetes object per configuration section
@@ -105,7 +108,9 @@ curl -sk -u cisco:cisco -H 'Accept: application/yang-data+json' \
 ```
 
 ```console
-<from the run>
+{
+  "Cisco-IOS-XE-native:hostname": "r1"
+}
 ```
 
 ### 2. The cluster and the package
@@ -140,7 +145,10 @@ kubectl apply -k iosxe/scenarios/prerequisites
 ```
 
 ```console
-<from the run>
+namespace/lab created
+secret/ike-keys created
+secret/iosxe-creds created
+clusterproviderconfig.http.m.crossplane.io/default created
 ```
 
 The namespace `lab`, the ClusterProviderConfig, and two Secrets: the routers' credentials

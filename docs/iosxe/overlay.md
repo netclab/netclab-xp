@@ -52,7 +52,10 @@ On r3 the same, with `ip address 10.0.23.2 255.255.255.0` and
 
 ```console
 r1#ping vrf WAN 10.0.23.2
-<from the run>
+Type escape sequence to abort.
+Sending 5, 100-byte ICMP Echos to 10.0.23.2, timeout is 2 seconds:
+!!!!!
+Success rate is 100 percent (5/5), round-trip min/avg/max = 1/1/2 ms
 ```
 
 ## Apply
@@ -86,7 +89,9 @@ kubectl get device -n lab -o custom-columns=NAME:.metadata.name,VRFS:.status.vrf
 ```
 
 ```console
-<from the run>
+NAME   VRFS
+r1     [OVERLAY WAN]
+r3     [OVERLAY WAN]
 ```
 
 An object naming a VRF its Device does not list applies nothing and is not Ready, and
@@ -99,7 +104,12 @@ kubectl get tunnelinterface -n lab
 ```
 
 ```console
-<from the run>
+tunnelinterface.iosxe.netclab.dev/r1--tunnel0--d311cfe5 condition met
+tunnelinterface.iosxe.netclab.dev/r3--tunnel0--d311cfe5 condition met
+
+NAME                    DEVICE   INTERFACE   TUNNEL-MODE   ADDRESS            MODE      OPER    IKE-SA   WANTS-NAME   SYNCED   READY   COMPOSITION                          AGE
+r1--tunnel0--d311cfe5   r1       Tunnel0     ipsec-ipv4    192.168.100.1/24   Replace   ready   1/1                   True     True    tunnelinterfaces.iosxe.netclab.dev   4m23s
+r3--tunnel0--d311cfe5   r3       Tunnel0     ipsec-ipv4    192.168.100.2/24   Replace   ready   1/1                   True     True    tunnelinterfaces.iosxe.netclab.dev   4m23s
 ```
 
 ## Both VRFs on the router
@@ -108,16 +118,26 @@ The IKEv2 SA runs in WAN and carries OVERLAY, on the PPK:
 
 ```console
 r1#show crypto ikev2 sa
-<from the run>
+ IPv4 Crypto IKEv2  SA
+Tunnel-id Local                 Remote                fvrf/ivrf            Status
+3         10.0.12.1/500         10.0.23.2/500         WAN/OVERLAY          READY
+      Encr: AES-CBC, keysize: 256, PRF: SHA512, Hash: SHA512, DH Grp:20, Auth sign: PSK, Auth verify: PSK, QR
+      Life/Active Time: 86400/74 sec
+      CE id: 0, Session-id: 7
+      Local spi: 6A5F05130BA8D932       Remote spi: F16095FCCDC0E948
+ IPv6 Crypto IKEv2  SA
 r1#show crypto ikev2 sa detailed | include Quantum
-<from the run>
+      Quantum-safe Encryption using Manual PPK
 ```
 
 Traffic in OVERLAY goes over the tunnel:
 
 ```console
 r1#ping vrf OVERLAY 192.168.100.2
-<from the run>
+Type escape sequence to abort.
+Sending 5, 100-byte ICMP Echos to 192.168.100.2, timeout is 2 seconds:
+!!!!!
+Success rate is 100 percent (5/5), round-trip min/avg/max = 1/24/114 ms
 ```
 
 ## Changing a VRF

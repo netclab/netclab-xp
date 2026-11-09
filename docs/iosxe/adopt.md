@@ -95,7 +95,9 @@ curl -sk -u <user>:<password> -H 'Accept: application/yang-data+json' \
 ```
 
 ```console
-<from the run>
+{
+  "Cisco-IOS-XE-native:hostname": "r1"
+}
 ```
 
 ### The control plane
@@ -163,7 +165,12 @@ kubectl get device -n ipsec
 ```
 
 ```console
-<from the run>
+device.iosxe.netclab.dev/r1 condition met
+device.iosxe.netclab.dev/r3 condition met
+
+NAME   ADDRESS        SYNCED   READY   COMPOSITION                 AGE
+r1     172.18.0.101   True     True    devices.iosxe.netclab.dev   1s
+r3     172.18.0.103   True     True    devices.iosxe.netclab.dev   1s
 ```
 
 Router: unchanged. A Device is Ready when the router has answered with these credentials
@@ -177,7 +184,57 @@ kubectl get device r1 -n ipsec -o yaml
 ```
 
 ```yaml
-<status.config of r1, from the run>
+status:
+  conditions:
+  - lastTransitionTime: "2026-11-09T10:37:04Z"
+    observedGeneration: 3
+    reason: ReconcileSuccess
+    status: "True"
+    type: Synced
+  - lastTransitionTime: "2026-11-09T10:37:05Z"
+    observedGeneration: 3
+    reason: Available
+    status: "True"
+    type: Ready
+  - lastTransitionTime: "2026-11-09T10:37:04Z"
+    observedGeneration: 3
+    reason: WatchCircuitClosed
+    status: "True"
+    type: Responsive
+  config:
+  - exists: false
+    kind: Ikev2Proposal
+    name: CLASSICAL-PROPOSAL
+    xr: r1--classical-proposal--3a16aab3
+  - exists: false
+    kind: Ikev2Proposal
+    name: LEGACY_PROPOSAL
+    xr: r1--legacy-proposal--d8cc32e4
+  - exists: false
+    kind: Ikev2Policy
+    name: CLASSICAL-POLICY
+    xr: r1--classical-policy--17d97755
+  - exists: false
+    kind: Ikev2Keyring
+    name: CLASSICAL-KEYRING
+    xr: r1--classical-keyring--eb60cb7d
+  - exists: false
+    kind: Ikev2Profile
+    name: CLASSICAL-PROFILE
+    xr: r1--classical-profile--cdf1f733
+  - exists: false
+    kind: IpsecTransformSet
+    name: CLASSICAL-TS
+    xr: r1--classical-ts--771f3cb2
+  - exists: false
+    kind: IpsecProfile
+    name: CLASSICAL-IPSEC
+    xr: r1--classical-ipsec--461c477a
+  - exists: false
+    kind: TunnelInterface
+    name: Tunnel0
+    xr: r1--tunnel0--d311cfe5
+  vrfs: []
 ```
 
 Each entry is a section on the router of a kind the package knows: `name` as on the
@@ -214,7 +271,14 @@ kubectl get ikev2proposal,tunnelinterface -n ipsec
 ```
 
 ```console
-<from the run>
+NAME                                                               DEVICE   PROPOSAL             MODE      WANTS-NAME   SYNCED   READY   COMPOSITION                        AGE
+ikev2proposal.iosxe.netclab.dev/r1--classical-proposal--3a16aab3   r1       CLASSICAL-PROPOSAL   Observe                True     True    ikev2proposals.iosxe.netclab.dev   2m11s
+ikev2proposal.iosxe.netclab.dev/r1--legacy-proposal--d8cc32e4      r1       LEGACY_PROPOSAL      Observe                True     True    ikev2proposals.iosxe.netclab.dev   2m11s
+ikev2proposal.iosxe.netclab.dev/r3--classical-proposal--3a16aab3   r3       CLASSICAL-PROPOSAL   Observe                True     True    ikev2proposals.iosxe.netclab.dev   2m11s
+
+NAME                                                      DEVICE   INTERFACE   TUNNEL-MODE   ADDRESS   MODE      OPER    IKE-SA   WANTS-NAME   SYNCED   READY   COMPOSITION                          AGE
+tunnelinterface.iosxe.netclab.dev/r1--tunnel0--d311cfe5   r1       Tunnel0                             Observe   ready   1/1                   True     True    tunnelinterfaces.iosxe.netclab.dev   2m11s
+tunnelinterface.iosxe.netclab.dev/r3--tunnel0--d311cfe5   r3       Tunnel0                             Observe   ready   1/1                   True     True    tunnelinterfaces.iosxe.netclab.dev   2m11s
 ```
 
 Every entry of `status.config` has `exists: true`. Router: unchanged.
@@ -228,7 +292,32 @@ kubectl get ikev2proposal r1--classical-proposal--3a16aab3 -n ipsec -o yaml
 ```
 
 ```yaml
-<status of the proposal, from the run>
+status:
+  conditions:
+  - lastTransitionTime: "2026-11-09T10:37:06Z"
+    observedGeneration: 3
+    reason: ReconcileSuccess
+    status: "True"
+    type: Synced
+  - lastTransitionTime: "2026-11-09T10:37:08Z"
+    observedGeneration: 3
+    reason: Available
+    status: "True"
+    type: Ready
+  - lastTransitionTime: "2026-11-09T10:37:06Z"
+    observedGeneration: 3
+    reason: WatchCircuitClosed
+    status: "True"
+    type: Responsive
+  drift: []
+  extra: []
+  observed:
+    encryption:
+    - aes-cbc-256
+    group:
+    - 20
+    integrity:
+    - sha512
 ```
 
 A pull request copies `status.observed` into `spec`, the intent:
@@ -260,14 +349,73 @@ back; see [Keys](#keys). The profile:
 Until Step 5 writes its mark, the profile shows its PPK keyring as drift:
 
 ```yaml
-<status of the profile, from the run>
+status:
+  conditions:
+  - lastTransitionTime: "2026-11-09T10:39:22Z"
+    observedGeneration: 4
+    reason: ReconcileSuccess
+    status: "True"
+    type: Synced
+  - lastTransitionTime: "2026-11-09T10:39:22Z"
+    observedGeneration: 4
+    reason: Creating
+    status: "False"
+    type: Ready
+  - lastTransitionTime: "2026-11-09T10:39:22Z"
+    observedGeneration: 4
+    reason: WatchCircuitClosed
+    status: "True"
+    type: Responsive
+  drift:
+  - device: []
+    field: ppkKeyring
+    spec:
+    - CLASSICAL-KEYRING
+  extra: []
+  observed:
+    keyring: CLASSICAL-KEYRING
+    remoteAddresses:
+    - 10.0.23.2
 ```
 
 After a change by hand on r1, group 19 in place of 20, the proposal shows what of its spec
 the router lacks, and what the router has beyond it:
 
 ```yaml
-<status of the proposal after the change, from the run>
+status:
+  conditions:
+  - lastTransitionTime: "2026-11-09T10:39:22Z"
+    observedGeneration: 4
+    reason: ReconcileSuccess
+    status: "True"
+    type: Synced
+  - lastTransitionTime: "2026-11-09T10:42:22Z"
+    observedGeneration: 4
+    reason: Creating
+    status: "False"
+    type: Ready
+  - lastTransitionTime: "2026-11-09T10:39:22Z"
+    observedGeneration: 4
+    reason: WatchCircuitClosed
+    status: "True"
+    type: Responsive
+  drift:
+  - device:
+    - "19"
+    field: group
+    spec:
+    - "20"
+  extra:
+  - device:
+    - "19"
+    field: group
+  observed:
+    encryption:
+    - aes-cbc-256
+    group:
+    - 19
+    integrity:
+    - sha512
 ```
 
 The object is not Ready while `drift` has an entry. While the router is still changed by
@@ -292,7 +440,38 @@ is refused here. Taking over writes the keys' marks and the profile's `keyring p
 its mark, and leaves the tunnel's SA as it is:
 
 ```yaml
-<status of the keyring, from the run>
+status:
+  conditions:
+  - lastTransitionTime: "2026-11-09T10:45:05Z"
+    observedGeneration: 6
+    reason: ReconcileSuccess
+    status: "True"
+    type: Synced
+  - lastTransitionTime: "2026-11-09T10:45:05Z"
+    observedGeneration: 6
+    reason: Available
+    status: "True"
+    type: Ready
+  - lastTransitionTime: "2026-11-09T10:44:58Z"
+    observedGeneration: 6
+    reason: WatchCircuitClosed
+    status: "True"
+    type: Responsive
+  drift: []
+  extra: []
+  keys:
+  - path: peers[R3].preSharedKey
+    written: true
+  - path: peers[R3].ppk
+    written: true
+  missingSecrets: []
+  observed:
+    peers:
+    - address: 10.0.23.2
+      name: R3
+      preSharedKey:
+        present: true
+  origin: TakenOver
 ```
 
 From now on a change by hand to a field of the spec is put back at the next poll, and
@@ -305,7 +484,45 @@ group 19 in place of 20, under `Merge`: 20 is put back, 19 stays and shows in
 `status.extra`, and the object is Ready:
 
 ```yaml
-<status of the proposal, from the run>
+status:
+  conditions:
+  - lastTransitionTime: "2026-11-09T10:44:59Z"
+    observedGeneration: 5
+    reason: ReconcileSuccess
+    status: "True"
+    type: Synced
+  - lastTransitionTime: "2026-11-09T10:48:00Z"
+    observedGeneration: 5
+    reason: Available
+    status: "True"
+    type: Ready
+  - lastTransitionTime: "2026-11-09T10:44:59Z"
+    observedGeneration: 5
+    reason: WatchCircuitClosed
+    status: "True"
+    type: Responsive
+  drift: []
+  extra:
+  - device:
+    - "19"
+    field: group
+  observed:
+    encryption:
+    - aes-cbc-256
+    group:
+    - 19
+    - 20
+    integrity:
+    - sha512
+  reverted:
+    drift:
+    - device:
+      - "19"
+      field: group
+      spec:
+      - "20"
+    extra: []
+    time: "2026-11-09T10:48:00Z"
 ```
 
 Removing it from the router takes `Replace`.
@@ -333,7 +550,78 @@ so that an object is written after those it names:
 At the next poll group 19 is taken off the router, and the description off Tunnel0:
 
 ```yaml
-<status of the proposal and the tunnel, from the run>
+status:
+  conditions:
+  - lastTransitionTime: "2026-11-09T10:49:32Z"
+    observedGeneration: 6
+    reason: ReconcileSuccess
+    status: "True"
+    type: Synced
+  - lastTransitionTime: "2026-11-09T10:49:35Z"
+    observedGeneration: 6
+    reason: Available
+    status: "True"
+    type: Ready
+  - lastTransitionTime: "2026-11-09T10:49:31Z"
+    observedGeneration: 6
+    reason: WatchCircuitClosed
+    status: "True"
+    type: Responsive
+  drift: []
+  extra: []
+  observed:
+    encryption:
+    - aes-cbc-256
+    group:
+    - 20
+    integrity:
+    - sha512
+  reverted:
+    drift: []
+    extra:
+    - device:
+      - "19"
+      field: group
+    time: "2026-11-09T10:49:35Z"
+---
+status:
+  conditions:
+  - lastTransitionTime: "2026-11-09T10:49:33Z"
+    observedGeneration: 8
+    reason: ReconcileSuccess
+    status: "True"
+    type: Synced
+  - lastTransitionTime: "2026-11-09T10:49:37Z"
+    observedGeneration: 8
+    reason: Available
+    status: "True"
+    type: Ready
+  - lastTransitionTime: "2026-11-09T10:49:33Z"
+    observedGeneration: 8
+    reason: WatchCircuitClosed
+    status: "True"
+    type: Responsive
+  drift: []
+  extra: []
+  observed:
+    destination: 10.0.23.2
+    ipsecProfile: CLASSICAL-IPSEC
+    ipv4Address: 192.168.100.1/24
+    mode: ipsec-ipv4
+    source: GigabitEthernet2
+  oper:
+    activePeers: 1/1
+    interface: ready
+    peers:
+    - address: 10.0.23.2
+      ikeSA: active
+  reverted:
+    drift: []
+    extra:
+    - device:
+      - '"by hand"'
+      field: description
+    time: "2026-11-09T10:49:37Z"
 ```
 
 `Replace` writes the section's keys from their Secrets with every write of the
@@ -349,7 +637,13 @@ back in a form that can be compared, so a key is never part of `status.drift`.
 all:
 
 ```yaml
-<status.observed of r1's keyring, from the run>
+status:
+  observed:
+    peers:
+      - address: 10.0.23.2
+        name: R3
+        preSharedKey:
+          present: true
 ```
 
 In Step 4 the key becomes a reference to a Secret. The Secret holds the value the router
@@ -385,7 +679,18 @@ router does not change, keys and marks included. Deleting an object in `Observe`
 `Merge` leaves its section on the router as it is:
 
 ```console
-<r3 after its objects lowered to Observe and deleted, from the run>
+r3#show running-config | include ^interface Tunnel|^crypto ikev2|^crypto ipsec|ppk
+crypto ikev2 proposal CLASSICAL-PROPOSAL
+crypto ikev2 policy CLASSICAL-POLICY
+crypto ikev2 keyring CLASSICAL-KEYRING
+  ppk manual id PPK-R1R3 key hex 48656C6C6F506F737451756172746E756D Required
+crypto ikev2 profile CLASSICAL-PROFILE
+ keyring ppk CLASSICAL-KEYRING
+crypto ipsec transform-set CLASSICAL-TS esp-gcm 256
+crypto ipsec profile CLASSICAL-IPSEC
+interface Tunnel0
+event manager environment netclab-de309fce "eba0dc85 Ikev2Keyring/CLASSICAL-KEYRING/R1/ppk"
+event manager environment netclab-96580d81 "eb60cb7d Ikev2Profile/CLASSICAL-PROFILE/ppk CLASSICAL-KEYRING"
 ```
 
 A Device cannot be deleted while an object names it: the admission webhook denies it until
@@ -411,7 +716,11 @@ needs:
 
 ```console
 $ kubectl get ikev2proposal -n ipsec
-<from the run, with my-proposal>
+NAME                               DEVICE   PROPOSAL             MODE      WANTS-NAME                      SYNCED   READY   COMPOSITION                        AGE
+my-proposal                        r1       LEGACY_PROPOSAL      Observe   r1--legacy-proposal--d8cc32e4   True     False   ikev2proposals.iosxe.netclab.dev   2m10s
+r1--classical-proposal--3a16aab3   r1       CLASSICAL-PROPOSAL   Observe                                   True     True    ikev2proposals.iosxe.netclab.dev   2m10s
+r1--legacy-proposal--d8cc32e4      r1       LEGACY_PROPOSAL      Observe                                   True     True    ikev2proposals.iosxe.netclab.dev   2m10s
+r3--classical-proposal--3a16aab3   r3       CLASSICAL-PROPOSAL   Observe                                   True     True    ikev2proposals.iosxe.netclab.dev   2m10s
 ```
 
 The fix is a pull request that renames the file and `metadata.name`. The object under the

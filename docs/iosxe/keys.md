@@ -35,7 +35,7 @@ kubectl get ikev2keyring r1--classical-keyring--eb60cb7d -n lab -o jsonpath='{.s
 ```
 
 ```console
-<from the run>
+[{"path":"peers[R3].preSharedKey","written":true},{"path":"peers[R3].ppk","written":true}]
 ```
 
 The router does not give a key back in a form that can be compared, so a key is never part
@@ -50,7 +50,9 @@ kubectl get tunnelinterface -n lab
 ```
 
 ```console
-<from the run>
+NAME                    DEVICE   INTERFACE   TUNNEL-MODE   ADDRESS            MODE      OPER    IKE-SA   WANTS-NAME   SYNCED   READY   COMPOSITION                          AGE
+r1--tunnel0--d311cfe5   r1       Tunnel0     ipsec-ipv4    192.168.100.1/24   Replace   ready   1/1                   True     True    tunnelinterfaces.iosxe.netclab.dev   5m54s
+r3--tunnel0--d311cfe5   r3       Tunnel0     ipsec-ipv4    192.168.100.2/24   Replace   ready   1/1                   True     True    tunnelinterfaces.iosxe.netclab.dev   5m54s
 ```
 
 ## Rotate the PPK
@@ -72,14 +74,23 @@ kubectl get tunnelinterface -n lab -w
 ```
 
 ```console
-<from the run>
+NAME                    DEVICE   INTERFACE   TUNNEL-MODE   ADDRESS            MODE      OPER    IKE-SA   WANTS-NAME   SYNCED   READY   COMPOSITION                          AGE
+r1--tunnel0--d311cfe5   r1       Tunnel0     ipsec-ipv4    192.168.100.1/24   Replace   ready   1/1                   True     True    tunnelinterfaces.iosxe.netclab.dev   5m57s
+r3--tunnel0--d311cfe5   r3       Tunnel0     ipsec-ipv4    192.168.100.2/24   Replace   ready   1/1                   True     True    tunnelinterfaces.iosxe.netclab.dev   5m57s
+r3--tunnel0--d311cfe5   r3       Tunnel0     ipsec-ipv4    192.168.100.2/24   Replace   ready   0/1                   True     True    tunnelinterfaces.iosxe.netclab.dev   6m18s
+r1--tunnel0--d311cfe5   r1       Tunnel0     ipsec-ipv4    192.168.100.1/24   Replace   ready   0/1                   True     True    tunnelinterfaces.iosxe.netclab.dev   6m20s
+r3--tunnel0--d311cfe5   r3       Tunnel0     ipsec-ipv4    192.168.100.2/24   Replace   lower-layer-down   0/1                   True     True    tunnelinterfaces.iosxe.netclab.dev   6m20s
+r3--tunnel0--d311cfe5   r3       Tunnel0     ipsec-ipv4    192.168.100.2/24   Replace   lower-layer-down   1/1                   True     True    tunnelinterfaces.iosxe.netclab.dev   7m18s
+r1--tunnel0--d311cfe5   r1       Tunnel0     ipsec-ipv4    192.168.100.1/24   Replace   ready              1/1                   True     True    tunnelinterfaces.iosxe.netclab.dev   7m20s
+r3--tunnel0--d311cfe5   r3       Tunnel0     ipsec-ipv4    192.168.100.2/24   Replace   ready              1/1                   True     True    tunnelinterfaces.iosxe.netclab.dev   7m20s
 ```
 
 The new SA, on the PPK:
 
 ```console
 r1#show crypto ikev2 sa detailed | include READY|Quantum
-<from the run>
+2         10.0.12.1/500         10.0.23.2/500         none/none            READY
+      Quantum-safe Encryption using Manual PPK
 ```
 
 ## Rotate the pre-shared key
@@ -91,7 +102,7 @@ kubectl patch secret ike-keys -n lab --type merge -p '{"stringData":{"psk":"Rota
 ```
 
 ```console
-<from the run>
+secret/ike-keys patched
 ```
 
 ## When a key is written
@@ -117,7 +128,7 @@ kubectl annotate ikev2keyring r1--classical-keyring--eb60cb7d -n lab \
 ```
 
 ```console
-<from the run>
+ikev2keyring.iosxe.netclab.dev/r1--classical-keyring--eb60cb7d annotated
 ```
 
 Another value of the annotation writes them once more.
@@ -139,9 +150,18 @@ keys it has.
 
 To tell which value it wrote, the package keeps a mark of each key, never the key, in an
 EEM environment variable on the router named `netclab-` and 8 hex digits. A rotation
-changes the mark on both ends:
+changes the mark on both ends. Before the PPK is rotated:
 
 ```console
 r1#show running-config | include ^event manager environment netclab-
-<from the run>
+event manager environment netclab-0fb93954 "5af41a49 Ikev2Keyring/CLASSICAL-KEYRING/R3/ppk"
+event manager environment netclab-e535a9a3 "e46f9be0 Ikev2Keyring/CLASSICAL-KEYRING/R3/psk"
+event manager environment netclab-96580d81 "eb60cb7d Ikev2Profile/CLASSICAL-PROFILE/ppk CLASSICAL-KEYRING"
+```
+
+After, the PPK's mark is new:
+
+```console
+r1#show running-config | include ^event manager environment netclab-0fb93954
+event manager environment netclab-0fb93954 "a15a673d Ikev2Keyring/CLASSICAL-KEYRING/R3/ppk"
 ```
