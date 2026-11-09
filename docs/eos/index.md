@@ -11,8 +11,8 @@ speaks. That is the whole point: one workflow, one API surface, one place the
 intended state lives.
 
 Underneath, RESTCONF carries structured data and reaches what OpenConfig models;
-eAPI carries CLI commands over JSON-RPC, so it reaches whatever the CLI can say
-— including plenty that OpenConfig does not model. The two overlap heavily, and
+eAPI carries CLI commands over JSON-RPC, so it reaches whatever the CLI can say,
+including plenty that OpenConfig does not model. The two overlap heavily, and
 the [scenarios](scenarios/index.md) are organised around that split.
 
 Where they overlap, the mechanism is a choice you can make **without changing
@@ -33,20 +33,20 @@ A separate question from mechanism, and the one the layers answer. Installing
 the package gives you all of its own rather than picking for you.
 
 ```
-Fabric — in function-avd, installed apart       a whole network, one design
-   ↓
+Fabric (in function-avd, installed apart)       a whole network, one design
+   v
 Router                                          one device, one resource
-   ↓
-BgpGlobal · BgpNeighbor · BgpPeerGroup ·        one setting, one resource
-RoutedInterface · LoopbackInterface ·
-IpRouting · EosCommand · …
-   ↓
-provider-http                                   RESTCONF · JSON-RPC · eAPI
+   v
+BgpGlobal, BgpNeighbor, BgpPeerGroup,           one setting, one resource
+RoutedInterface, LoopbackInterface,
+IpRouting, EosCommand, ...
+   v
+provider-http                                   RESTCONF, JSON-RPC, eAPI
 ```
 
 Reading from the bottom: the low-level resources map closely onto what a device
 actually models. `Router` composes them into something you would recognise as "a
-router". `Fabric` goes a level further again — it describes the *design* of a
+router". `Fabric` goes a level further again: it describes the *design* of a
 network, and AVD works out what every switch in it must be configured with. It
 is [function-avd](https://github.com/netclab/function-avd)'s, and not installed
 with this package.

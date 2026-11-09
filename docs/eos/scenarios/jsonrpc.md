@@ -1,10 +1,10 @@
-# JSON-RPC — what OpenConfig does not model
+# JSON-RPC: what OpenConfig does not model
 
 Spanning-tree mode, the internal VLAN range, BGP multipath, redistributing a
 loopback into BGP: ordinary settings that OpenConfig does not model, so no
 OpenConfig path reaches them.
 
-This scenario configures them on `ceos01` over eAPI's JSON-RPC endpoint —
+This scenario configures them on `ceos01` over eAPI's JSON-RPC endpoint:
 commands, but sent as resources like everything else here.
 
 ## Running it
@@ -17,7 +17,7 @@ kubectl kustomize --load-restrictor LoadRestrictionsNone eos/scenarios/jsonrpc \
 ## What lands on the device
 
 Five manifests: a `StpMode`, a `VlanInternalAllocation`, a `BgpMultiPath`, a
-`BgpInterfaceExport` — and a `BgpGlobal` asking for this mechanism by label:
+`BgpInterfaceExport`, and a `BgpGlobal` asking for this mechanism by label:
 
 ```yaml
 apiVersion: eos.netclab.dev/v1alpha1
@@ -63,7 +63,7 @@ kubectl kustomize --load-restrictor LoadRestrictionsNone eos/scenarios/jsonrpc \
 ```
 
 `show run section bgp` comes back empty and `spanning-tree mode` returns to
-`mstp`. The whole BGP instance goes, not just the settings inside it — which is
+`mstp`. The whole BGP instance goes, not just the settings inside it, which is
 why `BgpGlobal` is part of this scenario at all. Entering a configuration
 section on EOS creates it, so resources that only edit *inside* `router bgp`
 would leave an empty instance behind. Something has to own the section.

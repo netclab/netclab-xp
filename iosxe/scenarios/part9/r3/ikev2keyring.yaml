@@ -1,8 +1,9 @@
 apiVersion: iosxe.netclab.dev/v1alpha1
 kind: Ikev2Keyring
 metadata:
-  name: r3-ikev2-keyring
+  name: r3--classical-keyring--eb60cb7d
 spec:
+  managementPolicy: Replace
   deviceRef:
     name: r3
   name: CLASSICAL-KEYRING

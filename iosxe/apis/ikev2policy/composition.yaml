@@ -11,11 +11,21 @@ spec:
   # One Request owns the policy over RESTCONF. The router refuses a policy
   # naming a proposal that is missing or incomplete, and a proposal's delete
   # while a policy names it, so the order of the two is the router's. With no
-  # `match` the policy matches everything; a `match` set on the router is drift.
-  # Once every object in `after` is Ready the Requests are composed, and they
-  # stay composed whatever happens to those objects; until then none is, and the
-  # XR is not Ready, where Crossplane would call an XR composing nothing Ready. A
-  # Usage of each object in `after` holds back its delete until this XR is gone.
+  # `match` the policy matches the global table alone; `fvrf` matches a
+  # front-door VRF by name, or any. The rest of a `match` is beyond the spec, and
+  # Replace takes it off. The router refuses a VRF's name in place of `any` by
+  # PUT and PATCH, and `any` in place of a name by PATCH: such a change goes
+  # through no `fvrf`. A VRF the Device does not list holds the Requests back,
+  # as `after` does, and `status.missingVrfs` names it.
+  # Observe only reads; Merge PATCHes the proposals of the spec;
+  # Replace PUTs the policy and DELETEs it with the object. The status is the
+  # last GET in the shape of the spec; Ready means the mode's write would change
+  # nothing.
+  # The Device comes first in `after`, as if the spec named it. Once every object
+  # in `after` is Ready the Requests are composed, and they stay composed whatever
+  # happens to those objects; until then none is, and the XR is not Ready, where
+  # Crossplane would call an XR composing nothing Ready. A Usage of each object in
+  # `after` holds back its delete until this XR is gone.
   - step: requests
     functionRef:
       name: crossplane-contrib-function-go-templating
@@ -28,6 +38,29 @@ spec:
           {{- $xr := .observed.composite.resource }}
           {{- $ns := $xr.metadata.namespace }}
           {{- $after := default (list) $xr.spec.after }}
+          {{- $observed := default (dict) .observed.resources }}
+          {{- $policy := $xr.spec.managementPolicy | default "Observe" }}
+          {{- $old := default (dict) $xr.status }}
+
+          {{- /* ---- its name: under another name the object composes nothing ---- */}}
+          {{- /* <device>--<slug>--<8 hex>, at most 63 characters */}}
+          {{- $device := $xr.spec.deviceRef.name }}
+          {{- $after = prepend $after (dict "kind" "Device" "name" $device) }}
+          {{- $slug := regexReplaceAll "[^a-z0-9]+" (lower $xr.spec.name) "-" | trimAll "-" }}
+          {{- $slug = trunc (int (max 0 (sub 51 (len $device)))) $slug | trimSuffix "-" }}
+          {{- $want := printf "%s--%s--%s" $device $slug (sha256sum $xr.spec.name | trunc 8) }}
+          {{- if ne $xr.metadata.name $want }}
+          ---
+          apiVersion: {{ $xr.apiVersion }}
+          kind: {{ $xr.kind }}
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/ready: "False"
+          status:
+            wantsName: {{ $want }}
+          {{- else }}
+
+          {{- /* ---- what it requires ---- */}}
           ---
           apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
           kind: ExtraResources
@@ -35,7 +68,7 @@ spec:
             device:
               apiVersion: iosxe.netclab.dev/v1alpha1
               kind: Device
-              matchName: {{ $xr.spec.deviceRef.name }}
+              matchName: {{ $device }}
               namespace: {{ $ns }}
             {{- range $i, $a := $after }}
             after-{{ $i }}:
@@ -45,6 +78,8 @@ spec:
               namespace: {{ $ns }}
             {{- end }}
           {{- $extra := default (dict) .extraResources }}
+
+          {{- /* ---- `after`: a Usage of each object it waits on, and whether all are Ready ---- */}}
           {{- $waiting := false }}
           {{- range $i, $a := $after }}
           {{- $ready := false }}
@@ -73,22 +108,32 @@ spec:
           {{- end }}{{ end }}
           {{- if not $ready }}{{ $waiting = true }}{{ end }}
           {{- end }}
-          {{- if and $waiting (not (index (default (dict) .observed.resources) "policy")) }}
-          ---
-          apiVersion: {{ $xr.apiVersion }}
-          kind: {{ $xr.kind }}
-          metadata:
-            annotations:
-              gotemplating.fn.crossplane.io/ready: "False"
-          {{- else }}
-          {{- with .extraResources }}{{ with index . "device" }}{{ with .items }}
-          {{- $dev := (index . 0).resource }}
+          {{- $mine := sortAlpha (default list $xr.spec.proposals) }}
+          {{- $fvrf := $xr.spec.fvrf | default "" }}
+          {{- $match := dict }}
+          {{- if eq $fvrf "any" }}{{ $_ := set $match "fvrf" (dict "any" (list nil)) }}{{ else if $fvrf }}{{ $_ := set $match "fvrf" (dict "name" $fvrf) }}{{ end }}
+
+          {{- /* ---- the VRFs it names that the Device does not list ---- */}}
+          {{- $dev := dict }}
+          {{- with index $extra "device" }}{{ with .items }}{{ $dev = (index . 0).resource }}{{ end }}{{ end }}
+          {{- $missingVrfs := list }}
+          {{- if and $dev $fvrf (ne $fvrf "any") (not (has $fvrf (dig "status" "vrfs" list $dev))) }}{{ $missingVrfs = list $fvrf }}{{ end }}
+          {{- /* until it is composed; then the Requests stay, as with `after` */}}
+          {{- $hold := and (or $waiting $missingVrfs) (not (hasKey $observed "policy")) }}
+
+          {{- /* ---- its Requests, once nothing holds them back ---- */}}
+          {{- if and (not $hold) $dev }}
           {{- $cred := $dev.spec.credentialsSecretRef }}
           {{- $auth := printf "{{ %s:%s:%s }}" $cred.name $ns $cred.key }}
-          {{- $url := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native/crypto/Cisco-IOS-XE-crypto:ikev2/policy=%s" $dev.spec.address $xr.spec.name }}
-          {{- $owned := sortAlpha $xr.spec.proposals }}
+          {{- $native := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native" $dev.spec.address }}
+          {{- $url := printf "%s/crypto/Cisco-IOS-XE-crypto:ikev2/policy=%s" $native $xr.spec.name }}
           {{- $proposals := list }}
-          {{- range $owned }}{{ $proposals = append $proposals (dict "proposals" .) }}{{ end }}
+          {{- range $mine }}{{ $proposals = append $proposals (dict "proposals" .) }}{{ end }}
+          {{- $body := dict "name" $xr.spec.name "proposal" $proposals }}
+          {{- if $match }}{{ $_ := set $body "match" $match }}{{ end }}
+          {{- $put := dict "Cisco-IOS-XE-crypto:policy" (list $body) }}
+          {{- /* a merge on native, which exists, creates the policy if it does not */}}
+          {{- $patch := dict "Cisco-IOS-XE-native:native" (dict "crypto" (dict "Cisco-IOS-XE-crypto:ikev2" (dict "policy" (list $body)))) }}
           ---
           apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
@@ -96,6 +141,13 @@ spec:
             annotations:
               gotemplating.fn.crossplane.io/composition-resource-name: policy
           spec:
+            {{- if eq $policy "Observe" }}
+            managementPolicies: ["Observe"]
+            {{- else if eq $policy "Merge" }}
+            managementPolicies: ["Observe", "Create", "Update"]
+            {{- else }}
+            managementPolicies: ["*"]
+            {{- end }}
             forProvider:
               insecureSkipTLSVerify: {{ $dev.spec.insecureSkipTLSVerify }}
               headers:
@@ -104,11 +156,21 @@ spec:
                 Authorization: ["Basic {{ $auth }}"]
               payload:
                 baseUrl: {{ $url | quote }}
-                body: {{ dict "Cisco-IOS-XE-crypto:policy" (list (dict "name" $xr.spec.name "proposal" $proposals)) | toJson | quote }}
+                body: {{ (ternary $put $patch (eq $policy "Replace")) | toJson | quote }}
               mappings:
               - action: OBSERVE
                 method: GET
                 url: .payload.baseUrl
+              {{- if eq $policy "Merge" }}
+              - action: CREATE
+                method: PATCH
+                url: {{ $native | quote | quote }}
+                body: .payload.body
+              - action: UPDATE
+                method: PATCH
+                url: {{ $native | quote | quote }}
+                body: .payload.body
+              {{- else if eq $policy "Replace" }}
               - action: CREATE
                 method: PUT
                 url: .payload.baseUrl
@@ -120,15 +182,98 @@ spec:
               - action: REMOVE
                 method: DELETE
                 url: .payload.baseUrl
+              {{- end }}
               expectedResponseCheck:
                 type: CUSTOM
                 logic: |
                   if .response.statusCode != 200 then false else
-                    (.response.body["Cisco-IOS-XE-crypto:policy"][0]
-                      | {proposals: ([.proposal[]?.proposals] | sort), other: del(.name, .proposal)})
-                    == {proposals: {{ $owned | toJson }}, other: {}}
+                    .response.body["Cisco-IOS-XE-crypto:policy"][0] as $p
+                    | ([$p.proposal[]?.proposals] | sort) as $router
+                  {{- if eq $policy "Replace" }}
+                    | $router == {{ $mine | toJson }} and ($p | del(.name, .proposal)) == {{ ternary (dict "match" $match) dict (gt (len $match) 0) | toJson }}
+                  {{- else }}
+                    | {{ $mine | toJson }} - $router == []
+                    {{- if $match }} and $p.match.fvrf == {{ $match.fvrf | toJson }}{{ end }}
+                  {{- end }}
                   end
-          {{- end }}{{ end }}{{ end }}
+          {{- end }}
+
+          {{- /* ---- the status: the last GET in the shape of the spec, and Ready ---- */}}
+          {{- $status := dict }}
+          {{- range $k := list "observed" "drift" "extra" "reverted" }}{{ if hasKey $old $k }}{{ $_ := set $status $k (index $old $k) }}{{ end }}{{ end }}
+          {{- $present := hasKey $status "observed" }}
+          {{- with index $observed "policy" }}
+          {{- $rs := default (dict) .resource.status }}
+          {{- $method := "" }}{{ with $rs.requestDetails }}{{ $method = .method | default "" }}{{ end }}
+          {{- with $rs.response }}
+          {{- $code := int (.statusCode | default 0) }}
+          {{- if eq $method "GET" }}
+            {{- if eq $code 200 }}
+              {{- $p := index (index (fromYaml .body) "Cisco-IOS-XE-crypto:policy") 0 }}
+              {{- $theirs := list }}{{ range (get $p "proposal" | default list) }}{{ $theirs = append $theirs .proposals }}{{ end }}
+              {{- $theirs = sortAlpha $theirs }}
+              {{- $drift := list }}
+              {{- $more := list }}
+              {{- $missing := list }}{{ range $mine }}{{ if not (has . $theirs) }}{{ $missing = append $missing . }}{{ end }}{{ end }}
+              {{- if $missing }}{{ $drift = append $drift (dict "field" "proposals" "device" $theirs "spec" $mine) }}{{ end }}
+              {{- if or $mine (eq $policy "Replace") }}
+                {{- $beyond := list }}{{ range $theirs }}{{ if not (has . $mine) }}{{ $beyond = append $beyond . }}{{ end }}{{ end }}
+                {{- if $beyond }}{{ $more = append $more (dict "field" "proposals" "device" $beyond) }}{{ end }}
+              {{- end }}
+              {{- /* the front-door VRF on the router: a name, `any`, or none */}}
+              {{- $theirMatch := deepCopy (get $p "match" | default dict) }}
+              {{- $their := "" }}
+              {{- with get $theirMatch "fvrf" }}{{ if hasKey . "any" }}{{ $their = "any" }}{{ else }}{{ $their = get . "name" | default "" }}{{ end }}{{ end }}
+              {{- $_ := unset $theirMatch "fvrf" }}
+              {{- $theirVrf := ternary (list $their) list (ne $their "") }}
+              {{- if $fvrf }}
+                {{- if ne $their $fvrf }}{{ $drift = append $drift (dict "field" "fvrf" "device" $theirVrf "spec" (list $fvrf)) }}{{ end }}
+              {{- else if and (eq $policy "Replace") $their }}
+                {{- $more = append $more (dict "field" "fvrf" "device" $theirVrf) }}
+              {{- end }}
+              {{- if eq $policy "Replace" }}
+                {{- if $theirMatch }}{{ $more = append $more (dict "field" "match" "device" (list (toJson $theirMatch))) }}{{ end }}
+                {{- range $k, $v := $p }}
+                  {{- if not (has $k (list "name" "proposal" "match")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}
+                {{- end }}
+              {{- end }}
+              {{- $seen := dict }}
+              {{- if $theirs }}{{ $_ := set $seen "proposals" $theirs }}{{ end }}
+              {{- if $their }}{{ $_ := set $seen "fvrf" $their }}{{ end }}
+              {{- $_ := set $status "observed" $seen }}
+              {{- $_ := set $status "drift" $drift }}
+              {{- $_ := set $status "extra" $more }}
+              {{- $present = true }}
+            {{- else }}
+              {{- $_ := unset $status "observed" }}
+              {{- $_ := set $status "drift" list }}
+              {{- $_ := set $status "extra" list }}
+              {{- $present = false }}
+            {{- end }}
+          {{- else if and $method (ge $code 200) (lt $code 300) }}
+            {{- /* after a write that succeeded the response is still the GET before it: the router has the spec, the next GET shows it */}}
+            {{- $undid := dict "drift" (default list $old.drift) "extra" (ternary (default list $old.extra) list (eq $policy "Replace")) }}
+            {{- if or $undid.drift $undid.extra }}
+              {{- $_ := set $undid "time" (dateInZone "2006-01-02T15:04:05Z" (now) "UTC") }}
+              {{- $_ := set $status "reverted" $undid }}
+            {{- end }}
+            {{- $_ := set $status "drift" list }}
+            {{- if eq $policy "Replace" }}{{ $_ := set $status "extra" list }}{{ end }}
+            {{- $present = true }}
+          {{- end }}
+          {{- end }}
+          {{- end }}
+          {{- if $missingVrfs }}{{ $_ := set $status "missingVrfs" $missingVrfs }}{{ end }}
+          {{- $ready := and $present (not $status.drift) (or (ne $policy "Replace") (not $status.extra)) }}
+          ---
+          apiVersion: {{ $xr.apiVersion }}
+          kind: {{ $xr.kind }}
+          {{- if or $hold (not $ready) }}
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/ready: "False"
+          {{- end }}
+          status: {{ $status | toJson }}
           {{- end }}
 
   - step: auto-ready

@@ -1,0 +1,12 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-native:interface": {
+      "Tunnel": [
+        {
+          "name": 0
+        }
+      ]
+    }
+  }
+}

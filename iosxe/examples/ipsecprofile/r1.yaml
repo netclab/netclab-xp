@@ -1,13 +1,14 @@
 apiVersion: iosxe.netclab.dev/v1alpha1
 kind: IpsecProfile
 metadata:
-  name: r1-ipsec-profile
+  name: r1--classical-ipsec--461c477a
 spec:
+  managementPolicy: Replace
   deviceRef:
     name: r1
   after:
-  - {kind: IpsecTransformSet, name: r1-ipsec-transform-set}
-  - {kind: Ikev2Profile, name: r1-ikev2-profile}
+  - {kind: IpsecTransformSet, name: r1--classical-ts--771f3cb2}
+  - {kind: Ikev2Profile, name: r1--classical-profile--cdf1f733}
   name: CLASSICAL-IPSEC
   transformSets: [CLASSICAL-TS]
   ikev2Profile: CLASSICAL-PROFILE

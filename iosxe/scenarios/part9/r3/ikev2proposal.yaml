@@ -1,8 +1,9 @@
 apiVersion: iosxe.netclab.dev/v1alpha1
 kind: Ikev2Proposal
 metadata:
-  name: r3-ikev2-proposal
+  name: r3--classical-proposal--3a16aab3
 spec:
+  managementPolicy: Replace
   deviceRef:
     name: r3
   name: CLASSICAL-PROPOSAL

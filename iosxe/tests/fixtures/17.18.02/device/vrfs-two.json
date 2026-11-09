@@ -1,0 +1,21 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-native:native": {
+      "vrf": {
+        "definition": [
+          {
+            "name": "WAN"
+          }
+        ]
+      },
+      "ip": {
+        "vrf": [
+          {
+            "name": "LEGACY-VRF"
+          }
+        ]
+      }
+    }
+  }
+}

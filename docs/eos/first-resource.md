@@ -55,8 +55,8 @@ kubectl delete routedinterface r1e1ip -n netclab
 
 ## One router
 
-`Router` composes the low-level resources — a BGP instance, a neighbor,
-interfaces, a loopback, `ip routing` — from a single spec.
+`Router` composes the low-level resources (a BGP instance, a neighbor,
+interfaces, a loopback, `ip routing`) from a single spec.
 
 ```bash
 cat <<EOF | kubectl apply -f - -n netclab
@@ -124,7 +124,7 @@ Two resources, two devices, and a protocol adjacency that actually came up.
 kubectl delete netclab --all -n netclab
 ```
 
-Watch the requests rather than the command — deletion returns long before the
+Watch the requests rather than the command: deletion returns long before the
 devices change:
 
 ```bash

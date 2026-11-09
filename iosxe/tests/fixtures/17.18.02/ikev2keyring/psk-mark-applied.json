@@ -1,0 +1,11 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-eem:environment": [
+      {
+        "name": "netclab-e535a9a3",
+        "value": "fec84460 Ikev2Keyring/CLASSICAL-KEYRING/R3/psk"
+      }
+    ]
+  }
+}

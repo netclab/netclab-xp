@@ -22,6 +22,12 @@ spec:
     - name: PROFILE
       type: string
       jsonPath: .spec.name
+    - name: MODE
+      type: string
+      jsonPath: .spec.managementPolicy
+    - name: WANTS-NAME
+      type: string
+      jsonPath: .status.wantsName
     served: true
     referenceable: true
     schema:
@@ -30,10 +36,27 @@ spec:
         properties:
           spec:
             type: object
+            # A thin object (deviceRef and name) only observes.
+            x-kubernetes-validations:
+            - rule: >-
+                self.managementPolicy == 'Observe'
+                || (has(self.transformSets) && has(self.ikev2Profile))
+              message: to write, an IPsec profile needs transformSets and ikev2Profile
             properties:
+              managementPolicy:
+                type: string
+                description: >-
+                  Observe reads the IPsec profile on the router; Merge writes
+                  the fields of the spec; Replace makes the IPsec profile the
+                  spec, and removes it with the object.
+                enum: [Observe, Merge, Replace]
+                default: Observe
               deviceRef:
                 type: object
                 description: A Device in the profile's namespace.
+                x-kubernetes-validations:
+                - rule: self == oldSelf
+                  message: deviceRef cannot change
                 properties:
                   name:
                     type: string
@@ -64,6 +87,9 @@ spec:
                 type: string
                 description: Name of the IPsec profile on the router.
                 minLength: 1
+                x-kubernetes-validations:
+                - rule: self == oldSelf
+                  message: name cannot change
               transformSets:
                 type: array
                 description: Names (tags) of IPsec transform-sets on the router.
@@ -80,5 +106,82 @@ spec:
             required:
             - deviceRef
             - name
-            - transformSets
-            - ikev2Profile
+          status:
+            type: object
+            properties:
+              wantsName:
+                type: string
+                description: The name the object needs, when it has another.
+              observed:
+                type: object
+                description: The IPsec profile on the router, in the shape of the spec.
+                properties:
+                  transformSets:
+                    type: array
+                    items:
+                      type: string
+                  ikev2Profile:
+                    type: string
+              drift:
+                type: array
+                description: Fields whose values in the spec the router lacks.
+                items:
+                  type: object
+                  properties:
+                    field:
+                      type: string
+                    device:
+                      type: array
+                      items:
+                        type: string
+                    spec:
+                      type: array
+                      items:
+                        type: string
+              extra:
+                type: array
+                description: >-
+                  Values the router has beyond the spec, in the fields the spec
+                  sets; in Replace, in every field, a field the spec cannot
+                  hold, such as pfs, given as JSON.
+                items:
+                  type: object
+                  properties:
+                    field:
+                      type: string
+                    device:
+                      type: array
+                      items:
+                        type: string
+              reverted:
+                type: object
+                description: The drift and extra values the last write put back.
+                properties:
+                  time:
+                    type: string
+                  drift:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        field:
+                          type: string
+                        device:
+                          type: array
+                          items:
+                            type: string
+                        spec:
+                          type: array
+                          items:
+                            type: string
+                  extra:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        field:
+                          type: string
+                        device:
+                          type: array
+                          items:
+                            type: string

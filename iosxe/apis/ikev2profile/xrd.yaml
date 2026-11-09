@@ -22,6 +22,12 @@ spec:
     - name: PROFILE
       type: string
       jsonPath: .spec.name
+    - name: MODE
+      type: string
+      jsonPath: .spec.managementPolicy
+    - name: WANTS-NAME
+      type: string
+      jsonPath: .status.wantsName
     served: true
     referenceable: true
     schema:
@@ -30,10 +36,27 @@ spec:
         properties:
           spec:
             type: object
+            # A thin object (deviceRef and name) only observes.
+            x-kubernetes-validations:
+            - rule: >-
+                self.managementPolicy == 'Observe'
+                || (has(self.remoteAddresses) && has(self.keyring))
+              message: to write, a profile needs remoteAddresses and keyring
             properties:
+              managementPolicy:
+                type: string
+                description: >-
+                  Observe reads the profile on the router; Merge writes the
+                  fields of the spec; Replace makes the profile the spec, and
+                  removes it with the object.
+                enum: [Observe, Merge, Replace]
+                default: Observe
               deviceRef:
                 type: object
                 description: A Device in the profile's namespace.
+                x-kubernetes-validations:
+                - rule: self == oldSelf
+                  message: deviceRef cannot change
                 properties:
                   name:
                     type: string
@@ -64,6 +87,9 @@ spec:
                 type: string
                 description: Name of the profile on the router.
                 minLength: 1
+                x-kubernetes-validations:
+                - rule: self == oldSelf
+                  message: name cannot change
               remoteAddresses:
                 type: array
                 description: IPv4 addresses of the peers the profile matches, one host each.
@@ -74,14 +100,114 @@ spec:
                   format: ipv4
               keyring:
                 type: string
-                description: Name of the IKEv2 keyring on the router that holds the pre-shared keys.
+                description: >-
+                  Name of the IKEv2 keyring on the router that holds the
+                  pre-shared keys. The profile authenticates with pre-shared keys
+                  both ways, the one method of this version.
                 minLength: 1
               ppkKeyring:
                 type: string
                 description: Name of the IKEv2 keyring on the router that holds the post-quantum preshared keys.
                 minLength: 1
+              fvrf:
+                type: string
+                description: >-
+                  The front-door VRF the profile matches, by name, or any; without
+                  it the profile matches the global table alone.
+                minLength: 1
             required:
             - deviceRef
             - name
-            - remoteAddresses
-            - keyring
+          status:
+            type: object
+            properties:
+              wantsName:
+                type: string
+                description: The name the object needs, when it has another.
+              observed:
+                type: object
+                description: >-
+                  The profile on the router, in the shape of the spec. On IOS XE
+                  17.18 no read returns `keyring ppk`, so ppkKeyring is shown only
+                  where the package wrote it.
+                properties:
+                  remoteAddresses:
+                    type: array
+                    items:
+                      type: string
+                  keyring:
+                    type: string
+                  ppkKeyring:
+                    type: string
+                  fvrf:
+                    type: string
+              missingVrfs:
+                type: array
+                description: >-
+                  VRFs the spec names that the Device does not list; the profile
+                  is not applied until they are there.
+                items:
+                  type: string
+              drift:
+                type: array
+                description: Fields whose values in the spec the router lacks.
+                items:
+                  type: object
+                  properties:
+                    field:
+                      type: string
+                    device:
+                      type: array
+                      items:
+                        type: string
+                    spec:
+                      type: array
+                      items:
+                        type: string
+              extra:
+                type: array
+                description: >-
+                  Values the router has beyond the spec, in the fields the spec
+                  sets; in Replace, in every field, a field the spec cannot
+                  hold, such as description, given as JSON.
+                items:
+                  type: object
+                  properties:
+                    field:
+                      type: string
+                    device:
+                      type: array
+                      items:
+                        type: string
+              reverted:
+                type: object
+                description: The drift and extra values the last write put back.
+                properties:
+                  time:
+                    type: string
+                  drift:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        field:
+                          type: string
+                        device:
+                          type: array
+                          items:
+                            type: string
+                        spec:
+                          type: array
+                          items:
+                            type: string
+                  extra:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        field:
+                          type: string
+                        device:
+                          type: array
+                          items:
+                            type: string

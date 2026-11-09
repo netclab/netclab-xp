@@ -21,11 +21,14 @@ BASE=https://$ADDR/restconf
 NATIVE=$BASE/data/Cisco-IOS-XE-native:native
 
 # apply order
-KINDS=(ikev2proposal ikev2policy ikev2keyring ikev2profile ipsectransformset ipsecprofile tunnelinterface)
+KINDS=(device ikev2proposal ikev2policy ikev2keyring ikev2profile ipsectransformset ipsecprofile tunnelinterface)
 
-# the values the examples' Secrets hold
+# the values the examples' Secrets hold, and their uid in the tests (conftest.py)
 PSK=TestPsk123
 PPK_HEX=48656C6C6F506F737451756172746E756D   # "HelloPostQuartnum"
+SECRET_UID=00000000-0000-4000-8000-000000000001
+b64() { printf %s "$1" | base64 -w0; }
+sha8() { printf %s "$1" | sha256sum | cut -c1-8; }
 
 curl_() { curl -sk -m 60 -u "$AUTH" -H 'Accept: application/yang-data+json' \
   -H 'Content-Type: application/yang-data+json' "$@"; }
@@ -67,6 +70,10 @@ until_() { # until_ <what> <command>...: until the command succeeds, for at most
   done
 }
 
+vrf() { # vrf <name>: a `vrf definition` with IPv4, as an fVRF and `vrf forwarding` need
+  write PUT "$NATIVE/vrf/definition=$1" "{\"Cisco-IOS-XE-native:definition\": [{\"name\": \"$1\", \"address-family\": {\"ipv4\": {}}}]}"
+}
+
 onpeer() { # onpeer <command>...: the command's writes and waits on PEER
   local BASE=https://$PEER/restconf
   "$@"
@@ -82,6 +89,80 @@ record() { # record <kind>/<state> <url>: the status code and the body, as the p
     '{statusCode: $code, body: ($body | try fromjson catch $body)}' > "$FIXTURES/$1.json"
   rm -f "$body"
   echo "$1: HTTP $code"
+}
+
+patch() { # patch <kind>/<state> <body>: Merge's PATCH on native, sent and recorded with
+  # the router's answer; fails unless 2xx
+  waitsync
+  local body code
+  body=$(mktemp)
+  code=$(curl_ -o "$body" -w '%{http_code}' -X PATCH "$NATIVE" --data-binary "$2")
+  jq -n --arg url "$NATIVE" --argjson sent "$2" --argjson code "$code" --rawfile body "$body" \
+    '{request: {method: "PATCH", url: $url, body: $sent}, statusCode: $code,
+      body: ($body | try fromjson catch $body)}' > "$FIXTURES/$1.json"
+  rm -f "$body"
+  echo "$1: HTTP $code"
+  case $code in 2??) ;; *) exit 1 ;; esac
+}
+
+rpc() { # rpc <kind>/<state> <lines>: config-ios-cli-rpc, sent and recorded with the
+  # router's answer; fails unless the RPC succeeds
+  waitsync
+  local sent out
+  sent=$(jq -nc --arg c "$2" '{"Cisco-IOS-XE-cli-rpc:input":{"config-clis":$c}}')
+  out=$(mktemp)
+  curl_ -o "$out" -X POST "$BASE/operations/Cisco-IOS-XE-cli-rpc:config-ios-cli-rpc" --data-binary "$sent"
+  jq -n --arg url "$BASE/operations/Cisco-IOS-XE-cli-rpc:config-ios-cli-rpc" --argjson sent "$sent" \
+    --slurpfile body "$out" '{request: {method: "POST", url: $url, body: $sent}, body: $body[0]}' > "$FIXTURES/$1.json"
+  rm -f "$out"
+  echo "$1: $(jq -r '.body["Cisco-IOS-XE-cli-rpc:output"].result' "$FIXTURES/$1.json")"
+  jq -e '.body["Cisco-IOS-XE-cli-rpc:output"].result == "RPC request successful"' "$FIXTURES/$1.json" > /dev/null
+}
+
+device() { # the names the Device reads, before and with part 9's sections and LEGACY_PROPOSAL,
+  # and the VRFs, before and with one of each syntax
+  local config="$NATIVE/crypto?fields=Cisco-IOS-XE-crypto:ikev2(proposal/name;policy/name;keyring/name;profile/name);Cisco-IOS-XE-crypto:ipsec(transform-set/tag;profile/name)"
+  local tunnels="$NATIVE/interface?fields=Tunnel/name"
+  local vrfs="$NATIVE?fields=vrf/definition(name);ip/vrf(name)"
+  local crypto=$NATIVE/crypto/Cisco-IOS-XE-crypto
+  record device/config-absent "$config"
+  record device/tunnels-absent "$tunnels"
+  record device/vrfs-absent "$vrfs"
+  vrf WAN
+  write PUT "$NATIVE/ip/vrf=LEGACY-VRF" '{"Cisco-IOS-XE-native:vrf": [{"name": "LEGACY-VRF"}]}'
+  record device/vrfs-two "$vrfs"
+  write DELETE "$NATIVE/ip/vrf=LEGACY-VRF"
+  write DELETE "$NATIVE/vrf/definition=WAN"
+  write PUT "$crypto:ikev2/proposal=CLASSICAL-PROPOSAL" '{"Cisco-IOS-XE-crypto:proposal": [{"name": "CLASSICAL-PROPOSAL",
+    "encryption": {"aes-cbc-256": [null]}, "integrity": {"sha512": [null]}, "group": {"twenty": [null]}}]}'
+  write PUT "$crypto:ikev2/proposal=LEGACY_PROPOSAL" '{"Cisco-IOS-XE-crypto:proposal": [{"name": "LEGACY_PROPOSAL",
+    "encryption": {"aes-cbc-128": [null]}, "integrity": {"sha256": [null]}, "group": {"fourteen": [null]}}]}'
+  write PUT "$crypto:ikev2/policy=CLASSICAL-POLICY" '{"Cisco-IOS-XE-crypto:policy": [{"name": "CLASSICAL-POLICY",
+    "proposal": [{"proposals": "CLASSICAL-PROPOSAL"}]}]}'
+  write PUT "$crypto:ikev2/keyring=CLASSICAL-KEYRING" "$(jq -nc --arg psk "$PSK" '{"Cisco-IOS-XE-crypto:keyring": [{name: "CLASSICAL-KEYRING",
+    peer: [{name: "R3", address: {ipv4: {"ipv4-address": "10.0.23.2"}}, "pre-shared-key": {key: $psk}}]}]}')"
+  write PUT "$crypto:ikev2/profile=CLASSICAL-PROFILE" '{"Cisco-IOS-XE-crypto:profile": [{"name": "CLASSICAL-PROFILE",
+    "authentication": {"local": {"pre-share": {}}, "remote": {"pre-share": {}}}, "keyring": {"local": {"name": "CLASSICAL-KEYRING"}},
+    "match": {"identity": {"remote": {"address": {"ipv4": [{"ipv4-address": "10.0.23.2", "ipv4-mask": "255.255.255.255"}]}}}}}]}'
+  write PUT "$crypto:ipsec/transform-set=CLASSICAL-TS" '{"Cisco-IOS-XE-crypto:transform-set": [{"tag": "CLASSICAL-TS",
+    "esp": "esp-gcm", "key-bit": "256", "mode": {"tunnel-choice": [null]}}]}'
+  write PUT "$crypto:ipsec/profile=CLASSICAL-IPSEC" '{"Cisco-IOS-XE-crypto:profile": [{"name": "CLASSICAL-IPSEC",
+    "set": {"transform-set": ["CLASSICAL-TS"], "ikev2-profile": "CLASSICAL-PROFILE"}}]}'
+  write PUT "$NATIVE/interface/Tunnel=0" '{"Cisco-IOS-XE-native:Tunnel": [{"name": 0,
+    "ip": {"address": {"primary": {"address": "192.168.100.1", "mask": "255.255.255.0"}}},
+    "Cisco-IOS-XE-tunnel:tunnel": {"source": "GigabitEthernet2", "destination-config": {"ipv4": "10.0.23.2"},
+    "mode": {"ipsec": {"ipv4-mode": {}, "ipv4": {}}},
+    "protection": {"Cisco-IOS-XE-crypto:ipsec": {"profile-option": {"name": "CLASSICAL-IPSEC"}}}}}]}'
+  record device/config-part9 "$config"
+  record device/tunnels-part9 "$tunnels"
+  write DELETE "$NATIVE/interface/Tunnel=0"
+  write DELETE "$crypto:ipsec/profile=CLASSICAL-IPSEC"
+  write DELETE "$crypto:ipsec/transform-set=CLASSICAL-TS"
+  write DELETE "$crypto:ikev2/profile=CLASSICAL-PROFILE"
+  write DELETE "$crypto:ikev2/keyring=CLASSICAL-KEYRING"
+  write DELETE "$crypto:ikev2/policy=CLASSICAL-POLICY"
+  write DELETE "$crypto:ikev2/proposal=LEGACY_PROPOSAL"
+  write DELETE "$crypto:ikev2/proposal=CLASSICAL-PROPOSAL"
 }
 
 ikev2proposal() { # iosxe/examples/ikev2proposal/r1.yaml
@@ -104,6 +185,10 @@ ikev2proposal() { # iosxe/examples/ikev2proposal/r1.yaml
   record ikev2proposal/proposal-with-prf "$url"
   put '.group = {"nineteen": [null]}'
   record ikev2proposal/proposal-other-group "$url"
+  # Merge's write over group 19 alone: a merge keeps 19 beside the example's 20
+  patch ikev2proposal/proposal-patch \
+    "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {proposal: [$p]}}}}')"
+  record ikev2proposal/proposal-patched "$url"
 
   write DELETE "$url"
 }
@@ -128,40 +213,81 @@ ikev2policy() { # iosxe/examples/ikev2policy/r1.yaml, on the proposal of iosxe/e
   record ikev2policy/policy-other-proposal "$url"
   put '.match = {"fvrf": {"any": [null]}}'
   record ikev2policy/policy-with-match "$url"
+  # The router refuses a VRF's name in place of `any`, by PUT or PATCH: through no `match`.
+  put .
+  vrf WAN
+  put '.match = {"fvrf": {"name": "WAN"}}'
+  record ikev2policy/policy-fvrf-wan "$url"
+  put '.match = {"fvrf": {"name": "WAN"}, "address": {"local-ip": ["10.0.12.1"]}}'
+  record ikev2policy/policy-fvrf-and-address "$url"
+  # Merge's write of fvrf WAN over a policy with no `match`
+  put .
+  patch ikev2policy/policy-fvrf-patch \
+    "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {policy: [$p | .match = {"fvrf": {"name": "WAN"}}]}}}}')"
+  record ikev2policy/policy-fvrf-patched "$url"
+  # Merge's write over `default` alone: a merge keeps it beside the example's proposal
+  put '.proposal = [{"proposals": "default"}]'
+  patch ikev2policy/policy-patch \
+    "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {policy: [$p]}}}}')"
+  record ikev2policy/policy-patched "$url"
 
   write DELETE "$url"
   write DELETE "$proposal"
+  write DELETE "$NATIVE/vrf/definition=WAN"
 }
 
 ikev2keyring() { # iosxe/examples/ikev2keyring/r1.yaml
   local url=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/keyring=CLASSICAL-KEYRING
-  local body
-  body() {
-    jq -nc --arg psk "$1" '{"Cisco-IOS-XE-crypto:keyring": [{name: "CLASSICAL-KEYRING", peer: [{name: "R3",
-      address: {ipv4: {"ipv4-address": "10.0.23.2"}}, "pre-shared-key": {key: $psk}}]}]}'
+  local eem=$NATIVE/event/Cisco-IOS-XE-eem:manager/environment
+  body() { # body [psk]: the example's keyring, without a PSK when none is given
+    jq -nc --arg psk "${1:-}" '{"Cisco-IOS-XE-crypto:keyring": [{name: "CLASSICAL-KEYRING", peer: [{name: "R3",
+      address: {ipv4: {"ipv4-address": "10.0.23.2"}}} + if $psk == "" then {} else {"pre-shared-key": {key: $psk}} end]}]}'
   }
+  # the keyrings' names, which tell the origin before the keyring's Request writes
+  local names="$NATIVE/crypto?fields=Cisco-IOS-XE-crypto:ikev2/keyring/name"
+  local other=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/keyring=OTHER-KEYRING
   absent "$url"
+  absent "$other"
   record ikev2keyring/keyring-absent "$url"
-  record ikev2keyring/peer-absent "$url/peer=R3"
+  record ikev2keyring/origin-absent "$names"
+  write PUT "$other" '{"Cisco-IOS-XE-crypto:keyring": [{"name": "OTHER-KEYRING"}]}'
+  record ikev2keyring/origin-other "$names"
+  write DELETE "$other"
 
   write PUT "$url" "$(body "$PSK")"
-  record ikev2keyring/keyring-unmarked "$url"
-  record ikev2keyring/peer-unmarked "$url/peer=R3"
-
+  record ikev2keyring/keyring-applied "$url"
+  record ikev2keyring/origin-applied "$names"
   cli "crypto ikev2 keyring CLASSICAL-KEYRING
  peer R3
   ppk manual id PPK-R1R3 key hex $PPK_HEX required
-  description ppk PPK-R1R3"
-  record ikev2keyring/keyring-applied "$url"
-  record ikev2keyring/peer-marked "$url/peer=R3"
-
-  cli "crypto ikev2 keyring CLASSICAL-KEYRING
- peer R3
-  description ppk PPK-OLD"
-  record ikev2keyring/peer-old-mark "$url/peer=R3"
-
+  description made by hand"
+  record ikev2keyring/keyring-described "$url"
   write PUT "$url" "$(body OtherPsk456)"
   record ikev2keyring/keyring-other-psk "$url"
+  write PUT "$url" "$(body)"
+  record ikev2keyring/keyring-no-psk "$url"
+  # Merge's write over another address and another PSK: a merge puts the address back
+  # and leaves the PSK
+  write PUT "$url" "$(body OtherPsk456 | jq -c '.["Cisco-IOS-XE-crypto:keyring"][0].peer[0].address.ipv4["ipv4-address"] = "10.0.23.9"')"
+  patch ikev2keyring/keyring-patch "$(body | jq -c '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {keyring: .["Cisco-IOS-XE-crypto:keyring"]}}}}')"
+  record ikev2keyring/keyring-patched "$url"
+
+  # The marks of the examples' keys, as the composition makes them from SECRET_UID.
+  local key place var mark
+  for key in psk ppk; do
+    place=Ikev2Keyring/CLASSICAL-KEYRING/R3/$key
+    var=netclab-$(sha8 "$place")
+    if [ $key = psk ]; then mark=$(sha8 "$SECRET_UID/$(b64 "$PSK")")
+    else mark=$(sha8 "$SECRET_UID/$(b64 "$PPK_HEX")/PPK-R1R3"); fi
+    absent "$eem=$var"
+    record ikev2keyring/$key-mark-absent "$eem=$var"
+    # the mark alone, as a takeover writes it to a key the router holds
+    rpc ikev2keyring/$key-mark-rpc "event manager environment $var \"$mark $place\""
+    record ikev2keyring/$key-mark-applied "$eem=$var"
+    write PUT "$eem=$var" "$(jq -nc --arg n "$var" --arg v "00000000 $place" '{"Cisco-IOS-XE-eem:environment": [{name: $n, value: $v}]}')"
+    record ikev2keyring/$key-mark-other "$eem=$var"
+    write DELETE "$eem=$var"
+  done
 
   write DELETE "$url"
 }
@@ -183,13 +309,28 @@ ikev2profile() { # iosxe/examples/ikev2profile/r1.yaml, on a keyring CLASSICAL-K
   put .
   record ikev2profile/profile-applied "$url"
 
+  # `keyring ppk`, which no read returns, and a description made by hand
   cli "crypto ikev2 profile CLASSICAL-PROFILE
  keyring ppk CLASSICAL-KEYRING
- description ppk CLASSICAL-KEYRING"
-  record ikev2profile/profile-marked "$url"
-  cli "crypto ikev2 profile CLASSICAL-PROFILE
- description ppk OLD-KR"
-  record ikev2profile/profile-old-mark "$url"
+ description made by hand"
+  record ikev2profile/profile-described "$url"
+
+  # The mark of the example's PPK keyring, as the composition makes it.
+  local eem=$NATIVE/event/Cisco-IOS-XE-eem:manager/environment
+  local place=Ikev2Profile/CLASSICAL-PROFILE/ppk
+  local var=netclab-$(sha8 "$place")
+  absent "$eem=$var"
+  record ikev2profile/ppk-mark-absent "$eem=$var"
+  # the line and its mark in one RPC, as a takeover writes them: no clear
+  rpc ikev2profile/ppk-rpc "crypto ikev2 profile CLASSICAL-PROFILE
+ keyring ppk CLASSICAL-KEYRING
+ exit
+event manager environment $var \"$(sha8 CLASSICAL-KEYRING) $place CLASSICAL-KEYRING\""
+  record ikev2profile/ppk-mark-applied "$eem=$var"
+  write PUT "$eem=$var" "$(jq -nc --arg n "$var" --arg v "$(sha8 OLD-KEYRING) $place OLD-KEYRING" \
+    '{"Cisco-IOS-XE-eem:environment": [{name: $n, value: $v}]}')"
+  record ikev2profile/ppk-mark-other "$eem=$var"
+  write DELETE "$eem=$var"
 
   put 'del(.match.identity.remote.address.ipv4[0]["ipv4-mask"])'
   put 'del(.match.identity.remote.address.ipv4[0]["ipv4-mask"])'
@@ -198,9 +339,28 @@ ikev2profile() { # iosxe/examples/ikev2profile/r1.yaml, on a keyring CLASSICAL-K
   record ikev2profile/profile-other-address "$url"
   put '.match.identity.remote.address.ipv4 += [{"ipv4-address": "10.0.12.2", "ipv4-mask": "255.255.255.255"}]'
   record ikev2profile/profile-extra-address "$url"
+  vrf WAN
+  put '.match.fvrf = {"name": "WAN"}'
+  record ikev2profile/profile-fvrf-wan "$url"
+  # `any` in place of a VRF's name, which the router takes for a policy by PUT
+  put '.match.fvrf = {"any": [null]}'
+  record ikev2profile/profile-fvrf-any "$url"
+  # Merge's write of fvrf WAN over a profile with no fvrf
+  put .
+  patch ikev2profile/profile-fvrf-patch \
+    "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {profile: [$p | .match.fvrf = {"name": "WAN"}]}}}}')"
+  record ikev2profile/profile-fvrf-patched "$url"
+  # Merge's write over another address and a description made by hand: a merge adds
+  # the spec's address and keeps both
+  put '.match.identity.remote.address.ipv4 = [{"ipv4-address": "10.0.12.9", "ipv4-mask": "255.255.255.255"}]
+    | .description = "made by hand"'
+  patch ikev2profile/profile-patch \
+    "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {profile: [$p]}}}}')"
+  record ikev2profile/profile-patched "$url"
 
   write DELETE "$url"
   write DELETE "$keyring"
+  write DELETE "$NATIVE/vrf/definition=WAN"
 }
 
 ipsectransformset() { # iosxe/examples/ipsectransformset/r1.yaml
@@ -220,6 +380,16 @@ ipsectransformset() { # iosxe/examples/ipsectransformset/r1.yaml
   record ipsectransformset/transform-set-transport "$url"
   put '.esp = "esp-aes" | .["esp-hmac"] = "esp-sha256-hmac"'
   record ipsectransformset/transform-set-aes-with-hmac "$url"
+  # Merge's write over a section that differs in every field: the router drops esp-hmac
+  # itself when esp becomes esp-gcm
+  put '.esp = "esp-aes" | .["key-bit"] = "192" | .["esp-hmac"] = "esp-sha256-hmac" | .mode = {"transport-choice": {}}'
+  patch ipsectransformset/transform-set-patch \
+    "$(jq -nc --argjson t "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ipsec": {"transform-set": [$t]}}}}')"
+  record ipsectransformset/transform-set-patched "$url"
+  # a key length of 128, the router's default, named in the merge to replace 256
+  patch ipsectransformset/transform-set-patch-key-bit-128 \
+    "$(jq -nc --argjson t "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ipsec": {"transform-set": [$t | .["key-bit"] = "128"]}}}}')"
+  record ipsectransformset/transform-set-patched-key-bit-128 "$url"
 
   write DELETE "$url"
 }
@@ -256,6 +426,11 @@ ipsecprofile() { # iosxe/examples/ipsecprofile/r1.yaml, on transform-sets and an
   record ipsecprofile/profile-no-ikev2-profile "$url"
   put '.set.pfs = {"group": "group20"}'
   record ipsecprofile/profile-with-pfs "$url"
+  # Merge's write over OTHER-TS alone and no IKEv2 profile: a merge keeps OTHER-TS
+  put '.set = {"transform-set": ["OTHER-TS"]}'
+  patch ipsecprofile/profile-patch \
+    "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ipsec": {profile: [$p]}}}}')"
+  record ipsecprofile/profile-patched "$url"
 
   write DELETE "$url"
   write DELETE "$profile"
@@ -300,6 +475,10 @@ tunnelinterface() { # iosxe/examples/tunnelinterface/r1.yaml, on part 9's IPsec 
       '[.["Cisco-IOS-XE-crypto-oper:crypto-ikev2-sa"][]?["sa-data"] | select(.["remote-ip-addr"] == "10.0.23.2")
         | .["sa-status"]] | index($s) != null' > /dev/null
   }
+  sa_gone() { # no SA to 10.0.23.2, as a tunnel deleted before can leave one pending a while
+    curl_ "$sa" | jq -e '[.["Cisco-IOS-XE-crypto-oper:crypto-ikev2-sa"][]?["sa-data"]
+      | select(.["remote-ip-addr"] == "10.0.23.2")] | length == 0' > /dev/null 2>&1 || [ -z "$(curl_ "$sa")" ]
+  }
   oper_is() { # oper_is <state>: Tunnel0's oper-status
     curl_ "$oper" | jq -e --arg s "if-oper-state-$1" '.["Cisco-IOS-XE-interfaces-oper:oper-status"] == $s' > /dev/null
   }
@@ -308,6 +487,7 @@ tunnelinterface() { # iosxe/examples/tunnelinterface/r1.yaml, on part 9's IPsec 
   absent "$url"
   record tunnelinterface/tunnel-absent "$url"
   record tunnelinterface/oper-absent "$oper"
+  until_ "without an SA" sa_gone
   record tunnelinterface/sa-none "$sa"
 
   stack "$NATIVE" R3 10.0.23.2
@@ -341,9 +521,30 @@ tunnelinterface() { # iosxe/examples/tunnelinterface/r1.yaml, on part 9's IPsec 
   record tunnelinterface/tunnel-no-protection "$url"
   put '.shutdown = [null]'
   record tunnelinterface/tunnel-shutdown "$url"
+  vrf WAN
+  vrf OVERLAY
+  put '.["Cisco-IOS-XE-tunnel:tunnel"]["vrf-config"] = {"vrf-common": {"vrf": "WAN"}}'
+  record tunnelinterface/tunnel-vrf-wan "$url"
+  put '.vrf = {"forwarding": "OVERLAY"}'
+  record tunnelinterface/tunnel-forwarding-overlay "$url"
+  # Merge's write of both VRFs over a tunnel in neither
+  put .
+  patch tunnelinterface/tunnel-vrfs-patch \
+    "$(jq -nc --argjson t "$example" '{"Cisco-IOS-XE-native:native": {interface: {Tunnel: [$t
+      | .vrf = {"forwarding": "OVERLAY"} | .["Cisco-IOS-XE-tunnel:tunnel"]["vrf-config"] = {"vrf-common": {"vrf": "WAN"}}]}}}')"
+  record tunnelinterface/tunnel-vrfs-patched "$url"
+  # Merge's write over another destination and mask, and a description made by hand:
+  # a merge puts back the spec's and keeps the description
+  put '.ip.address.primary.mask = "255.255.255.255" | .description = "made by hand"
+    | .["Cisco-IOS-XE-tunnel:tunnel"]["destination-config"].ipv4 = "10.0.23.9"'
+  patch tunnelinterface/tunnel-patch \
+    "$(jq -nc --argjson t "$example" '{"Cisco-IOS-XE-native:native": {interface: {Tunnel: [$t]}}}')"
+  record tunnelinterface/tunnel-patched "$url"
 
   write DELETE "$url"
   unstack "$NATIVE"
+  write DELETE "$NATIVE/vrf/definition=OVERLAY"
+  write DELETE "$NATIVE/vrf/definition=WAN"
 }
 
 mkdir -p "$FIXTURES"

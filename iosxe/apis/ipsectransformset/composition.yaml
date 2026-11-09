@@ -8,14 +8,21 @@ spec:
     kind: IpsecTransformSet
   mode: Pipeline
   pipeline:
-  # One Request owns the transform-set over RESTCONF. The router leaves out a
-  # key-bit of 128, its default, so the body does too, and fills in the mode,
-  # so the body always carries one: the GET then returns the body as it is.
-  # The router refuses to delete a transform-set an IPsec profile names.
-  # Once every object in `after` is Ready the Requests are composed, and they
-  # stay composed whatever happens to those objects; until then none is, and the
-  # XR is not Ready, where Crossplane would call an XR composing nothing Ready. A
-  # Usage of each object in `after` holds back its delete until this XR is gone.
+  # One Request owns the transform-set over RESTCONF. Its fields are single
+  # values, so a value of the spec the router lacks is drift, and in Replace
+  # a value where the spec leaves the field out is extra. The router leaves out a
+  # key-bit of 128 and fills in tunnel as the mode, its defaults, and drops
+  # esp-hmac when esp becomes esp-gcm or esp-gmac. The router refuses to delete a
+  # transform-set an IPsec profile names.
+  # Observe only reads; Merge PATCHes the fields of the spec;
+  # Replace PUTs the transform-set and DELETEs it with the object. The status
+  # is the last GET in the shape of the spec; Ready means the mode's write would
+  # change nothing.
+  # The Device comes first in `after`, as if the spec named it. Once every object
+  # in `after` is Ready the Requests are composed, and they stay composed whatever
+  # happens to those objects; until then none is, and the XR is not Ready, where
+  # Crossplane would call an XR composing nothing Ready. A Usage of each object in
+  # `after` holds back its delete until this XR is gone.
   - step: requests
     functionRef:
       name: crossplane-contrib-function-go-templating
@@ -28,6 +35,29 @@ spec:
           {{- $xr := .observed.composite.resource }}
           {{- $ns := $xr.metadata.namespace }}
           {{- $after := default (list) $xr.spec.after }}
+          {{- $observed := default (dict) .observed.resources }}
+          {{- $policy := $xr.spec.managementPolicy | default "Observe" }}
+          {{- $old := default (dict) $xr.status }}
+
+          {{- /* ---- its name: under another name the object composes nothing ---- */}}
+          {{- /* <device>--<slug>--<8 hex>, at most 63 characters */}}
+          {{- $device := $xr.spec.deviceRef.name }}
+          {{- $after = prepend $after (dict "kind" "Device" "name" $device) }}
+          {{- $slug := regexReplaceAll "[^a-z0-9]+" (lower $xr.spec.name) "-" | trimAll "-" }}
+          {{- $slug = trunc (int (max 0 (sub 51 (len $device)))) $slug | trimSuffix "-" }}
+          {{- $want := printf "%s--%s--%s" $device $slug (sha256sum $xr.spec.name | trunc 8) }}
+          {{- if ne $xr.metadata.name $want }}
+          ---
+          apiVersion: {{ $xr.apiVersion }}
+          kind: {{ $xr.kind }}
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/ready: "False"
+          status:
+            wantsName: {{ $want }}
+          {{- else }}
+
+          {{- /* ---- what it requires ---- */}}
           ---
           apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
           kind: ExtraResources
@@ -35,7 +65,7 @@ spec:
             device:
               apiVersion: iosxe.netclab.dev/v1alpha1
               kind: Device
-              matchName: {{ $xr.spec.deviceRef.name }}
+              matchName: {{ $device }}
               namespace: {{ $ns }}
             {{- range $i, $a := $after }}
             after-{{ $i }}:
@@ -45,6 +75,8 @@ spec:
               namespace: {{ $ns }}
             {{- end }}
           {{- $extra := default (dict) .extraResources }}
+
+          {{- /* ---- `after`: a Usage of each object it waits on, and whether all are Ready ---- */}}
           {{- $waiting := false }}
           {{- range $i, $a := $after }}
           {{- $ready := false }}
@@ -73,27 +105,35 @@ spec:
           {{- end }}{{ end }}
           {{- if not $ready }}{{ $waiting = true }}{{ end }}
           {{- end }}
-          {{- if and $waiting (not (index (default (dict) .observed.resources) "transform-set")) }}
-          ---
-          apiVersion: {{ $xr.apiVersion }}
-          kind: {{ $xr.kind }}
-          metadata:
-            annotations:
-              gotemplating.fn.crossplane.io/ready: "False"
-          {{- else }}
+          {{- $hold := and $waiting (not (hasKey $observed "transform-set")) }}
+          {{- $fields := list "esp" "keyBits" "espHmac" "mode" }}
+          {{- $keyed := list "esp-aes" "esp-gcm" "esp-gmac" }}
+          {{- $spec := dict }}
+          {{- range $f := $fields }}{{ with get $xr.spec $f }}{{ $_ := set $spec $f (toString .) }}{{ end }}{{ end }}
+
+          {{- /* ---- its Requests, once nothing holds them back ---- */}}
+          {{- /* the transform-set a PUT of the spec leaves, the router's defaults in */}}
+          {{- $whole := deepCopy $spec }}
+          {{- if and (has (get $spec "esp") $keyed) (not (hasKey $spec "keyBits")) }}{{ $_ := set $whole "keyBits" "128" }}{{ end }}
+          {{- if not (hasKey $spec "mode") }}{{ $_ := set $whole "mode" "tunnel" }}{{ end }}
+          {{- if not $hold }}
           {{- with .extraResources }}{{ with index . "device" }}{{ with .items }}
           {{- $dev := (index . 0).resource }}
           {{- $cred := $dev.spec.credentialsSecretRef }}
           {{- $auth := printf "{{ %s:%s:%s }}" $cred.name $ns $cred.key }}
-          {{- $url := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native/crypto/Cisco-IOS-XE-crypto:ipsec/transform-set=%s" $dev.spec.address $xr.spec.name }}
-          {{- $ts := dict "tag" $xr.spec.name "esp" $xr.spec.esp }}
-          {{- with $xr.spec.keyBits }}{{ if ne (toString .) "128" }}{{ $_ := set $ts "key-bit" (toString .) }}{{ end }}{{ end }}
-          {{- with $xr.spec.espHmac }}{{ $_ := set $ts "esp-hmac" . }}{{ end }}
-          {{- if eq ($xr.spec.mode | default "tunnel") "transport" }}
-            {{- $_ := set $ts "mode" (dict "transport-choice" (dict)) }}
-          {{- else }}
-            {{- $_ := set $ts "mode" (dict "tunnel-choice" (list nil)) }}
-          {{- end }}
+          {{- $native := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native" $dev.spec.address }}
+          {{- $url := printf "%s/crypto/Cisco-IOS-XE-crypto:ipsec/transform-set=%s" $native $xr.spec.name }}
+          {{- $put := dict "tag" $xr.spec.name }}
+          {{- $merge := dict "tag" $xr.spec.name }}
+          {{- with $spec.esp }}{{ $_ := set $put "esp" . }}{{ $_ := set $merge "esp" . }}{{ end }}
+          {{- with $spec.espHmac }}{{ $_ := set $put "esp-hmac" . }}{{ $_ := set $merge "esp-hmac" . }}{{ end }}
+          {{- /* the GET leaves out a key-bit of 128, so the PUT does too; a merge has to name it to replace another */}}
+          {{- with $spec.keyBits }}{{ if ne . "128" }}{{ $_ := set $put "key-bit" . }}{{ end }}{{ $_ := set $merge "key-bit" . }}{{ end }}
+          {{- $modes := dict "tunnel" (dict "tunnel-choice" (list nil)) "transport" (dict "transport-choice" (dict)) }}
+          {{- $_ := set $put "mode" (get $modes $whole.mode) }}
+          {{- with $spec.mode }}{{ $_ := set $merge "mode" (get $modes .) }}{{ end }}
+          {{- /* a merge on native, which exists, creates the transform-set if it does not */}}
+          {{- $patch := dict "Cisco-IOS-XE-native:native" (dict "crypto" (dict "Cisco-IOS-XE-crypto:ipsec" (dict "transform-set" (list $merge)))) }}
           ---
           apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
@@ -101,6 +141,13 @@ spec:
             annotations:
               gotemplating.fn.crossplane.io/composition-resource-name: transform-set
           spec:
+            {{- if eq $policy "Observe" }}
+            managementPolicies: ["Observe"]
+            {{- else if eq $policy "Merge" }}
+            managementPolicies: ["Observe", "Create", "Update"]
+            {{- else }}
+            managementPolicies: ["*"]
+            {{- end }}
             forProvider:
               insecureSkipTLSVerify: {{ $dev.spec.insecureSkipTLSVerify }}
               headers:
@@ -109,11 +156,21 @@ spec:
                 Authorization: ["Basic {{ $auth }}"]
               payload:
                 baseUrl: {{ $url | quote }}
-                body: {{ dict "Cisco-IOS-XE-crypto:transform-set" (list $ts) | toJson | quote }}
+                body: {{ (ternary (dict "Cisco-IOS-XE-crypto:transform-set" (list $put)) $patch (eq $policy "Replace")) | toJson | quote }}
               mappings:
               - action: OBSERVE
                 method: GET
                 url: .payload.baseUrl
+              {{- if eq $policy "Merge" }}
+              - action: CREATE
+                method: PATCH
+                url: {{ $native | quote | quote }}
+                body: .payload.body
+              - action: UPDATE
+                method: PATCH
+                url: {{ $native | quote | quote }}
+                body: .payload.body
+              {{- else if eq $policy "Replace" }}
               - action: CREATE
                 method: PUT
                 url: .payload.baseUrl
@@ -125,13 +182,93 @@ spec:
               - action: REMOVE
                 method: DELETE
                 url: .payload.baseUrl
+              {{- end }}
               expectedResponseCheck:
                 type: CUSTOM
                 logic: |
                   if .response.statusCode != 200 then false else
-                    .response.body["Cisco-IOS-XE-crypto:transform-set"][0] == {{ $ts | toJson }}
+                    .response.body["Cisco-IOS-XE-crypto:transform-set"][0] as $t
+                    | {esp: $t.esp,
+                       keyBits: (if ($t.esp | IN("esp-aes", "esp-gcm", "esp-gmac")) then ($t["key-bit"] // "128") else null end),
+                       espHmac: $t["esp-hmac"],
+                       mode: ($t.mode // {} | keys | first // "" | sub("-choice$"; ""))}
+                    | with_entries(select(.value != null and .value != "")) as $router
+                  {{- if eq $policy "Replace" }}
+                    | $router == {{ $whole | toJson }} and ($t | del(.tag, .esp, .["key-bit"], .["esp-hmac"], .mode)) == {}
+                  {{- else }}
+                    | {{ $spec | toJson }} | all(to_entries[]; $router[.key] == .value)
+                  {{- end }}
                   end
           {{- end }}{{ end }}{{ end }}
+          {{- end }}
+
+          {{- /* ---- the status: the last GET in the shape of the spec, and Ready ---- */}}
+          {{- $status := dict }}
+          {{- range $k := list "observed" "drift" "extra" "reverted" }}{{ if hasKey $old $k }}{{ $_ := set $status $k (index $old $k) }}{{ end }}{{ end }}
+          {{- $present := hasKey $status "observed" }}
+          {{- with index $observed "transform-set" }}
+          {{- $rs := default (dict) .resource.status }}
+          {{- $method := "" }}{{ with $rs.requestDetails }}{{ $method = .method | default "" }}{{ end }}
+          {{- with $rs.response }}
+          {{- $code := int (.statusCode | default 0) }}
+          {{- if eq $method "GET" }}
+            {{- if eq $code 200 }}
+              {{- $t := index (index (fromYaml .body) "Cisco-IOS-XE-crypto:transform-set") 0 }}
+              {{- $router := dict }}
+              {{- with $t.esp }}{{ $_ := set $router "esp" . }}{{ end }}
+              {{- if has ($t.esp | default "") $keyed }}{{ $_ := set $router "keyBits" (get $t "key-bit" | default "128" | toString) }}{{ end }}
+              {{- with get $t "esp-hmac" }}{{ $_ := set $router "espHmac" . }}{{ end }}
+              {{- with $t.mode }}{{ range $k, $v := . }}{{ $_ := set $router "mode" (trimSuffix "-choice" $k) }}{{ end }}{{ end }}
+              {{- $drift := list }}
+              {{- $more := list }}
+              {{- range $f := $fields }}
+                {{- $theirs := ternary (list (get $router $f)) list (hasKey $router $f) }}
+                {{- if hasKey $spec $f }}
+                  {{- if ne (get $router $f) (get $spec $f) }}{{ $drift = append $drift (dict "field" $f "device" $theirs "spec" (list (get $spec $f))) }}{{ end }}
+                {{- else if and (eq $policy "Replace") (hasKey $router $f) (ne (get $router $f) (get $whole $f)) }}
+                  {{- $more = append $more (dict "field" $f "device" $theirs) }}
+                {{- end }}
+              {{- end }}
+              {{- if eq $policy "Replace" }}
+                {{- range $k, $v := $t }}
+                  {{- if not (has $k (list "tag" "esp" "key-bit" "esp-hmac" "mode")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}
+                {{- end }}
+              {{- end }}
+              {{- $seen := deepCopy $router }}
+              {{- with $router.keyBits }}{{ $_ := set $seen "keyBits" (atoi .) }}{{ end }}
+              {{- $_ := set $status "observed" $seen }}
+              {{- $_ := set $status "drift" $drift }}
+              {{- $_ := set $status "extra" $more }}
+              {{- $present = true }}
+            {{- else }}
+              {{- $_ := unset $status "observed" }}
+              {{- $_ := set $status "drift" list }}
+              {{- $_ := set $status "extra" list }}
+              {{- $present = false }}
+            {{- end }}
+          {{- else if and $method (ge $code 200) (lt $code 300) }}
+            {{- /* after a write that succeeded the response is still the GET before it: the router has the spec, the next GET shows it */}}
+            {{- $undid := dict "drift" (default list $old.drift) "extra" (ternary (default list $old.extra) list (eq $policy "Replace")) }}
+            {{- if or $undid.drift $undid.extra }}
+              {{- $_ := set $undid "time" (dateInZone "2006-01-02T15:04:05Z" (now) "UTC") }}
+              {{- $_ := set $status "reverted" $undid }}
+            {{- end }}
+            {{- $_ := set $status "drift" list }}
+            {{- if eq $policy "Replace" }}{{ $_ := set $status "extra" list }}{{ end }}
+            {{- $present = true }}
+          {{- end }}
+          {{- end }}
+          {{- end }}
+          {{- $ready := and $present (not $status.drift) (or (ne $policy "Replace") (not $status.extra)) }}
+          ---
+          apiVersion: {{ $xr.apiVersion }}
+          kind: {{ $xr.kind }}
+          {{- if or $hold (not $ready) }}
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/ready: "False"
+          {{- end }}
+          status: {{ $status | toJson }}
           {{- end }}
 
   - step: auto-ready

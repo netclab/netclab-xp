@@ -8,17 +8,26 @@ spec:
     kind: Ikev2Keyring
   mode: Pipeline
   pipeline:
-  # One Request owns the keyring over RESTCONF. One Request per peer with a PPK
-  # owns its `ppk manual` line over cli-rpc: 17.18's YANG has no PPK, and no
-  # read on the router returns the line. The same RPC therefore writes
-  # `description ppk <id>` on the peer, and that mark is what the Request
-  # observes: without it the PPK counts as absent and is applied again. The RPCs
-  # are composed once the keyring's Request is Ready: sent together, the PUT and
-  # the RPCs undo each other's mark and peer until each has been retried.
-  # Once every object in `after` is Ready the Requests are composed, and they
-  # stay composed whatever happens to those objects; until then none is, and the
-  # XR is not Ready, where Crossplane would call an XR composing nothing Ready. A
-  # Usage of each object in `after` holds back its delete until this XR is gone.
+  # One Request owns the keyring. Observe only reads; Merge PATCHes the peers
+  # and their addresses, without keys; Replace PUTs the keyring with
+  # its PSKs, since a PUT without one removes it, and DELETEs it with the object.
+  # The status is the last GET in the shape of the spec, a key only as whether it
+  # is there; Ready means the mode's writes would change nothing.
+  # In Merge and Replace each key has a Request of its own, once the
+  # keyring's is Ready, which observes only the key's mark, an EEM variable. Its
+  # RPC writes the key, the mark, and clears the peer's SA, so the key is in use
+  # at once; where the package took the keyring over and the mark is missing, it
+  # writes the mark alone, and a key the router holds stays as it is. Whether the
+  # package took it over, status.origin, comes from a read of the keyrings' names
+  # before the keyring's Request writes, and stays. In Replace a Usage holds
+  # back the keyring's DELETE until each PPK line is removed. Back in Observe the
+  # key Requests stay and only read, so neither the change of mode nor the
+  # object's delete takes a key or its mark off.
+  # The Device comes first in `after`, as if the spec named it. Once every object
+  # in `after` is Ready the Requests are composed, and they stay composed whatever
+  # happens to those objects; until then none is, and the XR is not Ready, where
+  # Crossplane would call an XR composing nothing Ready. A Usage of each object in
+  # `after` holds back its delete until this XR is gone.
   - step: requests
     functionRef:
       name: crossplane-contrib-function-go-templating
@@ -31,6 +40,38 @@ spec:
           {{- $xr := .observed.composite.resource }}
           {{- $ns := $xr.metadata.namespace }}
           {{- $after := default (list) $xr.spec.after }}
+          {{- $observed := default (dict) .observed.resources }}
+          {{- $policy := $xr.spec.managementPolicy | default "Observe" }}
+          {{- $writes := ne $policy "Observe" }}
+          {{- $old := default (dict) $xr.status }}
+          {{- $peers := default list $xr.spec.peers }}
+
+          {{- /* ---- its name: under another name the object composes nothing ---- */}}
+          {{- /* <device>--<slug>--<8 hex>, at most 63 characters */}}
+          {{- $device := $xr.spec.deviceRef.name }}
+          {{- $after = prepend $after (dict "kind" "Device" "name" $device) }}
+          {{- $slug := regexReplaceAll "[^a-z0-9]+" (lower $xr.spec.name) "-" | trimAll "-" }}
+          {{- $slug = trunc (int (max 0 (sub 51 (len $device)))) $slug | trimSuffix "-" }}
+          {{- $want := printf "%s--%s--%s" $device $slug (sha256sum $xr.spec.name | trunc 8) }}
+          {{- if ne $xr.metadata.name $want }}
+          ---
+          apiVersion: {{ $xr.apiVersion }}
+          kind: {{ $xr.kind }}
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/ready: "False"
+          status:
+            wantsName: {{ $want }}
+          {{- else }}
+
+          {{- /* ---- what it requires ---- */}}
+          {{- $rewrite := index (default (dict) $xr.metadata.annotations) "iosxe.netclab.dev/rewrite-keys" | default "" }}
+          {{- $secretNames := list }}
+          {{- if $writes }}{{ range $peers }}
+          {{- with .preSharedKeySecretRef }}{{ $secretNames = append $secretNames .name }}{{ end }}
+          {{- with .ppk }}{{ $secretNames = append $secretNames .keySecretRef.name }}{{ end }}
+          {{- end }}{{ end }}
+          {{- $secretNames = $secretNames | uniq | sortAlpha }}
           ---
           apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
           kind: ExtraResources
@@ -38,7 +79,7 @@ spec:
             device:
               apiVersion: iosxe.netclab.dev/v1alpha1
               kind: Device
-              matchName: {{ $xr.spec.deviceRef.name }}
+              matchName: {{ $device }}
               namespace: {{ $ns }}
             {{- range $i, $a := $after }}
             after-{{ $i }}:
@@ -47,7 +88,82 @@ spec:
               matchName: {{ $a.name }}
               namespace: {{ $ns }}
             {{- end }}
+            {{- /* required, so a changed value reconciles */}}
+            {{- range $i, $s := $secretNames }}
+            secret-{{ $i }}:
+              apiVersion: v1
+              kind: Secret
+              matchName: {{ $s }}
+              namespace: {{ $ns }}
+            {{- end }}
           {{- $extra := default (dict) .extraResources }}
+          {{- $secrets := dict }}
+          {{- range $i, $s := $secretNames }}{{ with index $extra (printf "secret-%d" $i) }}{{ with .items }}
+          {{- $_ := set $secrets $s (index . 0).resource }}
+          {{- end }}{{ end }}{{ end }}
+
+          {{- /* ---- the keyring as its last GET found it, and its origin ---- */}}
+          {{- /* the router's peers as the keyring's last GET found them, by name */}}
+          {{- $router := dict }}
+          {{- $routerKeyring := dict }}
+          {{- $origin := $old.origin | default "" }}
+          {{- $gotten := false }}
+          {{- with index $observed "keyring" }}{{ with .resource.status }}
+          {{- $method := "" }}{{ with .requestDetails }}{{ $method = .method | default "" }}{{ end }}
+          {{- with .response }}{{ if eq $method "GET" }}
+            {{- $code := int (.statusCode | default 0) }}
+            {{- if eq $code 200 }}
+              {{- $gotten = true }}
+              {{- $routerKeyring = index (index (fromYaml .body) "Cisco-IOS-XE-crypto:keyring") 0 }}
+              {{- range (get $routerKeyring "peer" | default list) }}{{ $_ := set $router .name . }}{{ end }}
+              {{- if not $origin }}{{ $origin = "TakenOver" }}{{ end }}
+            {{- end }}
+          {{- end }}{{ end }}
+          {{- end }}{{ end }}
+          {{- /* neither a 404 nor the GET before a write that creates the keyring stays in
+            its Request's status, so the keyring's Request writes only once a read of the
+            names, never a 404, has told the origin */}}
+          {{- if not $origin }}
+          {{- with index $observed "origin" }}{{ with .resource.status }}{{ with .response }}
+            {{- $code := int (.statusCode | default 0) }}
+            {{- if eq $code 204 }}{{ $origin = "Created" }}{{ end }}
+            {{- if eq $code 200 }}
+              {{- $names := list }}
+              {{- with get (fromYaml .body) "Cisco-IOS-XE-native:crypto" }}{{ with get . "Cisco-IOS-XE-crypto:ikev2" }}
+                {{- range (get . "keyring" | default list) }}{{ $names = append $names .name }}{{ end }}
+              {{- end }}{{ end }}
+              {{- $origin = ternary "TakenOver" "Created" (has $xr.spec.name $names) }}
+            {{- end }}
+          {{- end }}{{ end }}{{ end }}
+          {{- end }}
+
+          {{- /* ---- the keys, each with the mark that says it was written ---- */}}
+          {{- $keys := list }}
+          {{- $missing := list }}
+          {{- if $writes }}{{ range $peers }}
+          {{- $peer := . }}
+          {{- $refs := list (dict "type" "psk" "ref" .preSharedKeySecretRef "id" "" "path" (printf "peers[%s].preSharedKey" .name)) }}
+          {{- with .ppk }}{{ $refs = append $refs (dict "type" "ppk" "ref" .keySecretRef "id" .id "path" (printf "peers[%s].ppk" $peer.name)) }}{{ end }}
+          {{- range $refs }}
+          {{- $sec := index $secrets .ref.name }}
+          {{- $value := "" }}
+          {{- if $sec }}{{ $value = index (default (dict) $sec.data) .ref.key | default "" }}{{ end }}
+          {{- $mark := "" }}
+          {{- if $value }}
+          {{- /* a key is written again only when one of these changes */}}
+          {{- $in := printf "%s/%s" $sec.metadata.uid $value }}
+          {{- if .id }}{{ $in = printf "%s/%s" $in .id }}{{ end }}
+          {{- if $rewrite }}{{ $in = printf "%s/%s" $in $rewrite }}{{ end }}
+          {{- $mark = sha256sum $in | trunc 8 }}
+          {{- else }}
+          {{- $missing = append $missing (printf "%s/%s" .ref.name .ref.key) }}
+          {{- end }}
+          {{- $keys = append $keys (dict "type" .type "peer" $peer.name "address" $peer.address "ref" .ref "id" .id "path" .path "mark" $mark "resource" (printf "%s-%s" .type (lower $peer.name))) }}
+          {{- end }}
+          {{- end }}{{ end }}
+          {{- $missing = $missing | uniq }}
+
+          {{- /* ---- `after`: a Usage of each object it waits on, and whether all are Ready ---- */}}
           {{- $waiting := false }}
           {{- range $i, $a := $after }}
           {{- $ready := false }}
@@ -76,26 +192,52 @@ spec:
           {{- end }}{{ end }}
           {{- if not $ready }}{{ $waiting = true }}{{ end }}
           {{- end }}
-          {{- if and $waiting (not (index (default (dict) .observed.resources) "keyring")) }}
-          ---
-          apiVersion: {{ $xr.apiVersion }}
-          kind: {{ $xr.kind }}
-          metadata:
-            annotations:
-              gotemplating.fn.crossplane.io/ready: "False"
-          {{- else }}
+          {{- /* a missing Secret holds back what was not composed yet */}}
+          {{- $hold := and (or $waiting $missing) (not (hasKey $observed "keyring")) }}
+
+          {{- /* ---- its Requests, once nothing holds them back ---- */}}
+          {{- /* the spec's peers as the router would hold them, and the keyring's two bodies */}}
+          {{- $owned := list }}
+          {{- $merged := list }}
+          {{- $put := list }}
+          {{- range $peers }}
+            {{- $owned = append $owned (dict "name" .name "address" (.address | default "")) }}
+            {{- $p := dict "name" .name }}
+            {{- with .address }}{{ $_ := set $p "address" (dict "ipv4" (dict "ipv4-address" .)) }}{{ end }}
+            {{- $merged = append $merged $p }}
+            {{- with .preSharedKeySecretRef }}{{ $put = append $put (merge (dict "pre-shared-key" (dict "key" (printf "{{ %s:%s:%s }}" .name $ns .key))) $p) }}{{ end }}
+          {{- end }}
+          {{- if not $hold }}
           {{- with .extraResources }}{{ with index . "device" }}{{ with .items }}
           {{- $dev := (index . 0).resource }}
           {{- $cred := $dev.spec.credentialsSecretRef }}
           {{- $auth := printf "{{ %s:%s:%s }}" $cred.name $ns $cred.key }}
-          {{- $keyring := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native/crypto/Cisco-IOS-XE-crypto:ikev2/keyring=%s" $dev.spec.address $xr.spec.name }}
+          {{- $native := printf "https://%s/restconf/data/Cisco-IOS-XE-native:native" $dev.spec.address }}
+          {{- $url := printf "%s/crypto/Cisco-IOS-XE-crypto:ikev2/keyring=%s" $native $xr.spec.name }}
           {{- $rpc := printf "https://%s/restconf/operations/Cisco-IOS-XE-cli-rpc:config-ios-cli-rpc" $dev.spec.address }}
-          {{- $peers := list }}
-          {{- $owned := list }}
-          {{- range $xr.spec.peers }}
-            {{- $psk := printf "{{ %s:%s:%s }}" .preSharedKeySecretRef.name $ns .preSharedKeySecretRef.key }}
-            {{- $peers = append $peers (dict "name" .name "address" (dict "ipv4" (dict "ipv4-address" .address)) "pre-shared-key" (dict "key" $psk)) }}
-            {{- $owned = append $owned (dict "name" .name "address" .address "psk" $psk) }}
+          {{- /* a merge on native, which exists, creates the keyring if it does not */}}
+          {{- $patch := dict "Cisco-IOS-XE-native:native" (dict "crypto" (dict "Cisco-IOS-XE-crypto:ikev2" (dict "keyring" (list (dict "name" $xr.spec.name "peer" $merged))))) }}
+          {{- if and $writes (not $origin) }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: origin
+              gotemplating.fn.crossplane.io/ready: "True"
+          spec:
+            managementPolicies: ["Observe"]
+            forProvider:
+              insecureSkipTLSVerify: {{ $dev.spec.insecureSkipTLSVerify }}
+              headers:
+                Accept: ["application/yang-data+json"]
+                Authorization: ["Basic {{ $auth }}"]
+              payload:
+                baseUrl: {{ printf "%s/crypto?fields=Cisco-IOS-XE-crypto:ikev2/keyring/name" $native | quote }}
+              mappings:
+              - action: OBSERVE
+                method: GET
+                url: .payload.baseUrl
           {{- end }}
           ---
           apiVersion: http.m.crossplane.io/v1alpha2
@@ -104,6 +246,13 @@ spec:
             annotations:
               gotemplating.fn.crossplane.io/composition-resource-name: keyring
           spec:
+            {{- if or (eq $policy "Observe") (not $origin) }}
+            managementPolicies: ["Observe"]
+            {{- else if eq $policy "Merge" }}
+            managementPolicies: ["Observe", "Create", "Update"]
+            {{- else }}
+            managementPolicies: ["*"]
+            {{- end }}
             forProvider:
               insecureSkipTLSVerify: {{ $dev.spec.insecureSkipTLSVerify }}
               headers:
@@ -111,12 +260,22 @@ spec:
                 Content-Type: ["application/yang-data+json"]
                 Authorization: ["Basic {{ $auth }}"]
               payload:
-                baseUrl: {{ $keyring | quote }}
-                body: {{ dict "Cisco-IOS-XE-crypto:keyring" (list (dict "name" $xr.spec.name "peer" $peers)) | toJson | quote }}
+                baseUrl: {{ $url | quote }}
+                body: {{ (ternary (dict "Cisco-IOS-XE-crypto:keyring" (list (dict "name" $xr.spec.name "peer" $put))) $patch (eq $policy "Replace")) | toJson | quote }}
               mappings:
               - action: OBSERVE
                 method: GET
                 url: .payload.baseUrl
+              {{- if eq $policy "Merge" }}
+              - action: CREATE
+                method: PATCH
+                url: {{ $native | quote | quote }}
+                body: .payload.body
+              - action: UPDATE
+                method: PATCH
+                url: {{ $native | quote | quote }}
+                body: .payload.body
+              {{- else if eq $policy "Replace" }}
               - action: CREATE
                 method: PUT
                 url: .payload.baseUrl
@@ -128,36 +287,70 @@ spec:
               - action: REMOVE
                 method: DELETE
                 url: .payload.baseUrl
-              # Only the fields this Request sets: the peers also carry the
-              # PPK mark, which a full comparison would see as drift.
+              {{- end }}
+              # A key is checked as there or not, never its value: the router may
+              # give a PSK back encrypted.
               expectedResponseCheck:
                 type: CUSTOM
                 logic: |
                   if .response.statusCode != 200 then false else
-                    ([.response.body["Cisco-IOS-XE-crypto:keyring"][0].peer[]?
-                      | {name, address: .address.ipv4["ipv4-address"], psk: .["pre-shared-key"].key}]
-                      | sort_by(.name))
-                    == ({{ $owned | toJson }} | sort_by(.name))
+                    .response.body["Cisco-IOS-XE-crypto:keyring"][0] as $k
+                    | [$k.peer[]? | {name, address: (.address.ipv4["ipv4-address"] // ""), psk: has("pre-shared-key")}] as $router
+                  {{- if eq $policy "Replace" }}
+                    | ($router | sort_by(.name)) == ({{ $owned | toJson }} | map(. + {psk: true}) | sort_by(.name))
+                      and ([$k.peer[]? | del(.name, .address, .["pre-shared-key"])] | all(. == {}))
+                      and ($k | del(.name, .peer)) == {}
+                  {{- else }}
+                    | {{ $owned | toJson }} | all(. as $s | $router | any(.name == $s.name and ($s.address == "" or .address == $s.address)))
+                  {{- end }}
                   end
-          {{- $observed := default (dict) $.observed.resources }}
+
+          {{- /* ---- a Request per key, once the keyring's is Ready ---- */}}
           {{- $keyringReady := false }}
           {{- with index $observed "keyring" }}
           {{- range .resource.status.conditions }}
           {{- if and (eq .type "Ready") (eq .status "True") }}{{ $keyringReady = true }}{{ end }}
           {{- end }}
           {{- end }}
-          {{- range $xr.spec.peers }}{{ if and .ppk (or $keyringReady (hasKey $observed (printf "ppk-%s" (lower .name)))) }}
-          {{- $mark := printf "ppk %s" .ppk.id }}
-          {{- $key := printf "{{ %s:%s:%s }}" .ppk.keySecretRef.name $ns .ppk.keySecretRef.key }}
-          {{- $apply := printf "crypto ikev2 keyring %s\n peer %s\n  ppk manual id %s key hex %s required\n  description %s\ndo clear crypto ikev2 sa remote %s" $xr.spec.name .name .ppk.id $key $mark .address }}
-          {{- $remove := printf "crypto ikev2 keyring %s\n peer %s\n  no ppk manual id %s\n  no description\ndo clear crypto ikev2 sa remote %s" $xr.spec.name .name .ppk.id .address }}
+          {{- range $keys }}{{ if or $keyringReady (hasKey $observed .resource) }}
+          {{- $k := . }}
+          {{- if $k.mark }}
+          {{- $place := printf "Ikev2Keyring/%s/%s/%s" $xr.spec.name $k.peer $k.type }}
+          {{- $var := printf "netclab-%s" (sha256sum $place | trunc 8) }}
+          {{- $value := printf "%s %s" $k.mark $place | trunc 180 }}
+          {{- $secret := printf "{{ %s:%s:%s }}" $k.ref.name $ns $k.ref.key }}
+          {{- $line := printf "pre-shared-key %s" $secret }}
+          {{- if eq $k.type "ppk" }}{{ $line = printf "ppk manual id %s key hex %s required" $k.id $secret }}{{ end }}
+          {{- /* the mark the key's last read found, if any */}}
+          {{- $found := "" }}
+          {{- with index $observed $k.resource }}{{ with .resource.status }}{{ with .response }}
+          {{- if eq (int (.statusCode | default 0)) 200 }}
+          {{- $found = index (index (fromYaml .body) "Cisco-IOS-XE-eem:environment") 0 "value" | splitList " " | first }}
+          {{- end }}
+          {{- end }}{{ end }}{{ end }}
+          {{- /* taking over: a key without its mark, which the router holds, gets the mark alone */}}
+          {{- $held := true }}
+          {{- if eq $k.type "psk" }}{{ $held = hasKey (get $router $k.peer | default dict) "pre-shared-key" }}{{ end }}
+          {{- $markOnly := and (not $found) (eq $origin "TakenOver") $held }}
+          {{- $setMark := printf "event manager environment %s \"%s\"" $var $value }}
+          {{- $clis := $setMark }}
+          {{- if not $markOnly }}
+          {{- /* the key, the mark, then the clear; the RPC stops at a refused key */}}
+          {{- $clis = printf "crypto ikev2 keyring %s\n peer %s\n  %s\n  exit\n exit\n%s\ndo clear crypto ikev2 sa remote %s" $xr.spec.name $k.peer $line $setMark $k.address }}
+          {{- end }}
+          {{- $remove := printf "crypto ikev2 keyring %s\n peer %s\n  no ppk manual id %s\n  exit\n exit\nno event manager environment %s\ndo clear crypto ikev2 sa remote %s" $xr.spec.name $k.peer $k.id $var $k.address }}
           ---
           apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
           metadata:
             annotations:
-              gotemplating.fn.crossplane.io/composition-resource-name: ppk-{{ lower .name }}
+              gotemplating.fn.crossplane.io/composition-resource-name: {{ $k.resource }}
           spec:
+            {{- if eq $policy "Merge" }}
+            managementPolicies: ["Observe", "Create", "Update"]
+            {{- else }}
+            managementPolicies: ["*"]
+            {{- end }}
             forProvider:
               insecureSkipTLSVerify: {{ $dev.spec.insecureSkipTLSVerify }}
               headers:
@@ -165,10 +358,8 @@ spec:
                 Content-Type: ["application/yang-data+json"]
                 Authorization: ["Basic {{ $auth }}"]
               payload:
-                baseUrl: {{ printf "%s/peer=%s" $keyring .name | quote }}
-                body: {{ dict "Cisco-IOS-XE-cli-rpc:input" (dict "config-clis" $apply) | toJson | quote }}
-              # The key goes in together with the clear of this peer's SA: a
-              # live SA renews itself without checking a changed key.
+                baseUrl: {{ printf "%s/event/Cisco-IOS-XE-eem:manager/environment=%s" $native $var | quote }}
+                body: {{ dict "Cisco-IOS-XE-cli-rpc:input" (dict "config-clis" $clis) | toJson | quote }}
               mappings:
               - action: OBSERVE
                 method: GET
@@ -177,22 +368,180 @@ spec:
                 method: POST
                 url: {{ $rpc | quote | quote }}
                 body: .payload.body
+              - action: UPDATE
+                method: POST
+                url: {{ $rpc | quote | quote }}
+                body: .payload.body
+              {{- if eq $policy "Replace" }}
+              {{- /* a PSK goes with its peer; a PPK leaves the peer */}}
+              {{- if eq $k.type "psk" }}
+              - action: REMOVE
+                method: DELETE
+                url: .payload.baseUrl
+              {{- else }}
               - action: REMOVE
                 method: POST
                 url: {{ $rpc | quote | quote }}
                 body: {{ dict "Cisco-IOS-XE-cli-rpc:input" (dict "config-clis" $remove) | toJson | quote }}
+              {{- end }}
+              {{- end }}
               isRemovedCheck:
                 type: CUSTOM
-                logic: |
-                  if .response.statusCode == 404 then true
-                  elif .response.statusCode == 200 then
-                    (.response.body["Cisco-IOS-XE-crypto:peer"][0].description // "") != {{ $mark | quote }}
-                  else false end
+                logic: .response.statusCode == 404
               expectedResponseCheck:
                 type: CUSTOM
-                logic: "true"
+                logic: |
+                  .response.statusCode == 200 and
+                    ((.response.body["Cisco-IOS-XE-eem:environment"][0].value // "") | split(" ")[0]) == {{ $k.mark | quote }}
+          {{- else }}{{ with index $observed $k.resource }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: {{ $k.resource }}
+          spec: {{ .resource.spec | toJson }}
           {{- end }}{{ end }}
+          {{- end }}{{ end }}
+
+          {{- /* ---- back in Observe ---- */}}
+          {{- /* back in Observe a key's Request stays, reading only: dropped, it would be
+            deleted as the mode before left it, and Replace's REMOVE take the key and its
+            mark off */}}
+          {{- if not $writes }}
+          {{- range $name, $r := $observed }}{{ if or (hasPrefix "psk-" $name) (hasPrefix "ppk-" $name) }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: {{ $name }}
+              gotemplating.fn.crossplane.io/ready: "True"
+          spec: {{ merge (dict "managementPolicies" (list "Observe")) $r.resource.spec | toJson }}
+          {{- end }}{{ end }}
+          {{- end }}
+
+          {{- /* ---- Replace: the keyring's DELETE waits on each PPK line ---- */}}
+          {{- /* a PPK's removal enters the keyring, which makes it again once deleted */}}
+          {{- if and (eq $policy "Replace") (hasKey $observed "keyring") }}
+          {{- range $keys }}{{ if and (eq .type "ppk") (hasKey $observed .resource) }}
+          ---
+          apiVersion: protection.crossplane.io/v1beta1
+          kind: Usage
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: keyring-by-{{ .resource }}
+              gotemplating.fn.crossplane.io/ready: "True"
+          spec:
+            of:
+              apiVersion: http.m.crossplane.io/v1alpha2
+              kind: Request
+              resourceRef:
+                name: {{ (index $observed "keyring").resource.metadata.name }}
+            by:
+              apiVersion: http.m.crossplane.io/v1alpha2
+              kind: Request
+              resourceRef:
+                name: {{ (index $observed .resource).resource.metadata.name }}
+            replayDeletion: true
+          {{- end }}{{ end }}
+          {{- end }}
           {{- end }}{{ end }}{{ end }}
+          {{- end }}
+
+          {{- /* ---- the status: the last GET in the shape of the spec, and Ready ---- */}}
+          {{- $status := dict }}
+          {{- range $k := list "observed" "drift" "extra" "reverted" }}{{ if hasKey $old $k }}{{ $_ := set $status $k (index $old $k) }}{{ end }}{{ end }}
+          {{- $present := hasKey $status "observed" }}
+          {{- with index $observed "keyring" }}
+          {{- $rs := default (dict) .resource.status }}
+          {{- $method := "" }}{{ with $rs.requestDetails }}{{ $method = .method | default "" }}{{ end }}
+          {{- with $rs.response }}
+          {{- $code := int (.statusCode | default 0) }}
+          {{- if eq $method "GET" }}
+            {{- if $gotten }}
+              {{- $seen := list }}
+              {{- range (keys $router | sortAlpha) }}
+                {{- $p := get $router . }}
+                {{- $e := dict "name" . }}
+                {{- with get $p "address" }}{{ with get . "ipv4" }}{{ with get . "ipv4-address" }}{{ $_ := set $e "address" . }}{{ end }}{{ end }}{{ end }}
+                {{- $psk := dict "present" (hasKey $p "pre-shared-key") }}
+                {{- with get $p "pre-shared-key" }}{{ with get . "encryption" }}{{ $_ := set $psk "encryption" (toString .) }}{{ end }}{{ end }}
+                {{- $_ := set $e "preSharedKey" $psk }}
+                {{- $seen = append $seen $e }}
+              {{- end }}
+              {{- $drift := list }}
+              {{- $more := list }}
+              {{- $mineNames := list }}{{ range $owned }}{{ $mineNames = append $mineNames .name }}{{ end }}
+              {{- $theirNames := keys $router | sortAlpha }}
+              {{- $absent := list }}{{ range $mineNames }}{{ if not (has . $theirNames) }}{{ $absent = append $absent . }}{{ end }}{{ end }}
+              {{- if $absent }}{{ $drift = append $drift (dict "field" "peers" "device" $theirNames "spec" (sortAlpha $mineNames)) }}{{ end }}
+              {{- range $owned }}
+                {{- $mine := . }}
+                {{- with get $router $mine.name }}
+                  {{- $their := "" }}{{ with get . "address" }}{{ with get . "ipv4" }}{{ $their = get . "ipv4-address" | default "" }}{{ end }}{{ end }}
+                  {{- if and $mine.address (ne $their $mine.address) }}
+                    {{- $drift = append $drift (dict "field" (printf "peers[%s].address" $mine.name) "device" (ternary (list $their) list (ne $their "")) "spec" (list $mine.address)) }}
+                  {{- end }}
+                  {{- if and (eq $policy "Replace") (not (hasKey . "pre-shared-key")) }}
+                    {{- $drift = append $drift (dict "field" (printf "peers[%s].preSharedKey" $mine.name) "device" list "spec" (list "present")) }}
+                  {{- end }}
+                {{- end }}
+              {{- end }}
+              {{- if or $mineNames (eq $policy "Replace") }}
+                {{- $beyond := list }}{{ range $theirNames }}{{ if not (has . $mineNames) }}{{ $beyond = append $beyond . }}{{ end }}{{ end }}
+                {{- if $beyond }}{{ $more = append $more (dict "field" "peers" "device" $beyond) }}{{ end }}
+              {{- end }}
+              {{- if eq $policy "Replace" }}
+                {{- range $name := $theirNames }}{{ range $k, $v := get $router $name }}
+                  {{- if not (has $k (list "name" "address" "pre-shared-key")) }}{{ $more = append $more (dict "field" (printf "peers[%s].%s" $name $k) "device" (list (toJson $v))) }}{{ end }}
+                {{- end }}{{ end }}
+                {{- range $k, $v := $routerKeyring }}{{ if not (has $k (list "name" "peer")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}{{ end }}
+              {{- end }}
+              {{- $_ := set $status "observed" (dict "peers" $seen) }}
+              {{- $_ := set $status "drift" $drift }}
+              {{- $_ := set $status "extra" $more }}
+              {{- $present = true }}
+            {{- else }}
+              {{- $_ := unset $status "observed" }}
+              {{- $_ := set $status "drift" list }}
+              {{- $_ := set $status "extra" list }}
+              {{- $present = false }}
+            {{- end }}
+          {{- else if and $method (ge $code 200) (lt $code 300) }}
+            {{- /* after a write that succeeded the response is still the GET before it: the router has the spec, the next GET shows it */}}
+            {{- $undid := dict "drift" (default list $old.drift) "extra" (ternary (default list $old.extra) list (eq $policy "Replace")) }}
+            {{- if or $undid.drift $undid.extra }}
+              {{- $_ := set $undid "time" (dateInZone "2006-01-02T15:04:05Z" (now) "UTC") }}
+              {{- $_ := set $status "reverted" $undid }}
+            {{- end }}
+            {{- $_ := set $status "drift" list }}
+            {{- if eq $policy "Replace" }}{{ $_ := set $status "extra" list }}{{ end }}
+            {{- $present = true }}
+          {{- end }}
+          {{- end }}
+          {{- end }}
+          {{- if $origin }}{{ $_ := set $status "origin" $origin }}{{ end }}
+          {{- $written := list }}
+          {{- range $keys }}
+          {{- $w := false }}
+          {{- with index $observed .resource }}{{ range .resource.status.conditions }}
+          {{- if and (eq .type "Ready") (eq .status "True") }}{{ $w = true }}{{ end }}
+          {{- end }}{{ end }}
+          {{- $written = append $written (dict "path" .path "written" $w) }}
+          {{- end }}
+          {{- $_ := set $status "keys" $written }}
+          {{- $_ := set $status "missingSecrets" $missing }}
+          {{- $ready := and $present (not $hold) (not $missing) (not $status.drift) (or (ne $policy "Replace") (not $status.extra)) }}
+          ---
+          apiVersion: {{ $xr.apiVersion }}
+          kind: {{ $xr.kind }}
+          {{- if not $ready }}
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/ready: "False"
+          {{- end }}
+          status: {{ $status | toJson }}
           {{- end }}
 
   - step: auto-ready

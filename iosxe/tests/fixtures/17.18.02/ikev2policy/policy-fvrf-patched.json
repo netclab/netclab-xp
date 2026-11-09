@@ -1,0 +1,20 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-crypto:policy": [
+      {
+        "name": "CLASSICAL-POLICY",
+        "match": {
+          "fvrf": {
+            "name": "WAN"
+          }
+        },
+        "proposal": [
+          {
+            "proposals": "CLASSICAL-PROPOSAL"
+          }
+        ]
+      }
+    ]
+  }
+}

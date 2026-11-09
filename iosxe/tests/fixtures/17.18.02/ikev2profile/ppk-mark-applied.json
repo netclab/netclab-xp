@@ -1,0 +1,11 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-eem:environment": [
+      {
+        "name": "netclab-96580d81",
+        "value": "eb60cb7d Ikev2Profile/CLASSICAL-PROFILE/ppk CLASSICAL-KEYRING"
+      }
+    ]
+  }
+}

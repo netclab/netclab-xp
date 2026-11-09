@@ -12,13 +12,15 @@
             "pre-share": {}
           }
         },
-        "description": "ppk CLASSICAL-KEYRING",
         "keyring": {
           "local": {
             "name": "CLASSICAL-KEYRING"
           }
         },
         "match": {
+          "fvrf": {
+            "name": "WAN"
+          },
           "identity": {
             "remote": {
               "address": {

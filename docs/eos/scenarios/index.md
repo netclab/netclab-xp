@@ -6,7 +6,7 @@ holding manifests you can apply as they are.
 
 | scenario | mechanism | what it configures |
 |---|---|---|
-| [`restconf`](restconf.md) | OpenConfig over RESTCONF | the base config — BGP, interfaces, routing |
+| [`restconf`](restconf.md) | OpenConfig over RESTCONF | the base config: BGP, interfaces, routing |
 | [`jsonrpc`](jsonrpc.md) | eAPI over JSON-RPC | settings OpenConfig does not model |
 | [`eapi`](eapi.md) | raw EOS CLI | the same config, expressed as commands |
 | [`router`](router.md) | the `Router` abstraction | one device from one resource |
@@ -20,7 +20,7 @@ holding manifests you can apply as they are.
 
 ## Before you start
 
-Every command below runs from a clone of the repository — the scenarios are
+Every command below runs from a clone of the repository: the scenarios are
 manifests, not something the package installs:
 
 ```bash
@@ -30,7 +30,7 @@ cd netclab-xp
 
 You also need [devices](../lab.md), the
 [package installed, and its prerequisites applied](../install.md), and
-[yq](https://github.com/mikefarah/yq#install) — removing a scenario filters the
+[yq](https://github.com/mikefarah/yq#install): removing a scenario filters the
 rendered manifests through it.
 
 ## Applying a scenario
@@ -46,7 +46,7 @@ kubectl kustomize --load-restrictor LoadRestrictionsNone eos/scenarios/router \
 
 The flag is needed because the overlays reach into `eos/examples/`, so that every
 manifest exists in exactly one place. To use a different namespace, change
-`namespace:` in that scenario's `kustomization.yaml` — the `Namespace` object
+`namespace:` in that scenario's `kustomization.yaml`; the `Namespace` object
 follows it.
 
 ## Removing a scenario
@@ -60,7 +60,7 @@ kubectl kustomize --load-restrictor LoadRestrictionsNone eos/scenarios/router \
 ```
 
 Deleting the `Namespace` together with the resources inside it **deadlocks**.
-The namespace begins terminating, which forbids creating anything in it — and
+The namespace begins terminating, which forbids creating anything in it, and
 provider-http's cleanup path needs to create a tracking object there. The
 requests keep their finalizers, the namespace waits for the requests, and
 neither finishes without editing finalizers by hand.

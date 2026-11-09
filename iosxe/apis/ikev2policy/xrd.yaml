@@ -22,6 +22,12 @@ spec:
     - name: POLICY
       type: string
       jsonPath: .spec.name
+    - name: MODE
+      type: string
+      jsonPath: .spec.managementPolicy
+    - name: WANTS-NAME
+      type: string
+      jsonPath: .status.wantsName
     served: true
     referenceable: true
     schema:
@@ -30,10 +36,25 @@ spec:
         properties:
           spec:
             type: object
+            # A thin object (deviceRef and name) only observes.
+            x-kubernetes-validations:
+            - rule: self.managementPolicy == 'Observe' || has(self.proposals)
+              message: to write, a policy needs proposals
             properties:
+              managementPolicy:
+                type: string
+                description: >-
+                  Observe reads the policy on the router; Merge writes the
+                  fields of the spec; Replace makes the policy the spec,
+                  and removes it with the object.
+                enum: [Observe, Merge, Replace]
+                default: Observe
               deviceRef:
                 type: object
                 description: A Device in the policy's namespace.
+                x-kubernetes-validations:
+                - rule: self == oldSelf
+                  message: deviceRef cannot change
                 properties:
                   name:
                     type: string
@@ -64,6 +85,9 @@ spec:
                 type: string
                 description: Name of the policy on the router.
                 minLength: 1
+                x-kubernetes-validations:
+                - rule: self == oldSelf
+                  message: name cannot change
               proposals:
                 type: array
                 description: Names of IKEv2 proposals on the router, or `default`.
@@ -72,7 +96,98 @@ spec:
                 items:
                   type: string
                   minLength: 1
+              fvrf:
+                type: string
+                description: >-
+                  The front-door VRF the policy matches, by name, or any; without
+                  it the policy matches the global table alone.
+                minLength: 1
             required:
             - deviceRef
             - name
-            - proposals
+          status:
+            type: object
+            properties:
+              wantsName:
+                type: string
+                description: The name the object needs, when it has another.
+              observed:
+                type: object
+                description: The policy on the router, in the shape of the spec.
+                properties:
+                  proposals:
+                    type: array
+                    items:
+                      type: string
+                  fvrf:
+                    type: string
+              missingVrfs:
+                type: array
+                description: >-
+                  VRFs the spec names that the Device does not list; the policy
+                  is not applied until they are there.
+                items:
+                  type: string
+              drift:
+                type: array
+                description: Fields whose values in the spec the router lacks.
+                items:
+                  type: object
+                  properties:
+                    field:
+                      type: string
+                    device:
+                      type: array
+                      items:
+                        type: string
+                    spec:
+                      type: array
+                      items:
+                        type: string
+              extra:
+                type: array
+                description: >-
+                  Values the router has beyond the spec, in the fields the spec
+                  sets; in Replace, in every field, a field the spec cannot
+                  hold, such as a match beyond fvrf, given as JSON.
+                items:
+                  type: object
+                  properties:
+                    field:
+                      type: string
+                    device:
+                      type: array
+                      items:
+                        type: string
+              reverted:
+                type: object
+                description: The drift and extra values the last write put back.
+                properties:
+                  time:
+                    type: string
+                  drift:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        field:
+                          type: string
+                        device:
+                          type: array
+                          items:
+                            type: string
+                        spec:
+                          type: array
+                          items:
+                            type: string
+                  extra:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        field:
+                          type: string
+                        device:
+                          type: array
+                          items:
+                            type: string

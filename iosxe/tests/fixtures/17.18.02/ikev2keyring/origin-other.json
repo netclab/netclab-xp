@@ -1,0 +1,14 @@
+{
+  "statusCode": 200,
+  "body": {
+    "Cisco-IOS-XE-native:crypto": {
+      "Cisco-IOS-XE-crypto:ikev2": {
+        "keyring": [
+          {
+            "name": "OTHER-KEYRING"
+          }
+        ]
+      }
+    }
+  }
+}

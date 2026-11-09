@@ -1,8 +1,9 @@
 apiVersion: iosxe.netclab.dev/v1alpha1
 kind: IpsecTransformSet
 metadata:
-  name: r3-ipsec-transform-set
+  name: r3--classical-ts--771f3cb2
 spec:
+  managementPolicy: Replace
   deviceRef:
     name: r3
   name: CLASSICAL-TS

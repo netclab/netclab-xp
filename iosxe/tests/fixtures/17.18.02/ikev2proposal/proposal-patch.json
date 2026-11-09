@@ -1,0 +1,36 @@
+{
+  "request": {
+    "method": "PATCH",
+    "url": "https://172.18.0.101/restconf/data/Cisco-IOS-XE-native:native",
+    "body": {
+      "Cisco-IOS-XE-native:native": {
+        "crypto": {
+          "Cisco-IOS-XE-crypto:ikev2": {
+            "proposal": [
+              {
+                "name": "CLASSICAL-PROPOSAL",
+                "encryption": {
+                  "aes-cbc-256": [
+                    null
+                  ]
+                },
+                "integrity": {
+                  "sha512": [
+                    null
+                  ]
+                },
+                "group": {
+                  "twenty": [
+                    null
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "statusCode": 204,
+  "body": ""
+}
