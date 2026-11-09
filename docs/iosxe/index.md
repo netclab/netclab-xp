@@ -158,4 +158,9 @@ and the keys. The values are the lab's; change them in
 ### 4. Next
 
 - [Part 9](part9.md): two routers and a tunnel with the PPK, configured from nothing.
+  Then, on its tunnel:
+    - [Overlay](overlay.md): the WAN interfaces in a front-door VRF and the tunnel in a
+      VRF of its own.
+    - [Rotate keys](keys.md): a new pre-shared key or PPK in its Secret, written to both
+      routers.
 - [Adopt a router](adopt.md): routers that already have their IPsec configuration.
