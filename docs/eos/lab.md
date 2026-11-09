@@ -5,7 +5,7 @@ called `ceos01` and `ceos02`, running as pods in the `default` namespace. This
 page gets you there from an empty machine.
 
 If you already have reachable devices, skip to
-[installing the package](install.md) — nothing here is required, it is just the
+[installing the package](install.md); nothing here is required, it is just the
 lab the examples assume.
 
 ## Before you start
@@ -13,11 +13,11 @@ lab the examples assume.
 | tool | why |
 |---|---|
 | [docker](https://docs.docker.com/engine/install/) | runs the cluster and imports the cEOS image |
-| [kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) | the cluster itself — what this is tested on |
+| [kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) | the cluster itself, what this is tested on |
 | [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/) | everything else |
 | [helm](https://helm.sh/docs/intro/install/) | installs the devices, and Crossplane on the next page |
 
-You also need a **cEOS image**, which is licensed and cannot be pulled — see
+You also need a **cEOS image**, which is licensed and cannot be pulled; see
 below.
 
 !!! note "Memory"
@@ -59,7 +59,7 @@ Nothing in this project can distribute the image for you.
 
     `kind load` puts the image inside the node, so deleting the cluster costs
     you the import. Pushing it to a local registry backed by a docker volume
-    instead makes it survive teardown — that is what `eos/scripts/up.sh` does, and
+    instead makes it survive teardown; that is what `eos/scripts/up.sh` does, and
     why this repository's own `eos/scripts/topology.yaml` names the image at
     `localhost:5001`.
 
@@ -129,7 +129,7 @@ helm upgrade --install lab netclab/netclab -n default -f topology.yaml
     or install into another namespace and the examples stop resolving.
 
     Both devices are needed even though only the `router` scenario uses the
-    second one — that is the scenario with two routers and an eBGP session
+    second one: that is the scenario with two routers and an eBGP session
     between them.
 
 ## Wait for the devices
@@ -158,7 +158,7 @@ Server: running on port 6020, in default VRF
 
 !!! tip "Working on the package itself?"
 
-    `eos/scripts/up.sh` in the repository builds everything above in one command —
-    registry, cluster, Crossplane, Multus, devices — and installs the package
+    `eos/scripts/up.sh` in the repository builds everything above in one command
+    (registry, cluster, Crossplane, Multus, devices) and installs the package
     **built from your working tree** rather than a published release. That makes
     it a contributor tool, not the path described here.

@@ -1,11 +1,11 @@
-# Router — one device, one resource
+# Router: one device, one resource
 
-`Router` describes the device — its ASN, router-id, routed interfaces and BGP
-neighbours — instead of configuring it setting by setting, and composes the
+`Router` describes the device (its ASN, router-id, routed interfaces and BGP
+neighbours) instead of configuring it setting by setting, and composes the
 per-setting resources itself.
 
-A `Router` owns everything it composes — a `BgpGlobal`, a `BgpNeighbor`, an
-`IpRouting`, a `LoopbackInterface` and the `RoutedInterface`s — so one manifest
+A `Router` owns everything it composes (a `BgpGlobal`, a `BgpNeighbor`, an
+`IpRouting`, a `LoopbackInterface` and the `RoutedInterface`s), so one manifest
 describes one device. This scenario uses both lab devices.
 
 ## Running it

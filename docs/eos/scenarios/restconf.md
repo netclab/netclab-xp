@@ -1,7 +1,7 @@
-# RESTCONF — structured paths over OpenConfig
+# RESTCONF: structured paths over OpenConfig
 
 RESTCONF carries structured data: each resource becomes a PATCH against an
-OpenConfig path on the device. What it reaches is what OpenConfig models — which
+OpenConfig path on the device. What it reaches is what OpenConfig models, which
 is most of a router's base configuration, and nothing beyond it.
 
 This scenario builds that base on `ceos01`: a loopback and its address, an
@@ -73,5 +73,5 @@ kubectl kustomize --load-restrictor LoadRestrictionsNone eos/scenarios/restconf 
   | kubectl delete -f -
 ```
 
-All of it goes — the BGP instance, the loopback, `ip routing`, and the address
+All of it goes: the BGP instance, the loopback, `ip routing`, and the address
 on Ethernet1, which is back to bare.

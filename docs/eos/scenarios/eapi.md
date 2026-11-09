@@ -1,4 +1,4 @@
-# eAPI — the CLI, for everything else
+# eAPI: the CLI, for everything else
 
 The modelled layers reach what their models cover. This one reaches whatever the
 CLI can say: an `EosCommand` carries EOS commands, and function-eapi turns them
@@ -7,7 +7,7 @@ into requests against the device.
 On `ceos01` it sets `ip routing`, a loopback and a BGP instance, then the
 peer-group scaffolding an EVPN design is built on: two peer groups, their
 passwords, and which address family each is activated in. No neighbours are
-assigned to those groups and no VXLAN interface exists, so nothing peers — what
+assigned to those groups and no VXLAN interface exists, so nothing peers: what
 the scenario shows is the shape of the commands, not a fabric that comes up.
 
 ## Running it
@@ -62,7 +62,7 @@ router bgp 65001
 ```
 
 That literalness is the trade. Nothing is abstracted, so a setting no model
-covers is still within reach — and nothing is checked for you either: a typo is
+covers is still within reach, and nothing is checked for you either: a typo is
 a command the device rejects, not a manifest the cluster refuses.
 
 ## Teardown
