@@ -32,7 +32,7 @@ r1#show crypto ikev2 sa detailed | include READY|Quantum
 | `TunnelInterface` | `interface Tunnel` |
 
 Each object names a `Device`: the router's RESTCONF address and credentials. The Device
-configures nothing; its status lists the router's sections of the kinds above.
+configures nothing; its status lists the router's sections that the kinds above model.
 
 The keyring of r1 in part 9, with the PPK it shares with r3:
 

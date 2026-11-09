@@ -237,9 +237,10 @@ status:
   vrfs: []
 ```
 
-Each entry is a section on the router of a kind the package knows: `name` as on the
-router, `xr` the name its object must have, and `exists` whether that object is in the
-namespace. Sections of other kinds, such as BGP or ACLs, are not listed.
+Each entry is a section on the router that one of the package's kinds models: `name` as
+on the router, `xr` the name its object must have, and `exists` whether that object is in
+the namespace. The rest of the router's configuration, BGP or ACLs for instance, is not
+listed.
 
 ## Step 3, Observe: Import the sections
 
