@@ -48,7 +48,7 @@ jobs:
       # Pinned to an exact release, not a moving major: setup-uv publishes
       # moving tags only up to v7 while releases are on v9, so `@v9` does not
       # resolve at all.
-      - uses: astral-sh/setup-uv@v10.3.2
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
 
