@@ -22,7 +22,7 @@ where they are.
 
 | | |
 |---|---|
-| [Post-quantum IPsec on IOS XE](https://netclab.dev/netclab-xp/iosxe/) | an IPsec tunnel with a post-quantum preshared key, kept on the routers |
+| [IPsec on IOS XE](https://netclab.dev/netclab-xp/iosxe/) | adopting a router, part 9 with a post-quantum preshared key, an overlay in VRFs, key rotation |
 | [Arista EOS](https://netclab.dev/netclab-xp/eos/) | one API over several mechanisms |
 | [Set up a lab](https://netclab.dev/netclab-xp/eos/lab/) | two cEOS devices on Kubernetes |
 | [Install the package](https://netclab.dev/netclab-xp/eos/install/) | the Configuration and its prerequisites |
@@ -31,10 +31,14 @@ where they are.
 
 ## Cisco IOS XE
 
-One resource type per router setting in `iosxe.netclab.dev`, over RESTCONF:
+One resource type per section of the router's configuration in `iosxe.netclab.dev`, over RESTCONF:
 `Device`, `Ikev2Proposal`, `Ikev2Policy`, `Ikev2Keyring` (with a post-quantum
 preshared key), `Ikev2Profile`, `IpsecTransformSet`, `IpsecProfile` and
 `TunnelInterface`. Each waits for the objects it names, so a set applies at once.
+
+A router configured by hand is adopted one section at a time: each object first observes,
+showing what the router holds and what differs from its spec, and writes only once set to
+`Merge` or `Replace`. Keys live in Secrets, and a key changed there reaches both ends.
 
 [`iosxe/scenarios/part9/`](iosxe/scenarios/part9/) is part 9 of
 [Cisco's IPsec series](https://blogs.cisco.com/developer/post-quantum-key-exchange-on-cisco-routers-ipsec-series-part-9):
@@ -43,12 +47,13 @@ into IKEv2, kept on the routers by reconcile:
 
 ```console
 $ kubectl get tunnelinterface -n lab
-NAME         DEVICE   TUNNEL   MODE         ADDRESS            OPER    IKE-SA   SYNCED   READY
-r1-tunnel0   r1       0        ipsec-ipv4   192.168.100.1/24   ready   1/1      True     True
-r3-tunnel0   r3       0        ipsec-ipv4   192.168.100.2/24   ready   1/1      True     True
+NAME                    DEVICE   INTERFACE   TUNNEL-MODE   ADDRESS            MODE      OPER    IKE-SA   WANTS-NAME   SYNCED   READY   COMPOSITION                          AGE
+r1--tunnel0--d311cfe5   r1       Tunnel0     ipsec-ipv4    192.168.100.1/24   Replace   ready   1/1                   True     True    tunnelinterfaces.iosxe.netclab.dev   5m54s
+r3--tunnel0--d311cfe5   r3       Tunnel0     ipsec-ipv4    192.168.100.2/24   Replace   ready   1/1                   True     True    tunnelinterfaces.iosxe.netclab.dev   5m54s
 ```
 
-See [Post-quantum IPsec on IOS XE](https://netclab.dev/netclab-xp/iosxe/).
+[`iosxe/scenarios/overlay/`](iosxe/scenarios/overlay/) is the same tunnel with a
+front-door VRF and an overlay VRF. See [IPsec on IOS XE](https://netclab.dev/netclab-xp/iosxe/).
 
 ### Installation
 
