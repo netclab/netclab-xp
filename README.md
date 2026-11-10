@@ -145,4 +145,4 @@ abstractions, better compositions, examples, tests, or documentation.
 ## License
 
 Licensed under the [Apache-2.0 License](LICENSE).
-Copyright 2025 Michal Bakalarski and Netclab Contributors.
+Copyright 2025-present Michal Bakalarski and Netclab Contributors.
