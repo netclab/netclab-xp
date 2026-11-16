@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge1
+  annotations:
+    metallb.io/loadBalancerIPs: 172.18.0.104
+spec:
+  type: LoadBalancer
+  selector:
+    kubevirt.io/domain: edge1
+  ports:
+  - name: ssh
+    port: 22
+    targetPort: 22
+    protocol: TCP
+  - name: restconf
+    port: 443
+    targetPort: 443
+    protocol: TCP
