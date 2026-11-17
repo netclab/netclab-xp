@@ -94,3 +94,6 @@ extra:
     - icon: fontawesome/brands/github
       link: https://github.com/netclab
       name: netclab on GitHub
+
+extra_javascript:
+  - assets/logo.js
