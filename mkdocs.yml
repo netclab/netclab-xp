@@ -89,6 +89,7 @@ nav:
       - Adopt a router: iosxe/adopt.md
 
 extra:
+  homepage: https://netclab.dev
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/netclab

@@ -1,3 +1,8 @@
+---
+hide:
+  - navigation
+---
+
 # netclab-xp
 
 Crossplane Configuration packages that turn router configuration into Kubernetes
