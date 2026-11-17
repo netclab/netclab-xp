@@ -12,7 +12,7 @@ copyright: Apache-2.0, Netclab Contributors
 theme:
   name: material
   logo: assets/icon.svg
-  favicon: assets/favicon.ico
+  favicon: assets/icon.svg
   icon:
     repo: fontawesome/brands/github
   features:
