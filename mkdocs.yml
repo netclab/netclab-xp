@@ -11,6 +11,8 @@ copyright: Apache-2.0, Netclab Contributors
 
 theme:
   name: material
+  logo: assets/icon.svg
+  favicon: assets/favicon.ico
   icon:
     repo: fontawesome/brands/github
   features:
@@ -24,14 +26,14 @@ theme:
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: indigo
+      primary: black
       accent: indigo
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: indigo
+      primary: black
       accent: indigo
       toggle:
         icon: material/weather-sunny
