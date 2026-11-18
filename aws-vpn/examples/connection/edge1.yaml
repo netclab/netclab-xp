@@ -1,0 +1,23 @@
+apiVersion: aws-vpn.netclab.dev/v1alpha1
+kind: Connection
+metadata:
+  name: edge1-aws
+  namespace: lab
+spec:
+  customerGateway:
+    deviceRef:
+      name: edge1
+    ipAddress: 203.0.113.10
+    bgpAsn: 65010
+    source: GigabitEthernet2
+    fvrf: WAN
+  targetGateway:
+    region: us-east-1
+    vpnGatewayId: vgw-0123456789abcdef0
+  tunnels:
+  - interface: Tunnel1
+    insideCidr: 169.254.10.0/30
+    preSharedKeySecretRef: {name: edge1-aws-keys, key: tunnel1}
+  - interface: Tunnel2
+    insideCidr: 169.254.10.4/30
+    preSharedKeySecretRef: {name: edge1-aws-keys, key: tunnel2}
