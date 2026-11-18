@@ -1,0 +1,35 @@
+apiVersion: meta.pkg.crossplane.io/v1
+kind: Configuration
+metadata:
+  name: configuration-aws-vpn
+  annotations:
+    meta.crossplane.io/source: https://github.com/netclab/netclab-xp
+    meta.crossplane.io/license: Apache-2.0
+    meta.crossplane.io/description: Site-to-Site VPN between AWS and IOS XE.
+spec:
+  # provider-aws-ec2 is not named here: a cluster that already has it would get a
+  # second Provider whose CRDs collide with the first.
+  dependsOn:
+    # v0.2.0 brings the keys from Secrets and the front-door VRF.
+    - apiVersion: pkg.crossplane.io/v1
+      kind: Configuration
+      package: xpkg.upbound.io/netclab/configuration-iosxe
+      version: ">=v0.2.0"
+
+    - apiVersion: pkg.crossplane.io/v1
+      kind: Provider
+      package: ghcr.io/crossplane-contrib/provider-http
+      version: ">=v1.0.14"
+
+    - apiVersion: pkg.crossplane.io/v1
+      kind: Function
+      package: xpkg.upbound.io/crossplane-contrib/function-go-templating
+      version: ">=v0.12.0"
+
+    - apiVersion: pkg.crossplane.io/v1
+      kind: Function
+      package: xpkg.upbound.io/crossplane-contrib/function-auto-ready
+      version: ">=v0.5.2"
+
+  crossplane:
+    version: ">=v2.1.1"

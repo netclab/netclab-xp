@@ -1,0 +1,258 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: connections.aws-vpn.netclab.dev
+spec:
+  scope: Namespaced
+  group: aws-vpn.netclab.dev
+  names:
+    kind: Connection
+    plural: connections
+    categories:
+    - crossplane
+    - netclab
+  defaultCompositionRef:
+    name: connections.aws-vpn.netclab.dev
+  versions:
+  - name: v1alpha1
+    additionalPrinterColumns:
+    - name: DEVICE
+      type: string
+      jsonPath: .spec.customerGateway.deviceRef.name
+    - name: REGION
+      type: string
+      jsonPath: .spec.targetGateway.region
+    - name: STATE
+      type: string
+      jsonPath: .status.aws.state
+    - name: TUNNEL1
+      type: string
+      jsonPath: .status.router.tunnels[0].oper
+    - name: TUNNEL2
+      type: string
+      jsonPath: .status.router.tunnels[1].oper
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              customerGateway:
+                type: object
+                description: The router on premises, and how AWS reaches it.
+                properties:
+                  deviceRef:
+                    type: object
+                    description: The router's Device in the connection's namespace.
+                    x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: deviceRef cannot change
+                    properties:
+                      apiVersion:
+                        type: string
+                        enum: [iosxe.netclab.dev/v1alpha1]
+                        default: iosxe.netclab.dev/v1alpha1
+                      kind:
+                        type: string
+                        enum: [Device]
+                        default: Device
+                      name:
+                        type: string
+                        minLength: 1
+                    required:
+                    - apiVersion
+                    - kind
+                    - name
+                  ipAddress:
+                    type: string
+                    description: >-
+                      The router's public IPv4 address, as AWS sees it; behind NAT,
+                      the address outside the NAT.
+                    format: ipv4
+                  bgpAsn:
+                    type: integer
+                    description: The router's BGP autonomous system number.
+                    minimum: 1
+                  source:
+                    type: string
+                    description: Interface, or IPv4 address, the tunnels' packets leave from.
+                    minLength: 1
+                  fvrf:
+                    type: string
+                    description: >-
+                      The front-door VRF: the table the tunnels' source and AWS's
+                      outside addresses are in.
+                    minLength: 1
+                  vrf:
+                    type: string
+                    description: >-
+                      The VRF of the tunnel interfaces: the table their addresses,
+                      the BGP sessions to AWS and the traffic to the VPC are in.
+                    minLength: 1
+                required:
+                - deviceRef
+                - ipAddress
+                - bgpAsn
+                - source
+              targetGateway:
+                type: object
+                description: The gateway on the AWS side; it exists already.
+                x-kubernetes-validations:
+                - rule: has(self.vpnGatewayId) != has(self.transitGatewayId)
+                  message: one of vpnGatewayId and transitGatewayId
+                properties:
+                  providerConfigRef:
+                    type: object
+                    description: The AWS provider's configuration, with its credentials.
+                    default:
+                      kind: ClusterProviderConfig
+                      name: default
+                    properties:
+                      kind:
+                        type: string
+                        enum: [ClusterProviderConfig, ProviderConfig]
+                      name:
+                        type: string
+                        minLength: 1
+                    required:
+                    - kind
+                    - name
+                  region:
+                    type: string
+                    description: The AWS region of the gateway, such as us-east-1.
+                    minLength: 1
+                    x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: region cannot change
+                  vpnGatewayId:
+                    type: string
+                    description: A virtual private gateway, attached to the VPC.
+                    pattern: '^vgw-[0-9a-f]{8,17}$'
+                  transitGatewayId:
+                    type: string
+                    description: A transit gateway.
+                    pattern: '^tgw-[0-9a-f]{8,17}$'
+                required:
+                - region
+              tunnels:
+                type: array
+                description: >-
+                  AWS's tunnel 1 and tunnel 2, in that order. AWS assigns each its
+                  outside address; the spec gives its inside CIDR.
+                minItems: 2
+                maxItems: 2
+                x-kubernetes-validations:
+                - rule: size(self) != 2 || self[0].interface != self[1].interface
+                  message: the two tunnels need two interfaces
+                - rule: size(self) != 2 || self[0].insideCidr != self[1].insideCidr
+                  message: the two tunnels need two inside CIDRs
+                items:
+                  type: object
+                  properties:
+                    interface:
+                      type: string
+                      description: The tunnel interface on the router, such as Tunnel1.
+                      x-kubernetes-validations:
+                      - rule: >-
+                          self.matches('^Tunnel(0|[1-9][0-9]{0,9})$')
+                          && int(self.substring(6)) <= 2147483647
+                        message: Tunnel and the interface's number, such as Tunnel1
+                    insideCidr:
+                      type: string
+                      description: >-
+                        The tunnel's inside addresses, in AWS's rules; AWS's and the
+                        router's address are read back from the VPN connection.
+                      maxLength: 18
+                      x-kubernetes-validations:
+                      - rule: isCIDR(self) && cidr(self).ip().family() == 4
+                        message: an IPv4 CIDR, such as 169.254.10.0/30
+                    preSharedKeySecretRef:
+                      type: object
+                      description: >-
+                        The key of the tunnel in a Secret in the connection's namespace;
+                        changing its value rotates it.
+                      properties:
+                        name:
+                          type: string
+                          minLength: 1
+                        key:
+                          type: string
+                          minLength: 1
+                      required:
+                      - name
+                      - key
+                  required:
+                  - interface
+                  - insideCidr
+                  - preSharedKeySecretRef
+              routing:
+                type: string
+                description: >-
+                  Dynamic: BGP over each tunnel, configured on the router by the
+                  user.
+                enum: [Dynamic]
+                default: Dynamic
+            required:
+            - customerGateway
+            - targetGateway
+            - tunnels
+          status:
+            type: object
+            properties:
+              missingSecrets:
+                type: array
+                description: Secrets, or keys in them, the spec names that do not exist.
+                items:
+                  type: string
+              aws:
+                type: object
+                description: The AWS side, from the VPN connection; it lags the router.
+                properties:
+                  customerGatewayId:
+                    type: string
+                  vpnConnectionId:
+                    type: string
+                  state:
+                    type: string
+                    description: The VPN connection's state, such as pending or available.
+                  tunnels:
+                    type: array
+                    description: AWS's telemetry of the tunnels, in the spec's order.
+                    items:
+                      type: object
+                      properties:
+                        outsideAddress:
+                          type: string
+                          description: AWS's end of the tunnel.
+                        status:
+                          type: string
+                          description: >-
+                            UP once the tunnel carries routes: its BGP session up with
+                            Dynamic.
+                        lastStatusChange:
+                          type: string
+                        statusMessage:
+                          type: string
+              router:
+                type: object
+                description: The router side, read from the router.
+                properties:
+                  tunnels:
+                    type: array
+                    description: The tunnels on the router, in the spec's order.
+                    items:
+                      type: object
+                      properties:
+                        interface:
+                          type: string
+                        oper:
+                          type: string
+                          description: The tunnel interface's oper-status.
+                        bgp:
+                          type: string
+                          description: >-
+                            The BGP session to AWS's inside address; with Dynamic
+                            only.
