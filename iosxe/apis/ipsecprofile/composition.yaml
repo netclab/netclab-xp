@@ -12,8 +12,9 @@ spec:
   # transform-sets sorted by name whatever order a write sends, so they are a
   # set, sorted in the body too; a PATCH adds to them. The router refuses a
   # profile naming a missing transform-set or IKEv2 profile, and their delete
-  # while it names them. What else the router holds in `set`, such as pfs, the
-  # spec has no field for, so Replace takes it off.
+  # while it names them. pfs is sent with its group: `set pfs` alone is group14,
+  # which a GET gives as an empty pfs. What else the router holds in `set`, such
+  # as security-association, the spec has no field for, so Replace takes it off.
   # Observe only reads; Merge PATCHes the fields of the spec;
   # Replace PUTs the profile and DELETEs it with the object. The status is
   # the last GET in the shape of the spec; Ready means the mode's write would
@@ -108,6 +109,7 @@ spec:
           {{- $hold := and $waiting (not (hasKey $observed "profile")) }}
           {{- $mine := sortAlpha (default list $xr.spec.transformSets) }}
           {{- $ike := $xr.spec.ikev2Profile | default "" }}
+          {{- $pfs := $xr.spec.pfs | default "" }}
 
           {{- /* ---- its Requests, once nothing holds them back ---- */}}
           {{- if not $hold }}
@@ -120,6 +122,7 @@ spec:
           {{- $set := dict }}
           {{- if $mine }}{{ $_ := set $set "transform-set" $mine }}{{ end }}
           {{- if $ike }}{{ $_ := set $set "ikev2-profile" $ike }}{{ end }}
+          {{- if $pfs }}{{ $_ := set $set "pfs" (dict "group" $pfs) }}{{ end }}
           {{- $body := dict "name" $xr.spec.name "set" $set }}
           {{- $put := dict "Cisco-IOS-XE-crypto:profile" (list $body) }}
           {{- /* a merge on native, which exists, creates the profile if it does not */}}
@@ -180,12 +183,15 @@ spec:
                     .response.body["Cisco-IOS-XE-crypto:profile"][0] as $p
                     | ($p.set // {}) as $s
                     | ($s["transform-set"] // [] | sort) as $router
+                    | ($s.pfs | if . == null then "" else (.group // "group14") end) as $pfs
                   {{- if eq $policy "Replace" }}
                     | $router == {{ $mine | toJson }} and ($s["ikev2-profile"] // "") == {{ $ike | toJson }}
-                      and ($s | del(.["transform-set"], .["ikev2-profile"])) == {} and ($p | del(.name, .set)) == {}
+                      and $pfs == {{ $pfs | toJson }}
+                      and ($s | del(.["transform-set"], .["ikev2-profile"], .pfs)) == {} and ($p | del(.name, .set)) == {}
                   {{- else }}
                     | {{ $mine | toJson }} - $router == []
                     {{- if $ike }} and $s["ikev2-profile"] == {{ $ike | toJson }}{{ end }}
+                    {{- if $pfs }} and $pfs == {{ $pfs | toJson }}{{ end }}
                   {{- end }}
                   end
           {{- end }}{{ end }}{{ end }}
@@ -221,9 +227,18 @@ spec:
               {{- else if and (eq $policy "Replace") $their }}
                 {{- $more = append $more (dict "field" "ikev2Profile" "device" $theirIke) }}
               {{- end }}
+              {{- /* `set pfs` with no group is group14, and a GET gives it as an empty pfs */}}
+              {{- $theirPfs := "" }}
+              {{- if hasKey $s "pfs" }}{{ $theirPfs = get (get $s "pfs" | default dict) "group" | default "group14" }}{{ end }}
+              {{- $theirPfsList := ternary (list $theirPfs) list (ne $theirPfs "") }}
+              {{- if $pfs }}
+                {{- if ne $theirPfs $pfs }}{{ $drift = append $drift (dict "field" "pfs" "device" $theirPfsList "spec" (list $pfs)) }}{{ end }}
+              {{- else if and (eq $policy "Replace") $theirPfs }}
+                {{- $more = append $more (dict "field" "pfs" "device" $theirPfsList) }}
+              {{- end }}
               {{- if eq $policy "Replace" }}
                 {{- range $k, $v := $s }}
-                  {{- if not (has $k (list "transform-set" "ikev2-profile")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}
+                  {{- if not (has $k (list "transform-set" "ikev2-profile" "pfs")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}
                 {{- end }}
                 {{- range $k, $v := $p }}
                   {{- if not (has $k (list "name" "set")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}
@@ -232,6 +247,7 @@ spec:
               {{- $seen := dict }}
               {{- if $theirs }}{{ $_ := set $seen "transformSets" $theirs }}{{ end }}
               {{- if $their }}{{ $_ := set $seen "ikev2Profile" $their }}{{ end }}
+              {{- if $theirPfs }}{{ $_ := set $seen "pfs" $theirPfs }}{{ end }}
               {{- $_ := set $status "observed" $seen }}
               {{- $_ := set $status "drift" $drift }}
               {{- $_ := set $status "extra" $more }}
