@@ -33,6 +33,11 @@ def example(policy=None):
     return xr
 
 
+def with_pfs(xr, group="group14"):
+    xr["spec"]["pfs"] = group
+    return xr
+
+
 def thin(name="CLASSICAL-IPSEC", xr_name=XR):
     """An object as Step 3 imports it: deviceRef and name, no mode."""
     return {
@@ -91,9 +96,15 @@ def test_the_mode_decides_what_the_request_may_do(render, policy, policies, writ
     ] == writes
 
 
-def test_merge_sends_the_patch_the_router_merged(render):
-    for_provider = request(render, example("Merge"))["spec"]["forProvider"]
-    sent = recorded(KIND, "profile-patch")["request"]
+@pytest.mark.parametrize(
+    ("pfs", "state"), [(None, "profile-patch"), ("group14", "profile-pfs-patch")]
+)
+def test_merge_sends_the_patch_the_router_merged(render, pfs, state):
+    xr = example("Merge")
+    if pfs:
+        with_pfs(xr, pfs)
+    for_provider = request(render, xr)["spec"]["forProvider"]
+    sent = recorded(KIND, state)["request"]
     assert json.loads(for_provider["payload"]["body"]) == sent["body"]
     writes = [m for m in for_provider["mappings"] if m["action"] != "OBSERVE"]
     assert {(m["method"], json.loads(m["url"])) for m in writes} == {
@@ -101,11 +112,15 @@ def test_merge_sends_the_patch_the_router_merged(render):
     }
 
 
-def test_replace_puts_what_the_router_then_returns(render):
-    body = request(render, example("Replace"))["spec"]["forProvider"]
-    assert (
-        json.loads(body["payload"]["body"]) == recorded(KIND, "profile-applied")["body"]
-    )
+@pytest.mark.parametrize(
+    ("pfs", "state"), [(None, "profile-applied"), ("group14", "profile-pfs-applied")]
+)
+def test_replace_puts_what_the_router_then_returns(render, pfs, state):
+    xr = example("Replace")
+    if pfs:
+        with_pfs(xr, pfs)
+    body = request(render, xr)["spec"]["forProvider"]
+    assert json.loads(body["payload"]["body"]) == recorded(KIND, state)["body"]
 
 
 @pytest.mark.parametrize(
@@ -129,6 +144,24 @@ def test_check_is_the_mode_write_changing_nothing(render, state, merge, replace)
         assert check(req, "expectedResponseCheck", recorded(KIND, state)) is expected
 
 
+@pytest.mark.parametrize(
+    ("state", "merge", "replace"),
+    [
+        ("profile-pfs-applied", True, True),
+        # `set pfs` alone: group14, given as an empty pfs.
+        ("profile-pfs-default", True, True),
+        # Merge's PATCH with pfs over the example without it, merged by the router.
+        ("profile-pfs-patched", True, True),
+        ("profile-with-pfs", False, False),
+        ("profile-applied", False, False),
+    ],
+)
+def test_check_compares_the_pfs_group(render, state, merge, replace):
+    for policy, expected in [("Merge", merge), ("Replace", replace)]:
+        req = request(render, with_pfs(example(policy)))
+        assert check(req, "expectedResponseCheck", recorded(KIND, state)) is expected
+
+
 @pytest.fixture(scope="module")
 def after_get(render):
     """The XR rendered with its Request answered by a GET of the router in `state`."""
@@ -147,6 +180,14 @@ def after_get(render):
             {"transformSets": ["CLASSICAL-TS"], "ikev2Profile": "CLASSICAL-PROFILE"},
         ),
         ("profile-no-ikev2-profile", {"transformSets": ["CLASSICAL-TS"]}),
+        (
+            "profile-pfs-default",
+            {
+                "transformSets": ["CLASSICAL-TS"],
+                "ikev2Profile": "CLASSICAL-PROFILE",
+                "pfs": "group14",
+            },
+        ),
     ],
 )
 def test_a_thin_object_shows_the_router_in_the_shape_of_the_spec(
@@ -182,13 +223,13 @@ def test_a_section_gone_from_the_router_is_not_ready(after_get):
             [{"field": "transformSets", "device": ["OTHER-TS"]}],
             "False",
         ),
-        # A field the spec cannot hold: compared in Replace alone.
+        # pfs the spec leaves out: Merge leaves it, Replace takes it off.
         ("Merge", "profile-with-pfs", [], [], "True"),
         (
             "Replace",
             "profile-with-pfs",
             [],
-            [{"field": "pfs", "device": ['{"group":"group20"}']}],
+            [{"field": "pfs", "device": ["group20"]}],
             "False",
         ),
         (
@@ -220,6 +261,24 @@ def test_drift_and_extra_follow_the_mode(
     assert status(rendered)["drift"] == drift
     assert status(rendered)["extra"] == extra
     assert ready(rendered) == is_ready
+
+
+@pytest.mark.parametrize(
+    ("state", "drift"),
+    [
+        (
+            "profile-with-pfs",
+            [{"field": "pfs", "device": ["group20"], "spec": ["group14"]}],
+        ),
+        ("profile-applied", [{"field": "pfs", "device": [], "spec": ["group14"]}]),
+        ("profile-pfs-default", []),
+    ],
+)
+def test_a_pfs_group_the_router_lacks_is_drift(after_get, state, drift):
+    for policy in ["Merge", "Replace"]:
+        rendered = after_get(with_pfs(example(policy)), state)
+        assert status(rendered)["drift"] == drift
+        assert ready(rendered) == ("False" if drift else "True")
 
 
 def test_a_write_that_succeeded_records_what_it_put_back(render):

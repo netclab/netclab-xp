@@ -103,6 +103,12 @@ spec:
                 type: string
                 description: Name of the IKEv2 profile on the router.
                 minLength: 1
+              pfs:
+                type: string
+                description: >-
+                  Perfect forward secrecy, set pfs: the Diffie-Hellman group of
+                  each rekey of the IPsec SAs.
+                enum: [group1, group2, group5, group14, group15, group16, group19, group20, group21, group24]
             required:
             - deviceRef
             - name
@@ -121,6 +127,8 @@ spec:
                     items:
                       type: string
                   ikev2Profile:
+                    type: string
+                  pfs:
                     type: string
               drift:
                 type: array
@@ -143,7 +151,7 @@ spec:
                 description: >-
                   Values the router has beyond the spec, in the fields the spec
                   sets; in Replace, in every field, a field the spec cannot
-                  hold, such as pfs, given as JSON.
+                  hold given as JSON.
                 items:
                   type: object
                   properties:

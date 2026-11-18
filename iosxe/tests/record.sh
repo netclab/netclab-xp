@@ -426,11 +426,21 @@ ipsecprofile() { # iosxe/examples/ipsecprofile/r1.yaml, on transform-sets and an
   record ipsecprofile/profile-no-ikev2-profile "$url"
   put '.set.pfs = {"group": "group20"}'
   record ipsecprofile/profile-with-pfs "$url"
+  # `set pfs` with no group: the CLI shows group14, the GET an empty pfs
+  put '.set.pfs = {}'
+  record ipsecprofile/profile-pfs-default "$url"
+  put '.set.pfs = {"group": "group14"}'
+  record ipsecprofile/profile-pfs-applied "$url"
   # Merge's write over OTHER-TS alone and no IKEv2 profile: a merge keeps OTHER-TS
   put '.set = {"transform-set": ["OTHER-TS"]}'
   patch ipsecprofile/profile-patch \
     "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ipsec": {profile: [$p]}}}}')"
   record ipsecprofile/profile-patched "$url"
+  # Merge's write with pfs over the example without it
+  put .
+  patch ipsecprofile/profile-pfs-patch \
+    "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ipsec": {profile: [$p | .set.pfs = {"group": "group14"}]}}}}')"
+  record ipsecprofile/profile-pfs-patched "$url"
 
   write DELETE "$url"
   write DELETE "$profile"

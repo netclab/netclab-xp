@@ -28,7 +28,7 @@ r1#show crypto ikev2 sa detailed | include READY|Quantum
 | `Ikev2Keyring` | `crypto ikev2 keyring`: per peer a pre-shared key and, optionally, `ppk manual` |
 | `Ikev2Profile` | `crypto ikev2 profile`, optionally with `keyring ppk`; pre-shared keys both ways, the one method of this version |
 | `IpsecTransformSet` | `crypto ipsec transform-set` |
-| `IpsecProfile` | `crypto ipsec profile` |
+| `IpsecProfile` | `crypto ipsec profile`, optionally with `set pfs` |
 | `TunnelInterface` | `interface Tunnel` |
 
 Each object names a `Device`: the router's RESTCONF address and credentials. The Device
