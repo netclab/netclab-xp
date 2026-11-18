@@ -1,0 +1,122 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: connections.aws-vpn.netclab.dev
+spec:
+  compositeTypeRef:
+    apiVersion: aws-vpn.netclab.dev/v1alpha1
+    kind: Connection
+  mode: Pipeline
+  pipeline:
+  # The AWS side: a customer gateway and the VPN connection to the target gateway,
+  # which exists already. Both are named after the Connection, so the VPN connection
+  # finds its customer gateway by reference, without waiting for its id. AWS returns
+  # the customer gateway that exists for the same address, ASN and type, and refuses
+  # its delete while a VPN connection uses it.
+  # The provider is done creating the VPN connection once it is available, so the
+  # MR's Ready is AWS's available. Its status has no state of its own; the status
+  # of the Connection takes AWS's ends of each tunnel and the telemetry, matched by
+  # outside address, since AWS's list need not follow tunnel 1 and tunnel 2.
+  - step: aws
+    functionRef:
+      name: crossplane-contrib-function-go-templating
+    input:
+      apiVersion: gotemplating.fn.crossplane.io/v1beta1
+      kind: GoTemplate
+      source: Inline
+      inline:
+        template: |
+          {{- $xr := .observed.composite.resource }}
+          {{- $observed := default (dict) .observed.resources }}
+          {{- $cgw := $xr.spec.customerGateway }}
+          {{- $tgw := $xr.spec.targetGateway }}
+          {{- $pc := default (dict "kind" "ClusterProviderConfig" "name" "default") $tgw.providerConfigRef }}
+          ---
+          apiVersion: ec2.aws.m.upbound.io/v1beta1
+          kind: CustomerGateway
+          metadata:
+            name: {{ $xr.metadata.name }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: customer-gateway
+          spec:
+            providerConfigRef:
+              kind: {{ $pc.kind }}
+              name: {{ $pc.name }}
+            forProvider:
+              region: {{ $tgw.region }}
+              type: ipsec.1
+              ipAddress: {{ $cgw.ipAddress }}
+              {{- /* the provider splits the ASN's range in two fields */}}
+              {{- if gt (int64 $cgw.bgpAsn) 2147483647 }}
+              bgpAsnExtended: {{ int64 $cgw.bgpAsn | toString | quote }}
+              {{- else }}
+              bgpAsn: {{ int64 $cgw.bgpAsn | toString | quote }}
+              {{- end }}
+              tags:
+                Name: {{ $xr.metadata.name }}
+          ---
+          apiVersion: ec2.aws.m.upbound.io/v1beta1
+          kind: VPNConnection
+          metadata:
+            name: {{ $xr.metadata.name }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: vpn-connection
+          spec:
+            providerConfigRef:
+              kind: {{ $pc.kind }}
+              name: {{ $pc.name }}
+            forProvider:
+              region: {{ $tgw.region }}
+              type: ipsec.1
+              customerGatewayIdRef:
+                name: {{ $xr.metadata.name }}
+              {{- if $tgw.vpnGatewayId }}
+              vpnGatewayId: {{ $tgw.vpnGatewayId }}
+              {{- else }}
+              transitGatewayId: {{ $tgw.transitGatewayId }}
+              {{- end }}
+              staticRoutesOnly: false
+              {{- range $i, $tun := $xr.spec.tunnels }}
+              tunnel{{ add $i 1 }}InsideCidr: {{ $tun.insideCidr }}
+              tunnel{{ add $i 1 }}PresharedKeySecretRef:
+                name: {{ $tun.preSharedKeySecretRef.name }}
+                key: {{ $tun.preSharedKeySecretRef.key }}
+              {{- end }}
+              tags:
+                Name: {{ $xr.metadata.name }}
+
+          {{- /* ---- status.aws, once the provider reports the VPN connection ---- */}}
+          {{- with index $observed "vpn-connection" }}{{ with .resource.status }}{{ with .atProvider }}
+          {{- $at := . }}
+          {{- $telemetry := dict }}
+          {{- range default (list) $at.vgwTelemetry }}
+          {{- $_ := set $telemetry (default "" .outsideIpAddress) . }}
+          {{- end }}
+          ---
+          apiVersion: {{ $xr.apiVersion }}
+          kind: {{ $xr.kind }}
+          status:
+            aws:
+              {{- with $at.customerGatewayId }}
+              customerGatewayId: {{ . }}
+              {{- end }}
+              {{- with $at.id }}
+              vpnConnectionId: {{ . }}
+              {{- end }}
+              tunnels:
+              {{- range $n := list 1 2 }}
+              {{- $outside := index $at (printf "tunnel%dAddress" $n) | default "" }}
+              - outsideAddress: {{ $outside | quote }}
+                insideAddress: {{ index $at (printf "tunnel%dVgwInsideAddress" $n) | default "" | quote }}
+                bgpAsn: {{ index $at (printf "tunnel%dBgpAsn" $n) | default "" | toString | quote }}
+                {{- with index $telemetry $outside }}
+                oper: {{ .status | default "" | quote }}
+                lastChange: {{ .lastStatusChange | default "" | quote }}
+                message: {{ .statusMessage | default "" | quote }}
+                {{- end }}
+              {{- end }}
+          {{- end }}{{ end }}{{ end }}
+
+  - step: ready
+    functionRef:
+      name: crossplane-contrib-function-auto-ready
