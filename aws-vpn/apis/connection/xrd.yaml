@@ -36,6 +36,27 @@ spec:
         properties:
           spec:
             type: object
+            x-kubernetes-validations:
+            - rule: >-
+                self.customerGateway.deviceRef.apiGroup != 'iosxe.netclab.dev'
+                || self.tunnels.all(t, t.interface.matches('^Tunnel(0|[1-9][0-9]{0,9})$')
+                  && int(t.interface.substring(6)) <= 2147483647)
+              message: on IOS XE, Tunnel and the interface's number, such as Tunnel1
+            - rule: >-
+                self.customerGateway.deviceRef.apiGroup != 'iosxe.netclab.dev'
+                || !has(self.customerGateway.tunnelInterfaceSpec)
+                || (!has(self.customerGateway.tunnelInterfaceSpec.managementPolicy)
+                  && !has(self.customerGateway.tunnelInterfaceSpec.deviceRef)
+                  && !has(self.customerGateway.tunnelInterfaceSpec.after)
+                  && !has(self.customerGateway.tunnelInterfaceSpec.name)
+                  && !has(self.customerGateway.tunnelInterfaceSpec.mode)
+                  && !has(self.customerGateway.tunnelInterfaceSpec.ipv4Address)
+                  && !has(self.customerGateway.tunnelInterfaceSpec.source)
+                  && !has(self.customerGateway.tunnelInterfaceSpec.destination)
+                  && !has(self.customerGateway.tunnelInterfaceSpec.ipsecProfile)
+                  && !has(self.customerGateway.tunnelInterfaceSpec.fvrf)
+                  && !has(self.customerGateway.tunnelInterfaceSpec.vrf))
+              message: on IOS XE, TunnelInterface fields the connection sets itself
             properties:
               customerGateway:
                 type: object
@@ -48,10 +69,11 @@ spec:
                     - rule: self == oldSelf
                       message: deviceRef cannot change
                     properties:
-                      apiVersion:
+                      apiGroup:
                         type: string
-                        enum: [iosxe.netclab.dev/v1alpha1]
-                        default: iosxe.netclab.dev/v1alpha1
+                        description: The group of the Device, which names its vendor.
+                        enum: [iosxe.netclab.dev]
+                        default: iosxe.netclab.dev
                       kind:
                         type: string
                         enum: [Device]
@@ -60,7 +82,7 @@ spec:
                         type: string
                         minLength: 1
                     required:
-                    - apiVersion
+                    - apiGroup
                     - kind
                     - name
                   ipAddress:
@@ -77,18 +99,41 @@ spec:
                     type: string
                     description: Interface, or IPv4 address, the tunnels' packets leave from.
                     minLength: 1
-                  fvrf:
+                  outsideVrf:
                     type: string
                     description: >-
-                      The front-door VRF: the table the tunnels' source and AWS's
-                      outside addresses are in.
+                      The VRF the tunnels' source and AWS's outside addresses are in.
                     minLength: 1
-                  vrf:
+                  insideVrf:
                     type: string
                     description: >-
-                      The VRF of the tunnel interfaces: the table their addresses,
-                      the BGP sessions to AWS and the traffic to the VPC are in.
+                      The VRF the tunnel interfaces are in: their inside addresses,
+                      the BGP sessions to AWS and the traffic to the VPC.
                     minLength: 1
+                  tunnelInterfaceSpec:
+                    type: object
+                    description: >-
+                      Settings of both tunnel interfaces beyond the connection, as
+                      fields of the spec of the vendor's tunnel interface, which
+                      validates them; on IOS XE, iosxe.netclab.dev TunnelInterface.
+                    x-kubernetes-preserve-unknown-fields: true
+                    maxProperties: 16
+                    # Declared only for CEL to see them, which sees no other field.
+                    # iosxe.netclab.dev TunnelInterface: the fields the connection sets.
+                    properties:
+                      managementPolicy: {type: string}
+                      deviceRef: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                      after:
+                        type: array
+                        items: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                      name: {type: string}
+                      mode: {type: string}
+                      ipv4Address: {type: string}
+                      source: {type: string}
+                      destination: {type: string}
+                      ipsecProfile: {type: string}
+                      fvrf: {type: string}
+                      vrf: {type: string}
                 required:
                 - deviceRef
                 - ipAddress
@@ -151,12 +196,8 @@ spec:
                   properties:
                     interface:
                       type: string
-                      description: The tunnel interface on the router, such as Tunnel1.
-                      x-kubernetes-validations:
-                      - rule: >-
-                          self.matches('^Tunnel(0|[1-9][0-9]{0,9})$')
-                          && int(self.substring(6)) <= 2147483647
-                        message: Tunnel and the interface's number, such as Tunnel1
+                      description: The tunnel interface on the router, in its vendor's names.
+                      minLength: 1
                     insideCidr:
                       type: string
                       description: >-
