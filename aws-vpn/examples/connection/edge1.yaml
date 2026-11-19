@@ -10,7 +10,7 @@ spec:
     ipAddress: 203.0.113.10
     bgpAsn: 65010
     source: GigabitEthernet2
-    fvrf: WAN
+    outsideVrf: WAN
   targetGateway:
     region: us-east-1
     vpnGatewayId: vgw-0123456789abcdef0
