@@ -17,6 +17,9 @@
             "name": "CLASSICAL-KEYRING"
           }
         },
+        "lifetime": {
+          "seconds": 86400
+        },
         "match": {
           "identity": {
             "remote": {

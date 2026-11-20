@@ -38,6 +38,14 @@ def with_pfs(xr, group="group14"):
     return xr
 
 
+def with_sa(xr):
+    """The dfbit, window size and lifetime of AWS's sample for CSRv."""
+    xr["spec"]["dfbit"] = "clear"
+    xr["spec"]["replayWindowSize"] = 128
+    xr["spec"]["lifetime"] = 3600
+    return xr
+
+
 def thin(name="CLASSICAL-IPSEC", xr_name=XR):
     """An object as Step 3 imports it: deviceRef and name, no mode."""
     return {
@@ -123,6 +131,23 @@ def test_replace_puts_what_the_router_then_returns(render, pfs, state):
     assert json.loads(body["payload"]["body"]) == recorded(KIND, state)["body"]
 
 
+def test_merge_sends_the_security_association_the_router_merged(render):
+    for_provider = request(render, with_sa(example("Merge")))["spec"]["forProvider"]
+    sent = recorded(KIND, "profile-sa-patch")["request"]
+    assert json.loads(for_provider["payload"]["body"]) == sent["body"]
+
+
+def test_replace_puts_the_security_association_the_router_then_returns(render):
+    for_provider = request(render, with_sa(example("Replace")))["spec"]["forProvider"]
+    body = json.loads(for_provider["payload"]["body"])
+    returned = recorded(KIND, "profile-sa-applied")["body"]
+    # The router gives the lifetime's seconds-case again in the deprecated seconds.
+    del returned["Cisco-IOS-XE-crypto:profile"][0]["set"]["security-association"][
+        "lifetime"
+    ]["seconds"]
+    assert body == returned
+
+
 @pytest.mark.parametrize(
     ("state", "merge", "replace"),
     [
@@ -130,6 +155,7 @@ def test_replace_puts_what_the_router_then_returns(render, pfs, state):
         # Beyond the spec: Merge leaves it, Replace takes it off.
         ("profile-extra-transform-set", True, False),
         ("profile-with-pfs", True, False),
+        ("profile-sa-applied", True, False),
         # Merge's PATCH over OTHER-TS alone, merged by the router.
         ("profile-patched", True, False),
         # A value of the spec the router lacks.
@@ -162,6 +188,29 @@ def test_check_compares_the_pfs_group(render, state, merge, replace):
         assert check(req, "expectedResponseCheck", recorded(KIND, state)) is expected
 
 
+@pytest.mark.parametrize(
+    ("state", "merge", "replace"),
+    [
+        ("profile-sa-applied", True, True),
+        # Merge's PATCH of both over dfbit set alone, merged by the router.
+        ("profile-sa-patched", True, True),
+        ("profile-sa-other", False, False),
+        # Each field alone: another dfbit; `replay disable` in place of the window size;
+        # another lifetime.
+        ("profile-sa-dfbit-set", False, False),
+        ("profile-sa-replay-disable", False, False),
+        ("profile-sa-lifetime-other", False, False),
+        # A lifetime in kilobytes beside the spec's: Merge leaves it, Replace takes it off.
+        ("profile-sa-kilobytes", True, False),
+        ("profile-applied", False, False),
+    ],
+)
+def test_check_compares_the_security_association(render, state, merge, replace):
+    for policy, expected in [("Merge", merge), ("Replace", replace)]:
+        req = request(render, with_sa(example(policy)))
+        assert check(req, "expectedResponseCheck", recorded(KIND, state)) is expected
+
+
 @pytest.fixture(scope="module")
 def after_get(render):
     """The XR rendered with its Request answered by a GET of the router in `state`."""
@@ -186,6 +235,16 @@ def after_get(render):
                 "transformSets": ["CLASSICAL-TS"],
                 "ikev2Profile": "CLASSICAL-PROFILE",
                 "pfs": "group14",
+            },
+        ),
+        (
+            "profile-sa-applied",
+            {
+                "transformSets": ["CLASSICAL-TS"],
+                "ikev2Profile": "CLASSICAL-PROFILE",
+                "dfbit": "clear",
+                "replayWindowSize": 128,
+                "lifetime": 3600,
             },
         ),
     ],
@@ -230,6 +289,19 @@ def test_a_section_gone_from_the_router_is_not_ready(after_get):
             "profile-with-pfs",
             [],
             [{"field": "pfs", "device": ["group20"]}],
+            "False",
+        ),
+        # A security association the spec leaves out: the same.
+        ("Merge", "profile-sa-applied", [], [], "True"),
+        (
+            "Replace",
+            "profile-sa-applied",
+            [],
+            [
+                {"field": "dfbit", "device": ["clear"]},
+                {"field": "replayWindowSize", "device": ["128"]},
+                {"field": "lifetime", "device": ["3600"]},
+            ],
             "False",
         ),
         (
@@ -279,6 +351,43 @@ def test_a_pfs_group_the_router_lacks_is_drift(after_get, state, drift):
         rendered = after_get(with_pfs(example(policy)), state)
         assert status(rendered)["drift"] == drift
         assert ready(rendered) == ("False" if drift else "True")
+
+
+SA_OTHER = [
+    {"field": "dfbit", "device": ["set"], "spec": ["clear"]},
+    {"field": "replayWindowSize", "device": ["1024"], "spec": ["128"]},
+    {"field": "lifetime", "device": ["900"], "spec": ["3600"]},
+]
+NO_WINDOW = [{"field": "replayWindowSize", "device": [], "spec": ["128"]}]
+REPLAY_DISABLE = [
+    {"field": "security-association", "device": ['{"replay":{"disable":[null]}}']}
+]
+KILOBYTES = [
+    {"field": "security-association", "device": ['{"lifetime":{"kilobytes":"102400"}}']}
+]
+
+
+@pytest.mark.parametrize(
+    ("policy", "state", "drift", "extra"),
+    [
+        ("Merge", "profile-sa-other", SA_OTHER, []),
+        ("Replace", "profile-sa-other", SA_OTHER, []),
+        # `replay disable` the spec has no field for: beyond it in Replace alone.
+        ("Merge", "profile-sa-replay-disable", NO_WINDOW, []),
+        ("Replace", "profile-sa-replay-disable", NO_WINDOW, REPLAY_DISABLE),
+        ("Merge", "profile-sa-kilobytes", [], []),
+        ("Replace", "profile-sa-kilobytes", [], KILOBYTES),
+        # The seconds the router gives the lifetime in again are no field beyond the spec.
+        ("Replace", "profile-sa-applied", [], []),
+    ],
+)
+def test_a_security_association_the_router_lacks_is_drift(
+    after_get, policy, state, drift, extra
+):
+    rendered = after_get(with_sa(example(policy)), state)
+    assert status(rendered)["drift"] == drift
+    assert status(rendered)["extra"] == extra
+    assert ready(rendered) == ("False" if drift or extra else "True")
 
 
 def test_a_write_that_succeeded_records_what_it_put_back(render):

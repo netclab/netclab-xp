@@ -330,6 +330,7 @@ A pull request copies `status.observed` into `spec`, the intent:
    name: CLASSICAL-PROPOSAL
 +  encryption: [aes-cbc-256]
 +  integrity: [sha512]
++  prf: [sha512]
 +  group: [20]
 ```
 

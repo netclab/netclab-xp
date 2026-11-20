@@ -23,13 +23,13 @@ r1#show crypto ikev2 sa detailed | include READY|Quantum
 
 | kind | the section on the router |
 |---|---|
-| `Ikev2Proposal` | `crypto ikev2 proposal` |
+| `Ikev2Proposal` | `crypto ikev2 proposal`, its `prf` always named |
 | `Ikev2Policy` | `crypto ikev2 policy` |
 | `Ikev2Keyring` | `crypto ikev2 keyring`: per peer a pre-shared key and, optionally, `ppk manual` |
-| `Ikev2Profile` | `crypto ikev2 profile`, optionally with `keyring ppk`; pre-shared keys both ways, the one method of this version |
+| `Ikev2Profile` | `crypto ikev2 profile`, optionally with `keyring ppk`, `dpd` and `lifetime`; pre-shared keys both ways, the one method of this version |
 | `IpsecTransformSet` | `crypto ipsec transform-set` |
-| `IpsecProfile` | `crypto ipsec profile`, optionally with `set pfs` |
-| `TunnelInterface` | `interface Tunnel` |
+| `IpsecProfile` | `crypto ipsec profile`, optionally with `set pfs` and `set security-association` dfbit, replay window-size and lifetime seconds |
+| `TunnelInterface` | `interface Tunnel`, optionally with `ip tcp adjust-mss` |
 
 Each object names a `Device`: the router's RESTCONF address and credentials. The Device
 configures nothing; its status lists the router's sections that the kinds above model.

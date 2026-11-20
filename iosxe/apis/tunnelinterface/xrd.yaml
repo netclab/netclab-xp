@@ -143,6 +143,13 @@ spec:
                   The front-door VRF, tunnel vrf: the table the tunnel's source and
                   destination are in.
                 minLength: 1
+              tcpAdjustMss:
+                type: integer
+                description: >-
+                  ip tcp adjust-mss: the maximum segment size the router writes into
+                  the TCP SYNs the tunnel carries.
+                minimum: 500
+                maximum: 1460
             required:
             - deviceRef
             - name
@@ -172,6 +179,8 @@ spec:
                     type: string
                   fvrf:
                     type: string
+                  tcpAdjustMss:
+                    type: integer
               missingVrfs:
                 type: array
                 description: >-

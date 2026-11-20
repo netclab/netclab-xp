@@ -23,8 +23,7 @@
                 },
                 "mode": {
                   "ipsec": {
-                    "ipv4-mode": {},
-                    "ipv4": {}
+                    "ipv4-mode": {}
                   }
                 },
                 "protection": {

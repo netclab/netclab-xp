@@ -109,6 +109,27 @@ spec:
                   Perfect forward secrecy, set pfs: the Diffie-Hellman group of
                   each rekey of the IPsec SAs.
                 enum: [group1, group2, group5, group14, group15, group16, group19, group20, group21, group24]
+              dfbit:
+                type: string
+                description: >-
+                  The DF bit of the packets the IPsec SAs carry, set
+                  security-association dfbit; without it, the router's global
+                  setting.
+                enum: [clear, copy, set]
+              replayWindowSize:
+                type: integer
+                description: >-
+                  Size of the anti-replay window in packets, set
+                  security-association replay window-size; without it, the
+                  router's global setting.
+                enum: [64, 128, 256, 512, 1024]
+              lifetime:
+                type: integer
+                description: >-
+                  Lifetime of the IPsec SAs in seconds, set security-association
+                  lifetime seconds; without it, the router's global setting.
+                minimum: 120
+                maximum: 2592000
             required:
             - deviceRef
             - name
@@ -130,6 +151,12 @@ spec:
                     type: string
                   pfs:
                     type: string
+                  dfbit:
+                    type: string
+                  replayWindowSize:
+                    type: integer
+                  lifetime:
+                    type: integer
               drift:
                 type: array
                 description: Fields whose values in the spec the router lacks.

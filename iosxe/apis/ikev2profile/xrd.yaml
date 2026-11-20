@@ -115,6 +115,35 @@ spec:
                   The front-door VRF the profile matches, by name, or any; without
                   it the profile matches the global table alone.
                 minLength: 1
+              dpd:
+                type: object
+                description: >-
+                  Dead peer detection, dpd: after interval seconds, a query every
+                  retry seconds, on-demand when traffic goes unanswered or periodic.
+                properties:
+                  interval:
+                    type: integer
+                    minimum: 10
+                    maximum: 3600
+                  retry:
+                    type: integer
+                    minimum: 2
+                    maximum: 60
+                  query:
+                    type: string
+                    enum: [on-demand, periodic]
+                # the router refuses a retry without a query
+                required:
+                - interval
+                - retry
+                - query
+              lifetime:
+                type: integer
+                description: >-
+                  Lifetime of the IKE SA in seconds; without it, the router's
+                  86400.
+                minimum: 120
+                maximum: 86400
             required:
             - deviceRef
             - name
@@ -141,6 +170,17 @@ spec:
                     type: string
                   fvrf:
                     type: string
+                  dpd:
+                    type: object
+                    properties:
+                      interval:
+                        type: integer
+                      retry:
+                        type: integer
+                      query:
+                        type: string
+                  lifetime:
+                    type: integer
               missingVrfs:
                 type: array
                 description: >-

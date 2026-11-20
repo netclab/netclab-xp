@@ -9,4 +9,5 @@ spec:
   name: CLASSICAL-PROPOSAL
   encryption: [aes-cbc-256]
   integrity: [sha512]
+  prf: [sha512]
   group: [20]

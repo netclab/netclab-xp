@@ -15,7 +15,9 @@ spec:
   # the spec, and Replace takes them off. Without `fvrf` the profile matches the
   # global table alone; `fvrf` matches a front-door VRF by name, or any. A VRF
   # the Device does not list holds the Requests back, as `after` does, and
-  # `status.missingVrfs` names it.
+  # `status.missingVrfs` names it. The router keeps a profile's lifetime after a
+  # write that leaves it out, and a GET then shows none, so Replace always writes
+  # one: the spec's, or the router's 86400.
   # `keyring ppk` is outside 17.18's YANG and no read returns it, so the package
   # keeps a mark of the line it wrote in an EEM variable, which one Request reads
   # in every mode. In Merge and Replace another writes the line and the mark
@@ -129,6 +131,10 @@ spec:
           {{- $hold := and (or $waiting $missingVrfs) (not (hasKey $observed "profile")) }}
           {{- $ring := $xr.spec.keyring | default "" }}
           {{- $ppk := $xr.spec.ppkKeyring | default "" }}
+          {{- $dpd := dict }}
+          {{- with $xr.spec.dpd }}{{ $dpd = dict "interval" .interval "retry" .retry "query" .query }}{{ end }}
+          {{- $seconds := $xr.spec.lifetime | default 0 }}
+          {{- if and (eq $policy "Replace") (not $seconds) }}{{ $seconds = 86400 }}{{ end }}
           {{- $rewrite := index (default (dict) $xr.metadata.annotations) "iosxe.netclab.dev/rewrite-keys" | default "" }}
 
           {{- /* ---- the PPK keyring's mark, as the spec makes it and as the router has it ---- */}}
@@ -167,6 +173,8 @@ spec:
           {{- if $ipv4 }}{{ $_ := set $matchBody "identity" (dict "remote" (dict "address" (dict "ipv4" $ipv4))) }}{{ end }}
           {{- if $fvrfBody }}{{ $_ := set $matchBody "fvrf" $fvrfBody }}{{ end }}
           {{- if $matchBody }}{{ $_ := set $profile "match" $matchBody }}{{ end }}
+          {{- if $dpd }}{{ $_ := set $profile "dpd" $dpd }}{{ end }}
+          {{- if $seconds }}{{ $_ := set $profile "lifetime" (dict "seconds" $seconds) }}{{ end }}
           {{- $put := dict "Cisco-IOS-XE-crypto:profile" (list $profile) }}
           {{- /* a merge on native, which exists, creates the profile if it does not */}}
           {{- $patch := dict "Cisco-IOS-XE-native:native" (dict "crypto" (dict "Cisco-IOS-XE-crypto:ikev2" (dict "profile" (list $profile)))) }}
@@ -234,6 +242,8 @@ spec:
                     | {{ $mine | toJson }} - [$p.match.identity.remote.address.ipv4[]? | .["ipv4-address"]] == []
                     {{- if $ring }} and $p.keyring.local.name == {{ $ring | toJson }}{{ end }}
                     {{- if $fvrfBody }} and $p.match.fvrf == {{ $fvrfBody | toJson }}{{ end }}
+                    {{- if $dpd }} and $p.dpd == {{ $dpd | toJson }}{{ end }}
+                    {{- if $seconds }} and $p.lifetime.seconds == {{ $seconds }}{{ end }}
                     {{- if eq $policy "Merge" }}
                       and ($p.authentication.local // {} | has("pre-share")) and ($p.authentication.remote // {} | has("pre-share"))
                     {{- end }}
@@ -407,6 +417,19 @@ spec:
               {{- else if and (eq $policy "Replace") $theirVrf }}
                 {{- $more = append $more (dict "field" "fvrf" "device" $theirVrfs) }}
               {{- end }}
+              {{- $theirDpd := get $p "dpd" | default dict }}
+              {{- $theirDpds := ternary (list (toJson $theirDpd)) list (not (empty $theirDpd)) }}
+              {{- if $dpd }}
+                {{- if ne (toJson $theirDpd) (toJson $dpd) }}{{ $drift = append $drift (dict "field" "dpd" "device" $theirDpds "spec" (list (toJson $dpd))) }}{{ end }}
+              {{- else if and (eq $policy "Replace") $theirDpd }}
+                {{- $more = append $more (dict "field" "dpd" "device" $theirDpds) }}
+              {{- end }}
+              {{- /* in Replace the spec's lifetime is 86400 where it names none, as Replace writes it */}}
+              {{- $theirSeconds := "" }}{{ with get $p "lifetime" }}{{ with get . "seconds" }}{{ $theirSeconds = printf "%v" . }}{{ end }}{{ end }}
+              {{- $theirLifetimes := ternary (list $theirSeconds) list (ne $theirSeconds "") }}
+              {{- if and $seconds (ne $theirSeconds (printf "%v" $seconds)) }}
+                {{- $drift = append $drift (dict "field" "lifetime" "device" $theirLifetimes "spec" (list (printf "%v" $seconds))) }}
+              {{- end }}
               {{- if eq $policy "Replace" }}
                 {{- $preshare := dict "local" (dict "pre-share" (dict)) "remote" (dict "pre-share" (dict)) }}
                 {{- if ne (get $p "authentication" | default dict | toJson) ($preshare | toJson) }}{{ $more = append $more (dict "field" "authentication" "device" (list (get $p "authentication" | default dict | toJson))) }}{{ end }}
@@ -420,12 +443,14 @@ spec:
                 {{- end }}
                 {{- if not (get $rest "identity") }}{{ $_ := unset $rest "identity" }}{{ end }}
                 {{- if $rest }}{{ $more = append $more (dict "field" "match" "device" (list (toJson $rest))) }}{{ end }}
-                {{- range $k, $v := $p }}{{ if not (has $k (list "name" "authentication" "keyring" "match")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}{{ end }}
+                {{- range $k, $v := $p }}{{ if not (has $k (list "name" "authentication" "keyring" "match" "dpd" "lifetime")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}{{ end }}
               {{- end }}
               {{- $seen := dict }}
               {{- if $theirs }}{{ $_ := set $seen "remoteAddresses" $theirs }}{{ end }}
               {{- if $their }}{{ $_ := set $seen "keyring" $their }}{{ end }}
               {{- if $theirVrf }}{{ $_ := set $seen "fvrf" $theirVrf }}{{ end }}
+              {{- if $theirDpd }}{{ $_ := set $seen "dpd" $theirDpd }}{{ end }}
+              {{- if $theirSeconds }}{{ $_ := set $seen "lifetime" (atoi $theirSeconds) }}{{ end }}
               {{- $_ := set $status "observed" $seen }}
               {{- $_ := set $status "drift" $drift }}
               {{- $_ := set $status "extra" $more }}
