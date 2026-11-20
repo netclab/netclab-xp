@@ -1,4 +1,4 @@
-# Part 9: a post-quantum preshared key
+# A tunnel with a post-quantum preshared key (PPK)
 
 Part 9 of Cisco's IPsec series,
 [Post-Quantum Key Exchange on Cisco Routers](https://blogs.cisco.com/developer/post-quantum-key-exchange-on-cisco-routers-ipsec-series-part-9),

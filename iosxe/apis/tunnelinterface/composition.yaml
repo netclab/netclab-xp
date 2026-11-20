@@ -9,16 +9,17 @@ spec:
   mode: Pipeline
   pipeline:
   # One Request owns the tunnel interface over RESTCONF. The body always
-  # carries the mode: without one the router makes a GRE tunnel. The router
-  # returns `ipsec ipv4` as both `ipv4-mode` and `ipv4`, so the body carries
-  # both. Lines the spec has no field for, such as description or shutdown, are
-  # beyond the spec, and Replace takes them off. The router refuses a tunnel
-  # naming a missing IPsec profile, and the profile's delete while a tunnel
-  # names it. `vrf` is the interface's own VRF, `vrf forwarding`, and
+  # carries the mode: without one the router makes a GRE tunnel. `ipsec ipv4`
+  # is written as ipv4-mode; a GET gives it again in the deprecated ipv4, which
+  # the checks leave aside. Lines the spec has no field for, such as description
+  # or shutdown, are beyond the spec, and Replace takes them off. The router
+  # refuses a tunnel naming a missing IPsec profile, and the profile's delete
+  # while a tunnel names it. `vrf` is the interface's own VRF, `vrf forwarding`, and
   # `fvrf` the front-door VRF its packets travel in, `tunnel vrf`; a change of
   # `vrf` takes the address off and puts it back in one write. A VRF the Device
   # does not list holds the Requests back, as `after` does, and
-  # `status.missingVrfs` names it.
+  # `status.missingVrfs` names it. `tcpAdjustMss` is `ip tcp adjust-mss`, in
+  # `ip` beside the address.
   # Observe only reads; Merge PATCHes the fields of the spec;
   # Replace PUTs the interface and DELETEs it with the object. The status is
   # the last GET in the shape of the spec; Ready means the mode's write would
@@ -115,7 +116,7 @@ spec:
           {{- if not $ready }}{{ $waiting = true }}{{ end }}
           {{- end }}
           {{- $number := int (trimPrefix "Tunnel" $xr.spec.name) }}
-          {{- $fields := list "mode" "ipv4Address" "source" "destination" "ipsecProfile" "vrf" "fvrf" }}
+          {{- $fields := list "mode" "ipv4Address" "source" "destination" "ipsecProfile" "vrf" "fvrf" "tcpAdjustMss" }}
           {{- $spec := dict }}
           {{- range $f := $fields }}{{ with get $xr.spec $f }}{{ $_ := set $spec $f . }}{{ end }}{{ end }}
           {{- $dev := dict }}
@@ -132,7 +133,7 @@ spec:
           {{- $hold := and (or $waiting $missingVrfs) (not (hasKey $observed "tunnel")) }}
 
           {{- /* ---- its Requests, once nothing holds them back ---- */}}
-          {{- $modes := dict "ipsec-ipv4" (dict "ipsec" (dict "ipv4-mode" (dict) "ipv4" (dict))) }}
+          {{- $modes := dict "ipsec-ipv4" (dict "ipsec" (dict "ipv4-mode" (dict))) }}
           {{- $octet := list 0 128 192 224 240 248 252 254 255 }}
           {{- $address := "" }}{{ $mask := "" }}
           {{- with $spec.ipv4Address }}
@@ -153,7 +154,10 @@ spec:
           {{- $tunnel := dict "name" $number }}
           {{- $inner := dict }}
           {{- with $spec.vrf }}{{ $_ := set $tunnel "vrf" (dict "forwarding" .) }}{{ end }}
-          {{- if $address }}{{ $_ := set $tunnel "ip" (dict "address" (dict "primary" (dict "address" $address "mask" $mask))) }}{{ end }}
+          {{- $ipBody := dict }}
+          {{- if $address }}{{ $_ := set $ipBody "address" (dict "primary" (dict "address" $address "mask" $mask)) }}{{ end }}
+          {{- with $spec.tcpAdjustMss }}{{ $_ := set $ipBody "tcp" (dict "adjust-mss" .) }}{{ end }}
+          {{- if $ipBody }}{{ $_ := set $tunnel "ip" $ipBody }}{{ end }}
           {{- with $spec.source }}{{ $_ := set $inner "source" . }}{{ end }}
           {{- with $spec.destination }}{{ $_ := set $inner "destination-config" (dict "ipv4" .) }}{{ end }}
           {{- with $spec.mode }}{{ $_ := set $inner "mode" (get $modes .) }}{{ end }}
@@ -165,16 +169,18 @@ spec:
           {{- $patch := dict "Cisco-IOS-XE-native:native" (dict "interface" (dict "Tunnel" (list $tunnel))) }}
           {{- /* the check, field by field, on the router's own terms */}}
           {{- $checks := list }}
-          {{- with $spec.mode }}{{ $checks = append $checks (printf "$u.mode == %s" (get $modes . | toJson)) }}{{ end }}
+          {{- with $spec.mode }}{{ $checks = append $checks (printf "($u.mode // {} | if .ipsec then .ipsec |= del(.ipv4) else . end) == %s" (get $modes . | toJson)) }}{{ end }}
           {{- if $address }}{{ $checks = append $checks (printf "$t.ip.address.primary == %s" (dict "address" $address "mask" $mask | toJson)) }}{{ end }}
           {{- with $spec.source }}{{ $checks = append $checks (printf "$u.source == %s" (toJson .)) }}{{ end }}
           {{- with $spec.destination }}{{ $checks = append $checks (printf "$u[\"destination-config\"].ipv4 == %s" (toJson .)) }}{{ end }}
           {{- with $spec.ipsecProfile }}{{ $checks = append $checks (printf "$u.protection[\"Cisco-IOS-XE-crypto:ipsec\"][\"profile-option\"].name == %s" (toJson .)) }}{{ end }}
           {{- with $spec.vrf }}{{ $checks = append $checks (printf "$t.vrf.forwarding == %s" (toJson .)) }}{{ end }}
           {{- with $spec.fvrf }}{{ $checks = append $checks (printf "$u[\"vrf-config\"][\"vrf-common\"].vrf == %s" (toJson .)) }}{{ end }}
+          {{- with $spec.tcpAdjustMss }}{{ $checks = append $checks (printf "$t.ip.tcp[\"adjust-mss\"] == %v" .) }}{{ end }}
           {{- if eq $policy "Replace" }}
             {{- $checks = append $checks "($t | del(.name, .ip, .vrf, .[\"Cisco-IOS-XE-tunnel:tunnel\"])) == {}" }}
-            {{- $checks = append $checks "(($t.ip // {}) | del(.address)) == {}" }}
+            {{- $checks = append $checks "(($t.ip // {}) | del(.address, .tcp)) == {}" }}
+            {{- $checks = append $checks (printf "($t.ip.tcp[\"adjust-mss\"] // null) == %s" (toJson ($spec.tcpAdjustMss | default nil))) }}
             {{- $checks = append $checks "(($t.ip.address // {}) | del(.primary)) == {}" }}
             {{- $checks = append $checks "($u | del(.source, .[\"destination-config\"], .mode, .protection, .[\"vrf-config\"])) == {}" }}
             {{- /* the VRFs, which the spec may leave out: as the spec has them, or none */}}
@@ -285,7 +291,7 @@ spec:
               {{- $addr := get $ip "address" | default dict }}
               {{- $router := dict }}
               {{- with get $u "mode" }}
-                {{- if hasKey (get . "ipsec" | default dict) "ipv4" }}{{ $_ := set $router "mode" "ipsec-ipv4" }}{{ else }}{{ $_ := set $router "mode" (toJson .) }}{{ end }}
+                {{- if hasKey (get . "ipsec" | default dict) "ipv4-mode" }}{{ $_ := set $router "mode" "ipsec-ipv4" }}{{ else }}{{ $_ := set $router "mode" (toJson .) }}{{ end }}
               {{- end }}
               {{- with get $addr "primary" }}
                 {{- $length := 0 }}
@@ -296,6 +302,8 @@ spec:
               {{- with get $u "destination-config" }}{{ with get . "ipv4" }}{{ $_ := set $router "destination" . }}{{ end }}{{ end }}
               {{- with get $u "protection" }}{{ with get . "Cisco-IOS-XE-crypto:ipsec" }}{{ with get . "profile-option" }}{{ with get . "name" }}{{ $_ := set $router "ipsecProfile" . }}{{ end }}{{ end }}{{ end }}{{ end }}
               {{- with get $t "vrf" }}{{ with get . "forwarding" }}{{ $_ := set $router "vrf" . }}{{ end }}{{ end }}
+              {{- $tcp := get $ip "tcp" | default dict }}
+              {{- with get $tcp "adjust-mss" }}{{ $_ := set $router "tcpAdjustMss" . }}{{ end }}
               {{- /* `tunnel vrf` alone is the field; the rest of vrf-config is beyond the spec */}}
               {{- $vrfConfig := deepCopy (get $u "vrf-config" | default dict) }}
               {{- with get $vrfConfig "vrf-common" }}{{ with get . "vrf" }}{{ $_ := set $router "fvrf" . }}{{ end }}{{ end }}
@@ -303,17 +311,16 @@ spec:
               {{- $drift := list }}
               {{- $more := list }}
               {{- range $f := $fields }}
-                {{- $theirs := ternary (list (get $router $f)) list (hasKey $router $f) }}
+                {{- $theirs := ternary (list (get $router $f | toString)) list (hasKey $router $f) }}
                 {{- if hasKey $spec $f }}
-                  {{- if ne (get $router $f | toString) (get $spec $f | toString) }}{{ $drift = append $drift (dict "field" $f "device" $theirs "spec" (list (get $spec $f))) }}{{ end }}
+                  {{- if ne (get $router $f | toString) (get $spec $f | toString) }}{{ $drift = append $drift (dict "field" $f "device" $theirs "spec" (list (get $spec $f | toString))) }}{{ end }}
                 {{- else if and (eq $policy "Replace") (hasKey $router $f) }}
                   {{- $more = append $more (dict "field" $f "device" $theirs) }}
                 {{- end }}
               {{- end }}
               {{- if eq $policy "Replace" }}
                 {{- range $k, $v := $t }}{{ if not (has $k (list "name" "ip" "vrf" "Cisco-IOS-XE-tunnel:tunnel")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}{{ end }}
-                {{- range $k, $v := $ip }}{{ if ne $k "address" }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}{{ end }}
-                {{- range $k, $v := $addr }}{{ if ne $k "primary" }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}{{ end }}
+                {{- range $k, $v := $ip }}{{ if not (has $k (list "address" "tcp")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}{{ end }}                {{- range $k, $v := $addr }}{{ if ne $k "primary" }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}{{ end }}
                 {{- range $k, $v := $u }}{{ if not (has $k (list "source" "destination-config" "mode" "protection" "vrf-config")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}{{ end }}
                 {{- if $vrfConfig }}{{ $more = append $more (dict "field" "vrf-config" "device" (list (toJson $vrfConfig))) }}{{ end }}
               {{- end }}

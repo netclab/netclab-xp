@@ -117,13 +117,18 @@ def test_replace_puts_what_the_router_then_returns(render):
         ("proposal-applied", True, True),
         # Beyond the spec: Merge leaves it, Replace takes it off.
         ("proposal-extra-encryption", True, False),
-        ("proposal-with-prf", True, False),
+        ("proposal-extra-prf", True, False),
         # Merge's PATCH over group 19 alone, merged by the router.
         ("proposal-patched", True, False),
+        # Merge's PATCH over a proposal whose prf was taken off: the PRF is back.
+        ("proposal-prf-patched", True, True),
         # The spec's values not on the router.
         ("proposal-other-integrity", False, False),
+        ("proposal-other-prf", False, False),
         ("proposal-other-group", False, False),
         ("proposal-absent", False, False),
+        # A prf taken off: the router's PRF is none, and the GET shows no prf.
+        ("proposal-no-prf", False, False),
     ],
 )
 def test_check_is_the_mode_write_changing_nothing(render, state, merge, replace):
@@ -152,6 +157,7 @@ def test_a_thin_object_shows_the_router_in_the_shape_of_the_spec(after_get):
         "observed": {
             "encryption": ["aes-cbc-256"],
             "integrity": ["sha512"],
+            "prf": ["sha512"],
             "group": [20],
         },
         "drift": [],
@@ -189,13 +195,18 @@ def test_a_section_gone_from_the_router_is_not_ready(after_get):
             [{"field": "encryption", "device": ["aes-cbc-128"]}],
             "False",
         ),
-        # A field the spec leaves out: compared in Replace alone.
-        ("Merge", "proposal-with-prf", [], [], "True"),
         (
-            "Replace",
-            "proposal-with-prf",
+            "Merge",
+            "proposal-extra-prf",
             [],
             [{"field": "prf", "device": ["sha384"]}],
+            "True",
+        ),
+        (
+            "Replace",
+            "proposal-no-prf",
+            [{"field": "prf", "device": [], "spec": ["sha512"]}],
+            [],
             "False",
         ),
         (

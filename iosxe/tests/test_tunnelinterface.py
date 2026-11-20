@@ -64,6 +64,15 @@ def request(render, xr):
     return render(KIND, xr, required=DEVICES).resources["tunnel"]
 
 
+def returned(state):
+    """The router's GET in `state` as Replace writes it: without the deprecated ipv4, in
+    which the router gives ipv4-mode again."""
+    body = recorded(KIND, state)["body"]
+    tunnel = body["Cisco-IOS-XE-native:Tunnel"][0]["Cisco-IOS-XE-tunnel:tunnel"]
+    del tunnel["mode"]["ipsec"]["ipv4"]
+    return body
+
+
 def test_an_object_under_another_name_composes_nothing(render):
     xr = thin(xr_name="r1-tunnel0")
     rendered = render(KIND, xr, required=DEVICES)
@@ -120,9 +129,7 @@ def test_merge_sends_the_patch_the_router_merged(render):
 
 def test_replace_puts_what_the_router_then_returns(render):
     body = request(render, example("Replace"))["spec"]["forProvider"]
-    assert (
-        json.loads(body["payload"]["body"]) == recorded(KIND, "tunnel-applied")["body"]
-    )
+    assert json.loads(body["payload"]["body"]) == returned("tunnel-applied")
 
 
 @pytest.mark.parametrize(
@@ -133,9 +140,10 @@ def test_replace_puts_what_the_router_then_returns(render):
         ("tunnel-shutdown", True, False),
         # Merge's PATCH over a description made by hand, merged by the router.
         ("tunnel-patched", True, False),
-        # A VRF the spec leaves out: Merge leaves it, Replace takes it off.
+        # A VRF or an MSS the spec leaves out: Merge leaves it, Replace takes it off.
         ("tunnel-vrf-wan", True, False),
         ("tunnel-forwarding-overlay", True, False),
+        ("tunnel-mss-applied", True, False),
         # A value of the spec the router lacks.
         ("tunnel-host-mask", False, False),
         ("tunnel-other-destination", False, False),
@@ -407,7 +415,7 @@ def test_merge_sends_the_vrfs_the_router_merged(render):
 
 def test_replace_puts_the_vrfs_the_router_then_returns(render):
     body = tunnel(render, example("Replace", **VRFS))["spec"]["forProvider"]["payload"]
-    assert json.loads(body["body"]) == recorded(KIND, "tunnel-vrfs-patched")["body"]
+    assert json.loads(body["body"]) == returned("tunnel-vrfs-patched")
 
 
 @pytest.mark.parametrize(
@@ -476,3 +484,73 @@ def test_a_vrf_the_device_does_not_list_holds_the_tunnel_back(render, listed, mi
     assert requests(rendered.resources) == []
     assert status(rendered)["missingVrfs"] == missing
     assert ready(rendered) == "False"
+
+
+MSS = {"tcpAdjustMss": 1379}
+
+
+def test_merge_sends_the_mss_the_router_merged(render):
+    body = request(render, example("Merge", **MSS))["spec"]["forProvider"]["payload"]
+    sent = recorded(KIND, "tunnel-mss-patch")["request"]
+    assert json.loads(body["body"]) == sent["body"]
+
+
+def test_replace_puts_the_mss_the_router_then_returns(render):
+    body = request(render, example("Replace", **MSS))["spec"]["forProvider"]["payload"]
+    assert json.loads(body["body"]) == returned("tunnel-mss-applied")
+
+
+@pytest.mark.parametrize(
+    ("state", "merge", "replace"),
+    [
+        ("tunnel-mss-applied", True, True),
+        # Merge's PATCH of it over a tunnel without one, merged by the router.
+        ("tunnel-mss-patched", True, True),
+        ("tunnel-mss-other", False, False),
+        ("tunnel-applied", False, False),
+    ],
+)
+def test_check_compares_the_mss(render, state, merge, replace):
+    for policy, expected in [("Merge", merge), ("Replace", replace)]:
+        req = request(render, example(policy, **MSS))
+        assert check(req, "expectedResponseCheck", recorded(KIND, state)) is expected
+
+
+@pytest.mark.parametrize(
+    ("policy", "spec", "state", "drift", "extra"),
+    [
+        (
+            "Merge",
+            MSS,
+            "tunnel-mss-other",
+            [{"field": "tcpAdjustMss", "device": ["1400"], "spec": ["1379"]}],
+            [],
+        ),
+        (
+            "Replace",
+            MSS,
+            "tunnel-applied",
+            [{"field": "tcpAdjustMss", "device": [], "spec": ["1379"]}],
+            [],
+        ),
+        # An MSS the spec leaves out: Merge leaves it, Replace takes it off.
+        ("Merge", {}, "tunnel-mss-applied", [], []),
+        (
+            "Replace",
+            {},
+            "tunnel-mss-applied",
+            [],
+            [{"field": "tcpAdjustMss", "device": ["1379"]}],
+        ),
+    ],
+)
+def test_the_mss_in_status(after_get, policy, spec, state, drift, extra):
+    rendered = after_get(example(policy, **spec), state)
+    assert status(rendered)["drift"] == drift
+    assert status(rendered)["extra"] == extra
+    assert ready(rendered) == ("False" if drift or extra else "True")
+
+
+def test_a_thin_object_shows_the_mss(after_get):
+    rendered = after_get(thin(), "tunnel-mss-applied")
+    assert status(rendered)["observed"]["tcpAdjustMss"] == 1379

@@ -36,21 +36,22 @@ spec:
         properties:
           spec:
             type: object
-            # A thin object (deviceRef and name) only observes. To write, the
-            # router's own rule, from the `must` on a policy's proposals: a
-            # proposal a policy can use has a group and either a non-GCM cipher
-            # with an integrity algorithm, or a GCM cipher with a PRF.
+            # A thin object (deviceRef and name) only observes. To write, a
+            # proposal needs a group, a PRF, and with a non-GCM cipher an
+            # integrity algorithm. The router derives a PRF from the integrity
+            # algorithms where none is given, but takes a PRF it has had off
+            # only to none: the proposal is then incomplete, and a policy
+            # naming it refused. So the PRF is always the spec's.
             x-kubernetes-validations:
             - rule: >-
                 self.managementPolicy == 'Observe'
                 || (has(self.encryption) && has(self.group)
-                  && ((self.encryption.exists(e, !e.startsWith('aes-gcm'))
-                    && has(self.integrity) && size(self.integrity) > 0)
-                  || (self.encryption.exists(e, e.startsWith('aes-gcm'))
-                    && has(self.prf) && size(self.prf) > 0)))
+                  && has(self.prf) && size(self.prf) > 0
+                  && (!self.encryption.exists(e, !e.startsWith('aes-gcm'))
+                    || (has(self.integrity) && size(self.integrity) > 0)))
               message: >-
-                to write, a proposal needs encryption and group, a non-GCM
-                cipher an integrity algorithm, and a GCM cipher a PRF
+                to write, a proposal needs encryption, prf and group, and a
+                non-GCM cipher an integrity algorithm
             properties:
               managementPolicy:
                 type: string
@@ -117,6 +118,9 @@ spec:
                   enum: [md5, sha1, sha256, sha384, sha512]
               prf:
                 type: array
+                description: >-
+                  Pseudo-random functions; the integrity algorithms' namesakes
+                  are what the router derives where a proposal has none.
                 maxItems: 5
                 x-kubernetes-list-type: set
                 items:

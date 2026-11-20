@@ -138,9 +138,12 @@ def test_replace_puts_what_the_router_then_returns(render):
         ("profile-extra-address", True, False),
         # Merge's PATCH over another address and a description, merged by the router.
         ("profile-patched", True, False),
+        ("profile-dpd-lifetime", True, False),
         # A value of the spec the router lacks.
         ("profile-other-address", False, False),
         ("profile-absent", False, False),
+        # No lifetime in the GET: the router may keep one, so Replace writes its 86400.
+        ("profile-no-lifetime", True, False),
     ],
 )
 def test_check_is_the_mode_write_changing_nothing(render, state, merge, replace):
@@ -280,7 +283,11 @@ def test_the_rpc_checks_its_mark(rpc, mark, written):
     [
         (
             "ppk-mark-absent",
-            {"remoteAddresses": ["10.0.23.2"], "keyring": "CLASSICAL-KEYRING"},
+            {
+                "remoteAddresses": ["10.0.23.2"],
+                "keyring": "CLASSICAL-KEYRING",
+                "lifetime": 86400,
+            },
         ),
         # The PPK keyring only where the package wrote it.
         (
@@ -289,6 +296,7 @@ def test_the_rpc_checks_its_mark(rpc, mark, written):
                 "remoteAddresses": ["10.0.23.2"],
                 "keyring": "CLASSICAL-KEYRING",
                 "ppkKeyring": "CLASSICAL-KEYRING",
+                "lifetime": 86400,
             },
         ),
     ],
@@ -554,3 +562,103 @@ def test_a_vrf_the_device_does_not_list_holds_the_profile_back(render):
 def test_any_is_no_vrf_to_wait_on(render):
     rendered = render(KIND, with_fvrf("Replace", "any"), required=devices([]))
     assert requests(rendered.resources) == ["ppk-mark", "profile"]
+
+
+def with_dpd(policy, lifetime=28800):
+    """The example with the dpd and lifetime of AWS's sample for CSRv, and no PPK
+    keyring, whose RPC these tests leave aside."""
+    xr = example(policy, ("ppkKeyring",))
+    xr["spec"]["dpd"] = {"interval": 10, "retry": 10, "query": "on-demand"}
+    xr["spec"]["lifetime"] = lifetime
+    return xr
+
+
+def test_merge_sends_dpd_and_lifetime_the_router_merged(render):
+    body = first(render, with_dpd("Merge"))["profile"]["spec"]["forProvider"]
+    sent = recorded(KIND, "profile-dpd-lifetime-patch")["request"]["body"]
+    assert json.loads(body["payload"]["body"]) == sent
+
+
+def test_replace_puts_dpd_and_lifetime_the_router_then_returns(render):
+    body = first(render, with_dpd("Replace"))["profile"]["spec"]["forProvider"]
+    returned = recorded(KIND, "profile-dpd-lifetime")["body"]
+    assert json.loads(body["payload"]["body"]) == returned
+
+
+@pytest.mark.parametrize(
+    ("state", "merge", "replace"),
+    [
+        ("profile-dpd-lifetime", True, True),
+        # Merge's PATCH of both over the example, merged by the router.
+        ("profile-dpd-lifetime-patched", True, True),
+        # Each field other alone.
+        ("profile-dpd-periodic", False, False),
+        ("profile-lifetime-other", False, False),
+        ("profile-applied", False, False),
+    ],
+)
+def test_check_compares_dpd_and_lifetime(render, state, merge, replace):
+    for policy, expected in [("Merge", merge), ("Replace", replace)]:
+        profile = first(render, with_dpd(policy))["profile"]
+        assert (
+            check(profile, "expectedResponseCheck", recorded(KIND, state)) is expected
+        )
+
+
+DPD = {"interval": 10, "query": "on-demand", "retry": 10}
+DPD_PERIODIC = {"interval": 30, "query": "periodic", "retry": 5}
+
+
+@pytest.mark.parametrize(
+    ("xr", "state", "drift", "extra"),
+    [
+        (with_dpd("Merge"), "profile-dpd-lifetime", [], []),
+        (with_dpd("Replace"), "profile-dpd-lifetime", [], []),
+        (
+            with_dpd("Merge"),
+            "profile-dpd-periodic",
+            [
+                {
+                    "field": "dpd",
+                    "device": [json.dumps(DPD_PERIODIC, separators=(",", ":"))],
+                    "spec": [json.dumps(DPD, separators=(",", ":"))],
+                }
+            ],
+            [],
+        ),
+        (
+            with_dpd("Replace"),
+            "profile-lifetime-other",
+            [{"field": "lifetime", "device": ["3600"], "spec": ["28800"]}],
+            [],
+        ),
+        # dpd and a lifetime the spec leaves out: Merge leaves them; Replace takes dpd
+        # off and writes the router's 86400.
+        (example("Merge", ("ppkKeyring",)), "profile-dpd-lifetime", [], []),
+        (
+            example("Replace", ("ppkKeyring",)),
+            "profile-dpd-lifetime",
+            [{"field": "lifetime", "device": ["28800"], "spec": ["86400"]}],
+            [{"field": "dpd", "device": [json.dumps(DPD, separators=(",", ":"))]}],
+        ),
+        # No lifetime in the GET, which may hide one the router keeps.
+        (example("Merge", ("ppkKeyring",)), "profile-no-lifetime", [], []),
+        (
+            example("Replace", ("ppkKeyring",)),
+            "profile-no-lifetime",
+            [{"field": "lifetime", "device": [], "spec": ["86400"]}],
+            [],
+        ),
+    ],
+)
+def test_dpd_and_lifetime_in_status(render, xr, state, drift, extra):
+    rendered = seen(render, xr, state)
+    assert status(rendered)["drift"] == drift
+    assert status(rendered)["extra"] == extra
+    assert ready(rendered) == ("False" if drift or extra else "True")
+
+
+def test_a_thin_object_shows_dpd_and_lifetime(render):
+    rendered = seen(render, thin(), "profile-dpd-lifetime")
+    assert status(rendered)["observed"]["dpd"] == DPD
+    assert status(rendered)["observed"]["lifetime"] == 28800

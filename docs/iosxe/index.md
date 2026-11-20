@@ -23,13 +23,13 @@ r1#show crypto ikev2 sa detailed | include READY|Quantum
 
 | kind | the section on the router |
 |---|---|
-| `Ikev2Proposal` | `crypto ikev2 proposal` |
+| `Ikev2Proposal` | `crypto ikev2 proposal`, its `prf` always named |
 | `Ikev2Policy` | `crypto ikev2 policy` |
 | `Ikev2Keyring` | `crypto ikev2 keyring`: per peer a pre-shared key and, optionally, `ppk manual` |
-| `Ikev2Profile` | `crypto ikev2 profile`, optionally with `keyring ppk`; pre-shared keys both ways, the one method of this version |
+| `Ikev2Profile` | `crypto ikev2 profile`, optionally with `keyring ppk`, `dpd` and `lifetime`; pre-shared keys both ways, the one method of this version |
 | `IpsecTransformSet` | `crypto ipsec transform-set` |
-| `IpsecProfile` | `crypto ipsec profile`, optionally with `set pfs` |
-| `TunnelInterface` | `interface Tunnel` |
+| `IpsecProfile` | `crypto ipsec profile`, optionally with `set pfs` and `set security-association` dfbit, replay window-size and lifetime seconds |
+| `TunnelInterface` | `interface Tunnel`, optionally with `ip tcp adjust-mss` |
 
 Each object names a `Device`: the router's RESTCONF address and credentials. The Device
 configures nothing; its status lists the router's sections that the kinds above model.
@@ -157,7 +157,8 @@ and the keys. The values are the lab's; change them in
 
 ### 4. Next
 
-- [Part 9](part9.md): a tunnel with a post-quantum preshared key, configured from nothing.
+- [PPK tunnel](part9.md): part 9 of Cisco's IPsec series, a tunnel with a post-quantum
+  preshared key, configured from nothing.
 - [Overlay](overlay.md): static VTIs in VRFs, the WAN interfaces in a front-door VRF.
 - [Rotate keys](keys.md): a key changed in its Secret, written to every router that uses it.
 - [Adopt a router](adopt.md): a router configured by hand, taken over one section at a time.

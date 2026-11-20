@@ -13,8 +13,11 @@ spec:
   # set, sorted in the body too; a PATCH adds to them. The router refuses a
   # profile naming a missing transform-set or IKEv2 profile, and their delete
   # while it names them. pfs is sent with its group: `set pfs` alone is group14,
-  # which a GET gives as an empty pfs. What else the router holds in `set`, such
-  # as security-association, the spec has no field for, so Replace takes it off.
+  # which a GET gives as an empty pfs. dfbit, replayWindowSize and lifetime are
+  # `set security-association`, the window size and the lifetime strings to the
+  # router; a GET gives the lifetime's seconds-case again in seconds. What else
+  # the router holds in `set` or in security-association, such as `replay
+  # disable`, the spec has no field for, so Replace takes it off.
   # Observe only reads; Merge PATCHes the fields of the spec;
   # Replace PUTs the profile and DELETEs it with the object. The status is
   # the last GET in the shape of the spec; Ready means the mode's write would
@@ -110,6 +113,13 @@ spec:
           {{- $mine := sortAlpha (default list $xr.spec.transformSets) }}
           {{- $ike := $xr.spec.ikev2Profile | default "" }}
           {{- $pfs := $xr.spec.pfs | default "" }}
+          {{- $dfbit := $xr.spec.dfbit | default "" }}
+          {{- $window := "" }}{{ with $xr.spec.replayWindowSize }}{{ $window = printf "%v" . }}{{ end }}
+          {{- $life := "" }}{{ with $xr.spec.lifetime }}{{ $life = printf "%v" . }}{{ end }}
+          {{- $sa := dict }}
+          {{- if $dfbit }}{{ $_ := set $sa "dfbit" $dfbit }}{{ end }}
+          {{- if $window }}{{ $_ := set $sa "replay" (dict "window-size" $window) }}{{ end }}
+          {{- if $life }}{{ $_ := set $sa "lifetime" (dict "seconds-case" $life) }}{{ end }}
 
           {{- /* ---- its Requests, once nothing holds them back ---- */}}
           {{- if not $hold }}
@@ -123,6 +133,7 @@ spec:
           {{- if $mine }}{{ $_ := set $set "transform-set" $mine }}{{ end }}
           {{- if $ike }}{{ $_ := set $set "ikev2-profile" $ike }}{{ end }}
           {{- if $pfs }}{{ $_ := set $set "pfs" (dict "group" $pfs) }}{{ end }}
+          {{- if $sa }}{{ $_ := set $set "security-association" $sa }}{{ end }}
           {{- $body := dict "name" $xr.spec.name "set" $set }}
           {{- $put := dict "Cisco-IOS-XE-crypto:profile" (list $body) }}
           {{- /* a merge on native, which exists, creates the profile if it does not */}}
@@ -184,14 +195,21 @@ spec:
                     | ($p.set // {}) as $s
                     | ($s["transform-set"] // [] | sort) as $router
                     | ($s.pfs | if . == null then "" else (.group // "group14") end) as $pfs
+                    | ($s["security-association"] // {}) as $sa
                   {{- if eq $policy "Replace" }}
                     | $router == {{ $mine | toJson }} and ($s["ikev2-profile"] // "") == {{ $ike | toJson }}
-                      and $pfs == {{ $pfs | toJson }}
-                      and ($s | del(.["transform-set"], .["ikev2-profile"], .pfs)) == {} and ($p | del(.name, .set)) == {}
+                      and $pfs == {{ $pfs | toJson }} and ($sa | del(.lifetime)) == {{ omit $sa "lifetime" | toJson }}
+                      and ($sa.lifetime["seconds-case"] // "") == {{ $life | toJson }}
+                      and ($sa.lifetime // {} | del(.["seconds-case"], .seconds)) == {}
+                      and ($s | del(.["transform-set"], .["ikev2-profile"], .pfs, .["security-association"])) == {}
+                      and ($p | del(.name, .set)) == {}
                   {{- else }}
                     | {{ $mine | toJson }} - $router == []
                     {{- if $ike }} and $s["ikev2-profile"] == {{ $ike | toJson }}{{ end }}
                     {{- if $pfs }} and $pfs == {{ $pfs | toJson }}{{ end }}
+                    {{- if $dfbit }} and $sa.dfbit == {{ $dfbit | toJson }}{{ end }}
+                    {{- if $window }} and $sa.replay["window-size"] == {{ $window | toJson }}{{ end }}
+                    {{- if $life }} and $sa.lifetime["seconds-case"] == {{ $life | toJson }}{{ end }}
                   {{- end }}
                   end
           {{- end }}{{ end }}{{ end }}
@@ -236,9 +254,39 @@ spec:
               {{- else if and (eq $policy "Replace") $theirPfs }}
                 {{- $more = append $more (dict "field" "pfs" "device" $theirPfsList) }}
               {{- end }}
+              {{- $theirSa := get $s "security-association" | default dict }}
+              {{- $theirDfbit := get $theirSa "dfbit" | default "" }}
+              {{- $theirWindow := "" }}{{ with get $theirSa "replay" }}{{ $theirWindow = get . "window-size" | default "" }}{{ end }}
+              {{- $theirDfbitList := ternary (list $theirDfbit) list (ne $theirDfbit "") }}
+              {{- $theirWindowList := ternary (list $theirWindow) list (ne $theirWindow "") }}
+              {{- $theirLife := "" }}{{ with get $theirSa "lifetime" }}{{ $theirLife = get . "seconds-case" | default "" }}{{ end }}
+              {{- $theirLifeList := ternary (list $theirLife) list (ne $theirLife "") }}
+              {{- if $dfbit }}
+                {{- if ne $theirDfbit $dfbit }}{{ $drift = append $drift (dict "field" "dfbit" "device" $theirDfbitList "spec" (list $dfbit)) }}{{ end }}
+              {{- else if and (eq $policy "Replace") $theirDfbit }}
+                {{- $more = append $more (dict "field" "dfbit" "device" $theirDfbitList) }}
+              {{- end }}
+              {{- if $window }}
+                {{- if ne $theirWindow $window }}{{ $drift = append $drift (dict "field" "replayWindowSize" "device" $theirWindowList "spec" (list $window)) }}{{ end }}
+              {{- else if and (eq $policy "Replace") $theirWindow }}
+                {{- $more = append $more (dict "field" "replayWindowSize" "device" $theirWindowList) }}
+              {{- end }}
+              {{- if $life }}
+                {{- if ne $theirLife $life }}{{ $drift = append $drift (dict "field" "lifetime" "device" $theirLifeList "spec" (list $life)) }}{{ end }}
+              {{- else if and (eq $policy "Replace") $theirLife }}
+                {{- $more = append $more (dict "field" "lifetime" "device" $theirLifeList) }}
+              {{- end }}
               {{- if eq $policy "Replace" }}
+                {{- /* security-association beyond the spec's fields, empty maps pruned */}}
+                {{- $rest := deepCopy $theirSa }}
+                {{- $_ := unset $rest "dfbit" }}
+                {{- with get $rest "replay" }}{{ $_ := unset . "window-size" }}{{ end }}
+                {{- if not (get $rest "replay") }}{{ $_ := unset $rest "replay" }}{{ end }}
+                {{- with get $rest "lifetime" }}{{ $_ := unset . "seconds-case" }}{{ $_ := unset . "seconds" }}{{ end }}
+                {{- if not (get $rest "lifetime") }}{{ $_ := unset $rest "lifetime" }}{{ end }}
+                {{- if $rest }}{{ $more = append $more (dict "field" "security-association" "device" (list (toJson $rest))) }}{{ end }}
                 {{- range $k, $v := $s }}
-                  {{- if not (has $k (list "transform-set" "ikev2-profile" "pfs")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}
+                  {{- if not (has $k (list "transform-set" "ikev2-profile" "pfs" "security-association")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}
                 {{- end }}
                 {{- range $k, $v := $p }}
                   {{- if not (has $k (list "name" "set")) }}{{ $more = append $more (dict "field" $k "device" (list (toJson $v))) }}{{ end }}
@@ -248,6 +296,9 @@ spec:
               {{- if $theirs }}{{ $_ := set $seen "transformSets" $theirs }}{{ end }}
               {{- if $their }}{{ $_ := set $seen "ikev2Profile" $their }}{{ end }}
               {{- if $theirPfs }}{{ $_ := set $seen "pfs" $theirPfs }}{{ end }}
+              {{- if $theirDfbit }}{{ $_ := set $seen "dfbit" $theirDfbit }}{{ end }}
+              {{- if $theirWindow }}{{ $_ := set $seen "replayWindowSize" (atoi $theirWindow) }}{{ end }}
+              {{- if $theirLife }}{{ $_ := set $seen "lifetime" (atoi $theirLife) }}{{ end }}
               {{- $_ := set $status "observed" $seen }}
               {{- $_ := set $status "drift" $drift }}
               {{- $_ := set $status "extra" $more }}

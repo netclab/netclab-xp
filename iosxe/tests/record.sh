@@ -134,9 +134,9 @@ device() { # the names the Device reads, before and with part 9's sections and L
   write DELETE "$NATIVE/ip/vrf=LEGACY-VRF"
   write DELETE "$NATIVE/vrf/definition=WAN"
   write PUT "$crypto:ikev2/proposal=CLASSICAL-PROPOSAL" '{"Cisco-IOS-XE-crypto:proposal": [{"name": "CLASSICAL-PROPOSAL",
-    "encryption": {"aes-cbc-256": [null]}, "integrity": {"sha512": [null]}, "group": {"twenty": [null]}}]}'
+    "encryption": {"aes-cbc-256": [null]}, "integrity": {"sha512": [null]}, "prf": {"sha512": [null]}, "group": {"twenty": [null]}}]}'
   write PUT "$crypto:ikev2/proposal=LEGACY_PROPOSAL" '{"Cisco-IOS-XE-crypto:proposal": [{"name": "LEGACY_PROPOSAL",
-    "encryption": {"aes-cbc-128": [null]}, "integrity": {"sha256": [null]}, "group": {"fourteen": [null]}}]}'
+    "encryption": {"aes-cbc-128": [null]}, "integrity": {"sha256": [null]}, "prf": {"sha256": [null]}, "group": {"fourteen": [null]}}]}'
   write PUT "$crypto:ikev2/policy=CLASSICAL-POLICY" '{"Cisco-IOS-XE-crypto:policy": [{"name": "CLASSICAL-POLICY",
     "proposal": [{"proposals": "CLASSICAL-PROPOSAL"}]}]}'
   write PUT "$crypto:ikev2/keyring=CLASSICAL-KEYRING" "$(jq -nc --arg psk "$PSK" '{"Cisco-IOS-XE-crypto:keyring": [{name: "CLASSICAL-KEYRING",
@@ -151,7 +151,7 @@ device() { # the names the Device reads, before and with part 9's sections and L
   write PUT "$NATIVE/interface/Tunnel=0" '{"Cisco-IOS-XE-native:Tunnel": [{"name": 0,
     "ip": {"address": {"primary": {"address": "192.168.100.1", "mask": "255.255.255.0"}}},
     "Cisco-IOS-XE-tunnel:tunnel": {"source": "GigabitEthernet2", "destination-config": {"ipv4": "10.0.23.2"},
-    "mode": {"ipsec": {"ipv4-mode": {}, "ipv4": {}}},
+    "mode": {"ipsec": {"ipv4-mode": {}}},
     "protection": {"Cisco-IOS-XE-crypto:ipsec": {"profile-option": {"name": "CLASSICAL-IPSEC"}}}}}]}'
   record device/config-part9 "$config"
   record device/tunnels-part9 "$tunnels"
@@ -168,7 +168,7 @@ device() { # the names the Device reads, before and with part 9's sections and L
 ikev2proposal() { # iosxe/examples/ikev2proposal/r1.yaml
   local url=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/proposal=CLASSICAL-PROPOSAL
   local example='{"name": "CLASSICAL-PROPOSAL", "encryption": {"aes-cbc-256": [null]},
-    "integrity": {"sha512": [null]}, "group": {"twenty": [null]}}'
+    "integrity": {"sha512": [null]}, "prf": {"sha512": [null]}, "group": {"twenty": [null]}}'
   put() { # put <jq update of the example>: one field differs per state
     write PUT "$url" "$(jq -nc --argjson p "$example" "{\"Cisco-IOS-XE-crypto:proposal\": [\$p | $1]}")"
   }
@@ -181,8 +181,18 @@ ikev2proposal() { # iosxe/examples/ikev2proposal/r1.yaml
   record ikev2proposal/proposal-extra-encryption "$url"
   put '.integrity = {"sha384": [null]}'
   record ikev2proposal/proposal-other-integrity "$url"
+  put '.prf += {"sha384": [null]}'
+  record ikev2proposal/proposal-extra-prf "$url"
   put '.prf = {"sha384": [null]}'
-  record ikev2proposal/proposal-with-prf "$url"
+  record ikev2proposal/proposal-other-prf "$url"
+  # the prf taken off a proposal that had one: the router's PRF is then none, and the
+  # proposal incomplete, while the GET shows no prf at all
+  put 'del(.prf)'
+  record ikev2proposal/proposal-no-prf "$url"
+  # Merge's write over it, which puts a PRF back
+  patch ikev2proposal/proposal-prf-patch \
+    "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {proposal: [$p]}}}}')"
+  record ikev2proposal/proposal-prf-patched "$url"
   put '.group = {"nineteen": [null]}'
   record ikev2proposal/proposal-other-group "$url"
   # Merge's write over group 19 alone: a merge keeps 19 beside the example's 20
@@ -204,7 +214,7 @@ ikev2policy() { # iosxe/examples/ikev2policy/r1.yaml, on the proposal of iosxe/e
   record ikev2policy/policy-absent "$url"
 
   write PUT "$proposal" '{"Cisco-IOS-XE-crypto:proposal": [{"name": "CLASSICAL-PROPOSAL",
-    "encryption": {"aes-cbc-256": [null]}, "integrity": {"sha512": [null]}, "group": {"twenty": [null]}}]}'
+    "encryption": {"aes-cbc-256": [null]}, "integrity": {"sha512": [null]}, "prf": {"sha512": [null]}, "group": {"twenty": [null]}}]}'
   put .
   record ikev2policy/policy-applied "$url"
   put '.proposal += [{"proposals": "default"}]'
@@ -295,9 +305,11 @@ ikev2keyring() { # iosxe/examples/ikev2keyring/r1.yaml
 ikev2profile() { # iosxe/examples/ikev2profile/r1.yaml, on a keyring CLASSICAL-KEYRING
   local url=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/profile=CLASSICAL-PROFILE
   local keyring=$NATIVE/crypto/Cisco-IOS-XE-crypto:ikev2/keyring=CLASSICAL-KEYRING
+  # as Replace writes it, with the router's lifetime; Merge's writes leave the lifetime out
   local example='{"name": "CLASSICAL-PROFILE", "authentication": {"local": {"pre-share": {}}, "remote": {"pre-share": {}}},
     "keyring": {"local": {"name": "CLASSICAL-KEYRING"}},
-    "match": {"identity": {"remote": {"address": {"ipv4": [{"ipv4-address": "10.0.23.2", "ipv4-mask": "255.255.255.255"}]}}}}}'
+    "match": {"identity": {"remote": {"address": {"ipv4": [{"ipv4-address": "10.0.23.2", "ipv4-mask": "255.255.255.255"}]}}}},
+    "lifetime": {"seconds": 86400}}'
   put() { # put <jq update of the example>: one field differs per state
     write PUT "$url" "$(jq -nc --argjson p "$example" "{\"Cisco-IOS-XE-crypto:profile\": [\$p | $1]}")"
   }
@@ -348,15 +360,33 @@ event manager environment $var \"$(sha8 CLASSICAL-KEYRING) $place CLASSICAL-KEYR
   # Merge's write of fvrf WAN over a profile with no fvrf
   put .
   patch ikev2profile/profile-fvrf-patch \
-    "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {profile: [$p | .match.fvrf = {"name": "WAN"}]}}}}')"
+    "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {profile: [$p | del(.lifetime) | .match.fvrf = {"name": "WAN"}]}}}}')"
   record ikev2profile/profile-fvrf-patched "$url"
   # Merge's write over another address and a description made by hand: a merge adds
   # the spec's address and keeps both
   put '.match.identity.remote.address.ipv4 = [{"ipv4-address": "10.0.12.9", "ipv4-mask": "255.255.255.255"}]
     | .description = "made by hand"'
   patch ikev2profile/profile-patch \
-    "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {profile: [$p]}}}}')"
+    "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {profile: [$p | del(.lifetime)]}}}}')"
   record ikev2profile/profile-patched "$url"
+  # dpd and lifetime: AWS's sample for CSRv, each field other alone, and the profile
+  # written without a lifetime after one of 3600, which the router keeps while a GET
+  # shows none
+  local dpd='{"interval": 10, "retry": 10, "query": "on-demand"}'
+  put ".dpd = $dpd | .lifetime.seconds = 28800"
+  record ikev2profile/profile-dpd-lifetime "$url"
+  put '.dpd = {"interval": 30, "retry": 5, "query": "periodic"} | .lifetime.seconds = 28800'
+  record ikev2profile/profile-dpd-periodic "$url"
+  put ".dpd = $dpd | .lifetime.seconds = 3600"
+  record ikev2profile/profile-lifetime-other "$url"
+  put 'del(.lifetime)'
+  record ikev2profile/profile-no-lifetime "$url"
+  # Merge's write of both over the example
+  put .
+  patch ikev2profile/profile-dpd-lifetime-patch \
+    "$(jq -nc --argjson p "$example" --argjson d "$dpd" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ikev2": {profile: [$p
+      | .dpd = $d | .lifetime.seconds = 28800]}}}}')"
+  record ikev2profile/profile-dpd-lifetime-patched "$url"
 
   write DELETE "$url"
   write DELETE "$keyring"
@@ -441,6 +471,32 @@ ipsecprofile() { # iosxe/examples/ipsecprofile/r1.yaml, on transform-sets and an
   patch ipsecprofile/profile-pfs-patch \
     "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ipsec": {profile: [$p | .set.pfs = {"group": "group14"}]}}}}')"
   record ipsecprofile/profile-pfs-patched "$url"
+  # set security-association: the dfbit, window size and lifetime of AWS's sample, each
+  # field other alone and all at once, and what the spec has no field for: `replay
+  # disable`, a lifetime in kilobytes. The lifetime goes to seconds-case; a GET gives it
+  # again in seconds.
+  sa() { # sa <dfbit> <replay> <lifetime>: the example with that security association
+    put ".set[\"security-association\"] = {dfbit: \"$1\", replay: $2, lifetime: $3}"
+  }
+  sa clear '{"window-size": "128"}' '{"seconds-case": "3600"}'
+  record ipsecprofile/profile-sa-applied "$url"
+  sa set '{"window-size": "1024"}' '{"seconds-case": "900"}'
+  record ipsecprofile/profile-sa-other "$url"
+  sa set '{"window-size": "128"}' '{"seconds-case": "3600"}'
+  record ipsecprofile/profile-sa-dfbit-set "$url"
+  sa clear '{"disable": [null]}' '{"seconds-case": "3600"}'
+  record ipsecprofile/profile-sa-replay-disable "$url"
+  sa clear '{"window-size": "128"}' '{"seconds-case": "900"}'
+  record ipsecprofile/profile-sa-lifetime-other "$url"
+  sa clear '{"window-size": "128"}' '{"seconds-case": "3600", "kilobytes": "102400"}'
+  record ipsecprofile/profile-sa-kilobytes "$url"
+  # Merge's write of all three over dfbit set alone
+  put '.set["security-association"] = {"dfbit": "set"}'
+  patch ipsecprofile/profile-sa-patch \
+    "$(jq -nc --argjson p "$example" '{"Cisco-IOS-XE-native:native": {crypto: {"Cisco-IOS-XE-crypto:ipsec": {profile: [$p
+      | .set["security-association"] = {"dfbit": "clear", "replay": {"window-size": "128"},
+        "lifetime": {"seconds-case": "3600"}}]}}}}')"
+  record ipsecprofile/profile-sa-patched "$url"
 
   write DELETE "$url"
   write DELETE "$profile"
@@ -454,7 +510,7 @@ tunnelinterface() { # iosxe/examples/tunnelinterface/r1.yaml, on part 9's IPsec 
   local sa="$BASE/data/Cisco-IOS-XE-crypto-oper:crypto-oper-data/crypto-ikev2-sa?fields=sa-data(sa-status;remote-ip-addr)"
   local example='{"name": 0, "ip": {"address": {"primary": {"address": "192.168.100.1", "mask": "255.255.255.0"}}},
     "Cisco-IOS-XE-tunnel:tunnel": {"source": "GigabitEthernet2", "destination-config": {"ipv4": "10.0.23.2"},
-    "mode": {"ipsec": {"ipv4-mode": {}, "ipv4": {}}},
+    "mode": {"ipsec": {"ipv4-mode": {}}},
     "protection": {"Cisco-IOS-XE-crypto:ipsec": {"profile-option": {"name": "CLASSICAL-IPSEC"}}}}}'
   put() { # put <jq update of the example>: one field differs per state
     write PUT "$url" "$(jq -nc --argjson t "$example" "{\"Cisco-IOS-XE-native:Tunnel\": [\$t | $1]}")"
@@ -512,7 +568,7 @@ tunnelinterface() { # iosxe/examples/tunnelinterface/r1.yaml, on part 9's IPsec 
   onpeer write PUT "$peer/interface/Tunnel=0" '{"Cisco-IOS-XE-native:Tunnel": [{"name": 0,
     "ip": {"address": {"primary": {"address": "192.168.100.2", "mask": "255.255.255.0"}}},
     "Cisco-IOS-XE-tunnel:tunnel": {"source": "GigabitEthernet2", "destination-config": {"ipv4": "10.0.12.1"},
-    "mode": {"ipsec": {"ipv4-mode": {}, "ipv4": {}}},
+    "mode": {"ipsec": {"ipv4-mode": {}}},
     "protection": {"Cisco-IOS-XE-crypto:ipsec": {"profile-option": {"name": "CLASSICAL-IPSEC"}}}}}]}'
   until_ "ready" oper_is ready
   until_ "active" sa_is active
@@ -543,6 +599,16 @@ tunnelinterface() { # iosxe/examples/tunnelinterface/r1.yaml, on part 9's IPsec 
     "$(jq -nc --argjson t "$example" '{"Cisco-IOS-XE-native:native": {interface: {Tunnel: [$t
       | .vrf = {"forwarding": "OVERLAY"} | .["Cisco-IOS-XE-tunnel:tunnel"]["vrf-config"] = {"vrf-common": {"vrf": "WAN"}}]}}}')"
   record tunnelinterface/tunnel-vrfs-patched "$url"
+  # ip tcp adjust-mss: AWS's sample for CSRv, and another value
+  put '.ip.tcp = {"adjust-mss": 1379}'
+  record tunnelinterface/tunnel-mss-applied "$url"
+  put '.ip.tcp = {"adjust-mss": 1400}'
+  record tunnelinterface/tunnel-mss-other "$url"
+  # Merge's write of it over a tunnel without one
+  put .
+  patch tunnelinterface/tunnel-mss-patch \
+    "$(jq -nc --argjson t "$example" '{"Cisco-IOS-XE-native:native": {interface: {Tunnel: [$t | .ip.tcp = {"adjust-mss": 1379}]}}}')"
+  record tunnelinterface/tunnel-mss-patched "$url"
   # Merge's write over another destination and mask, and a description made by hand:
   # a merge puts back the spec's and keeps the description
   put '.ip.address.primary.mask = "255.255.255.255" | .description = "made by hand"
