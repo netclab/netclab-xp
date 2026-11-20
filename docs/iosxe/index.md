@@ -157,7 +157,8 @@ and the keys. The values are the lab's; change them in
 
 ### 4. Next
 
-- [Part 9](part9.md): a tunnel with a post-quantum preshared key, configured from nothing.
+- [PPK tunnel](part9.md): part 9 of Cisco's IPsec series, a tunnel with a post-quantum
+  preshared key, configured from nothing.
 - [Overlay](overlay.md): static VTIs in VRFs, the WAN interfaces in a front-door VRF.
 - [Rotate keys](keys.md): a key changed in its Secret, written to every router that uses it.
 - [Adopt a router](adopt.md): a router configured by hand, taken over one section at a time.
