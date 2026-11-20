@@ -186,17 +186,17 @@ kubectl get device r1 -n ipsec -o yaml
 ```yaml
 status:
   conditions:
-  - lastTransitionTime: "2026-11-09T10:37:04Z"
+  - lastTransitionTime: "2026-11-20T15:02:18Z"
     observedGeneration: 3
     reason: ReconcileSuccess
     status: "True"
     type: Synced
-  - lastTransitionTime: "2026-11-09T10:37:05Z"
+  - lastTransitionTime: "2026-11-20T15:02:19Z"
     observedGeneration: 3
     reason: Available
     status: "True"
     type: Ready
-  - lastTransitionTime: "2026-11-09T10:37:04Z"
+  - lastTransitionTime: "2026-11-20T15:02:18Z"
     observedGeneration: 3
     reason: WatchCircuitClosed
     status: "True"
@@ -295,17 +295,17 @@ kubectl get ikev2proposal r1--classical-proposal--3a16aab3 -n ipsec -o yaml
 ```yaml
 status:
   conditions:
-  - lastTransitionTime: "2026-11-09T10:37:06Z"
+  - lastTransitionTime: "2026-11-20T15:02:20Z"
     observedGeneration: 3
     reason: ReconcileSuccess
     status: "True"
     type: Synced
-  - lastTransitionTime: "2026-11-09T10:37:08Z"
+  - lastTransitionTime: "2026-11-20T15:02:24Z"
     observedGeneration: 3
     reason: Available
     status: "True"
     type: Ready
-  - lastTransitionTime: "2026-11-09T10:37:06Z"
+  - lastTransitionTime: "2026-11-20T15:02:20Z"
     observedGeneration: 3
     reason: WatchCircuitClosed
     status: "True"
@@ -318,6 +318,8 @@ status:
     group:
     - 20
     integrity:
+    - sha512
+    prf:
     - sha512
 ```
 
@@ -353,17 +355,17 @@ Until Step 5 writes its mark, the profile shows its PPK keyring as drift:
 ```yaml
 status:
   conditions:
-  - lastTransitionTime: "2026-11-09T10:39:22Z"
+  - lastTransitionTime: "2026-11-20T15:04:37Z"
     observedGeneration: 4
     reason: ReconcileSuccess
     status: "True"
     type: Synced
-  - lastTransitionTime: "2026-11-09T10:39:22Z"
+  - lastTransitionTime: "2026-11-20T15:04:37Z"
     observedGeneration: 4
     reason: Creating
     status: "False"
     type: Ready
-  - lastTransitionTime: "2026-11-09T10:39:22Z"
+  - lastTransitionTime: "2026-11-20T15:04:36Z"
     observedGeneration: 4
     reason: WatchCircuitClosed
     status: "True"
@@ -386,17 +388,17 @@ the router lacks, and what the router has beyond it:
 ```yaml
 status:
   conditions:
-  - lastTransitionTime: "2026-11-09T10:39:22Z"
+  - lastTransitionTime: "2026-11-20T15:04:37Z"
     observedGeneration: 4
     reason: ReconcileSuccess
     status: "True"
     type: Synced
-  - lastTransitionTime: "2026-11-09T10:42:22Z"
+  - lastTransitionTime: "2026-11-20T15:07:37Z"
     observedGeneration: 4
     reason: Creating
     status: "False"
     type: Ready
-  - lastTransitionTime: "2026-11-09T10:39:22Z"
+  - lastTransitionTime: "2026-11-20T15:04:37Z"
     observedGeneration: 4
     reason: WatchCircuitClosed
     status: "True"
@@ -417,6 +419,8 @@ status:
     group:
     - 19
     integrity:
+    - sha512
+    prf:
     - sha512
 ```
 
@@ -444,17 +448,17 @@ its mark, and leaves the tunnel's SA as it is:
 ```yaml
 status:
   conditions:
-  - lastTransitionTime: "2026-11-09T10:45:05Z"
+  - lastTransitionTime: "2026-11-20T15:10:20Z"
     observedGeneration: 6
     reason: ReconcileSuccess
     status: "True"
     type: Synced
-  - lastTransitionTime: "2026-11-09T10:45:05Z"
+  - lastTransitionTime: "2026-11-20T15:10:20Z"
     observedGeneration: 6
     reason: Available
     status: "True"
     type: Ready
-  - lastTransitionTime: "2026-11-09T10:44:58Z"
+  - lastTransitionTime: "2026-11-20T15:10:13Z"
     observedGeneration: 6
     reason: WatchCircuitClosed
     status: "True"
@@ -488,17 +492,17 @@ group 19 in place of 20, under `Merge`: 20 is put back, 19 stays and shows in
 ```yaml
 status:
   conditions:
-  - lastTransitionTime: "2026-11-09T10:44:59Z"
+  - lastTransitionTime: "2026-11-20T15:10:14Z"
     observedGeneration: 5
     reason: ReconcileSuccess
     status: "True"
     type: Synced
-  - lastTransitionTime: "2026-11-09T10:48:00Z"
+  - lastTransitionTime: "2026-11-20T15:13:15Z"
     observedGeneration: 5
     reason: Available
     status: "True"
     type: Ready
-  - lastTransitionTime: "2026-11-09T10:44:59Z"
+  - lastTransitionTime: "2026-11-20T15:10:13Z"
     observedGeneration: 5
     reason: WatchCircuitClosed
     status: "True"
@@ -516,6 +520,8 @@ status:
     - 20
     integrity:
     - sha512
+    prf:
+    - sha512
   reverted:
     drift:
     - device:
@@ -524,7 +530,7 @@ status:
       spec:
       - "20"
     extra: []
-    time: "2026-11-09T10:48:00Z"
+    time: "2026-11-20T15:13:15Z"
 ```
 
 Removing it from the router takes `Replace`.
@@ -554,17 +560,17 @@ At the next poll group 19 is taken off the router, and the description off Tunne
 ```yaml
 status:
   conditions:
-  - lastTransitionTime: "2026-11-09T10:49:32Z"
+  - lastTransitionTime: "2026-11-20T15:14:47Z"
     observedGeneration: 6
     reason: ReconcileSuccess
     status: "True"
     type: Synced
-  - lastTransitionTime: "2026-11-09T10:49:35Z"
+  - lastTransitionTime: "2026-11-20T15:14:48Z"
     observedGeneration: 6
     reason: Available
     status: "True"
     type: Ready
-  - lastTransitionTime: "2026-11-09T10:49:31Z"
+  - lastTransitionTime: "2026-11-20T15:14:45Z"
     observedGeneration: 6
     reason: WatchCircuitClosed
     status: "True"
@@ -578,27 +584,29 @@ status:
     - 20
     integrity:
     - sha512
+    prf:
+    - sha512
   reverted:
     drift: []
     extra:
     - device:
       - "19"
       field: group
-    time: "2026-11-09T10:49:35Z"
+    time: "2026-11-20T15:14:47Z"
 ---
 status:
   conditions:
-  - lastTransitionTime: "2026-11-09T10:49:33Z"
+  - lastTransitionTime: "2026-11-20T15:14:47Z"
     observedGeneration: 8
     reason: ReconcileSuccess
     status: "True"
     type: Synced
-  - lastTransitionTime: "2026-11-09T10:49:37Z"
+  - lastTransitionTime: "2026-11-20T15:14:50Z"
     observedGeneration: 8
     reason: Available
     status: "True"
     type: Ready
-  - lastTransitionTime: "2026-11-09T10:49:33Z"
+  - lastTransitionTime: "2026-11-20T15:14:47Z"
     observedGeneration: 8
     reason: WatchCircuitClosed
     status: "True"
@@ -623,7 +631,7 @@ status:
     - device:
       - '"by hand"'
       field: description
-    time: "2026-11-09T10:49:37Z"
+    time: "2026-11-20T15:14:50Z"
 ```
 
 `Replace` writes the section's keys from their Secrets with every write of the
