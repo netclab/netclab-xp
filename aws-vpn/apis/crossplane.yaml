@@ -10,11 +10,11 @@ spec:
   # provider-aws-ec2 is not named here: a cluster that already has it would get a
   # second Provider whose CRDs collide with the first.
   dependsOn:
-    # v0.2.0 brings the keys from Secrets and the front-door VRF.
+    # v0.4.0 brings pfs and the fields AWS recommends.
     - apiVersion: pkg.crossplane.io/v1
       kind: Configuration
       package: xpkg.upbound.io/netclab/configuration-iosxe
-      version: ">=v0.2.0"
+      version: ">=v0.4.0"
 
     - apiVersion: pkg.crossplane.io/v1
       kind: Provider
