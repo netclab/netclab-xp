@@ -7,8 +7,9 @@ name: Release configuration-iosxe
 #                         xpkg.upbound.io/netclab/configuration-iosxe:v0.1.0
 #
 # The same shape as release-eos.yml, which says why each step is what it is: the
-# tag is the version, the build is the one CI runs, and both pushes go through
-# `crossplane xpkg push` with plain docker credentials.
+# tag is the version, the build is the one CI runs, both pushes go through
+# `crossplane xpkg push` with plain docker credentials, and `up xpkg append`
+# adds the icon on Upbound.
 
 on:
   push:
@@ -69,10 +70,15 @@ jobs:
             --examples-root=./iosxe/examples \
             -o "configuration-iosxe-${{ steps.version.outputs.version }}.xpkg"
 
+      - name: Lay out the package extensions
+        run: install -D docs/assets/icon.svg extensions/icons/icon.svg
+
       - uses: actions/upload-artifact@v7
         with:
           name: xpkg
-          path: configuration-iosxe-*.xpkg
+          path: |
+            configuration-iosxe-*.xpkg
+            extensions/
           if-no-files-found: error
           retention-days: 7
 
@@ -127,6 +133,21 @@ jobs:
         run: |
           set -euo pipefail
           crossplane xpkg push -f "configuration-iosxe-${VERSION}.xpkg" \
+            "xpkg.upbound.io/netclab/configuration-iosxe:${VERSION}"
+
+      # Only the Marketplace shows a package's extensions, so GHCR gets none.
+      - name: Install up CLI
+        if: env.UP_TOKEN != '' && env.UP_USER != ''
+        run: |
+          set -euo pipefail
+          curl -sfL "https://cli.upbound.io" | VERSION=v0.56.0 sh
+          sudo mv ./up /usr/local/bin/up
+
+      - name: Append the icon on Upbound
+        if: env.UP_TOKEN != '' && env.UP_USER != ''
+        run: |
+          set -euo pipefail
+          up xpkg append --extensions-root=extensions \
             "xpkg.upbound.io/netclab/configuration-iosxe:${VERSION}"
 
       - name: Note a skipped Upbound push

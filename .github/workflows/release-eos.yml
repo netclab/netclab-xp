@@ -18,8 +18,7 @@ name: Release configuration-eos
 # indexes that registry, so a GHCR-only release is not listed there.
 #
 # Both pushes go through `crossplane xpkg push`, which reads plain docker
-# credentials. The up CLI is not involved: its `up xpkg` group is deprecated in
-# favour of exactly this.
+# credentials; `up xpkg append` then adds the icon on Upbound.
 #
 # **The git tag is the version.** Unlike function-avd, a Configuration has no
 # pyproject.toml -- nothing inside the package declares a version, it comes
@@ -96,10 +95,15 @@ jobs:
             --examples-root=./eos/examples \
             -o "configuration-eos-${{ steps.version.outputs.version }}.xpkg"
 
+      - name: Lay out the package extensions
+        run: install -D docs/assets/icon.svg extensions/icons/icon.svg
+
       - uses: actions/upload-artifact@v7
         with:
           name: xpkg
-          path: configuration-eos-*.xpkg
+          path: |
+            configuration-eos-*.xpkg
+            extensions/
           if-no-files-found: error
           retention-days: 7
 
@@ -142,11 +146,6 @@ jobs:
           crossplane xpkg push -f "configuration-eos-${VERSION}.xpkg" \
             "ghcr.io/netclab/configuration-eos:${VERSION}"
 
-      # The up CLI is deliberately not used here. Its whole `up xpkg` group,
-      # push included, is deprecated: "To work with non-project Crossplane
-      # packages, use the Crossplane CLI." So authenticate with plain docker
-      # credentials -- which is all `crossplane xpkg push` reads -- and push
-      # with the same command that pushed to GHCR above.
       - name: Login to the Upbound registry
         if: env.UP_TOKEN != '' && env.UP_USER != ''
         uses: docker/login-action@v4
@@ -162,6 +161,21 @@ jobs:
         run: |
           set -euo pipefail
           crossplane xpkg push -f "configuration-eos-${VERSION}.xpkg" \
+            "xpkg.upbound.io/netclab/configuration-eos:${VERSION}"
+
+      # Only the Marketplace shows a package's extensions, so GHCR gets none.
+      - name: Install up CLI
+        if: env.UP_TOKEN != '' && env.UP_USER != ''
+        run: |
+          set -euo pipefail
+          curl -sfL "https://cli.upbound.io" | VERSION=v0.56.0 sh
+          sudo mv ./up /usr/local/bin/up
+
+      - name: Append the icon on Upbound
+        if: env.UP_TOKEN != '' && env.UP_USER != ''
+        run: |
+          set -euo pipefail
+          up xpkg append --extensions-root=extensions \
             "xpkg.upbound.io/netclab/configuration-eos:${VERSION}"
 
       - name: Note a skipped Upbound push
