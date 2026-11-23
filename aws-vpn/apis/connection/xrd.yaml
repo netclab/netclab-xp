@@ -28,6 +28,9 @@ spec:
     - name: TUNNEL2
       type: string
       jsonPath: .status.router.tunnels[1].oper
+    - name: ROTATION
+      type: string
+      jsonPath: .status.rotation.interface
     served: true
     referenceable: true
     schema:
@@ -308,6 +311,34 @@ spec:
                 description: Secrets, or keys in them, the spec names that do not exist.
                 items:
                   type: string
+              keys:
+                type: array
+                description: >-
+                  Each tunnel's key as marks, never values: the one in the user's Secret
+                  and the one both ends have been given; they differ while a rotation
+                  waits or runs.
+                items:
+                  type: object
+                  properties:
+                    interface:
+                      type: string
+                    wanted:
+                      type: string
+                    applied:
+                      type: string
+              rotation:
+                type: object
+                description: >-
+                  The tunnel whose new key both ends have been given: sent, then down
+                  while AWS rebuilds it, until it is up again on the new key.
+                properties:
+                  interface:
+                    type: string
+                  step:
+                    type: string
+                    enum: [sent, down]
+                  since:
+                    type: string
               aws:
                 type: object
                 description: The AWS side, from the VPN connection; it lags the router.

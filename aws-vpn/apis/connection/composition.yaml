@@ -8,6 +8,138 @@ spec:
     kind: Connection
   mode: Pipeline
   pipeline:
+  # The tunnels' keys: a Secret of the Connection's own, which the VPN connection and the
+  # keyring both read, holds what both ends have been given. A change in the user's Secret
+  # goes into it one tunnel at a time, and only while every other tunnel is up, or none is,
+  # since then nothing carries traffic; the next tunnel once this one has been seen down
+  # and up again. Up is the interface ready with its IKE SA, and BGP established where the
+  # router has a neighbour for it. status.keys holds marks of both values, status.rotation
+  # the tunnel in progress; a tunnel never seen down counts as done after 20 minutes up.
+  - step: keys
+    functionRef:
+      name: crossplane-contrib-function-go-templating
+    input:
+      apiVersion: gotemplating.fn.crossplane.io/v1beta1
+      kind: GoTemplate
+      source: Inline
+      inline:
+        template: |
+          {{- $xr := .observed.composite.resource }}
+          {{- $ns := $xr.metadata.namespace }}
+          {{- $observed := default (dict) .observed.resources }}
+          {{- $old := default (dict) $xr.status }}
+          {{- $names := list }}
+          {{- range $xr.spec.tunnels }}{{ $names = append $names .preSharedKeySecretRef.name }}{{ end }}
+          {{- $names = $names | uniq | sortAlpha }}
+          ---
+          apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+          kind: ExtraResources
+          requirements:
+            {{- range $i, $n := $names }}
+            secret-{{ $i }}:
+              apiVersion: v1
+              kind: Secret
+              matchName: {{ $n }}
+              namespace: {{ $ns }}
+            {{- end }}
+          {{- $extra := default (dict) .extraResources }}
+          {{- $secrets := dict }}
+          {{- range $i, $n := $names }}{{ with index $extra (printf "secret-%d" $i) }}{{ with .items }}
+          {{- $_ := set $secrets $n (index . 0).resource }}
+          {{- end }}{{ end }}{{ end }}
+
+          {{- /* ---- each tunnel: the user's value, the applied one, and whether it is up ---- */}}
+          {{- $applied := dict }}
+          {{- with index $observed "keys" }}{{ $applied = default (dict) .resource.data }}{{ end }}
+          {{- $oldRouter := dig "router" "tunnels" list $old }}
+          {{- $rows := list }}{{ $missing := list }}
+          {{- range $i, $tun := $xr.spec.tunnels }}
+          {{- $ref := $tun.preSharedKeySecretRef }}
+          {{- $user := "" }}
+          {{- with get $secrets $ref.name }}{{ $user = dig "data" $ref.key "" . }}{{ end }}
+          {{- if not $user }}{{ $missing = append $missing (printf "%s/%s" $ref.name $ref.key) }}{{ end }}
+          {{- $ike := false }}
+          {{- with index $observed (printf "tunnel-%d" (add $i 1)) }}{{ with .resource.status }}{{ with .oper }}
+          {{- $ike = and (eq (default "" .interface) "ready") (eq (default "" .activePeers) "1/1") }}
+          {{- end }}{{ end }}{{ end }}
+          {{- $bgp := "" }}
+          {{- if gt (len $oldRouter) $i }}{{ $bgp = dig "bgp" "" (index $oldRouter $i) }}{{ end }}
+          {{- $key := printf "tunnel%d" (add $i 1) }}
+          {{- $rows = append $rows (dict "interface" $tun.interface "key" $key "user" $user
+                "applied" (get $applied $key | default "")
+                "up" (and $ike (has $bgp (list "established" "none")))) }}
+          {{- end }}
+
+          {{- /* ---- what both ends get ---- */}}
+          {{- $values := dict }}
+          {{- range $rows }}{{ $_ := set $values .key (.applied | default .user) }}{{ end }}
+          {{- $rotation := deepCopy (default (dict) $old.rotation) }}
+          {{- $now := now }}
+          {{- with $rotation.interface }}
+          {{- range $rows }}{{ if eq .interface $rotation.interface }}
+          {{- $age := ($now.Sub (toDate "2006-01-02T15:04:05Z07:00" $rotation.since)).Seconds }}
+          {{- if and (eq $rotation.step "sent") (not .up) }}{{ $_ := set $rotation "step" "down" }}
+          {{- else if and .up (or (eq $rotation.step "down") (gt $age 1200.0)) }}{{ $rotation = dict }}
+          {{- end }}
+          {{- end }}{{ end }}
+          {{- end }}
+          {{- if not $rotation.interface }}
+          {{- $rotation = dict }}
+          {{- $pending := list }}{{ $anyUp := false }}
+          {{- range $rows }}
+          {{- if and .user (ne .user (get $values .key)) }}{{ $pending = append $pending . }}{{ end }}
+          {{- if .up }}{{ $anyUp = true }}{{ end }}
+          {{- end }}
+          {{- if and $pending (not $anyUp) }}
+          {{- range $pending }}{{ $_ := set $values .key .user }}{{ end }}
+          {{- else }}
+          {{- range $p := $pending }}{{ if not $rotation.interface }}
+          {{- $othersUp := true }}
+          {{- range $rows }}{{ if and (ne .key $p.key) (not .up) }}{{ $othersUp = false }}{{ end }}{{ end }}
+          {{- if $othersUp }}
+          {{- $_ := set $values $p.key $p.user }}
+          {{- $rotation = dict "interface" $p.interface "step" "sent" "since" ($now | date "2006-01-02T15:04:05Z07:00") }}
+          {{- end }}
+          {{- end }}{{ end }}
+          {{- end }}
+          {{- end }}
+
+          {{- $data := dict }}
+          {{- range $k, $v := $values }}{{ if $v }}{{ $_ := set $data $k $v }}{{ end }}{{ end }}
+          {{- if $data }}
+          ---
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: {{ $xr.metadata.name }}-applied-keys
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: keys
+          type: Opaque
+          data:
+            {{- toYaml $data | nindent 2 }}
+          {{- end }}
+          {{- $marks := list }}
+          {{- range $rows }}
+          {{- $m := dict "interface" .interface }}
+          {{- with .user }}{{ $_ := set $m "wanted" (printf "%s/%s" $xr.metadata.uid . | sha256sum | trunc 8) }}{{ end }}
+          {{- with get $values .key }}{{ $_ := set $m "applied" (printf "%s/%s" $xr.metadata.uid . | sha256sum | trunc 8) }}{{ end }}
+          {{- $marks = append $marks $m }}
+          {{- end }}
+          ---
+          apiVersion: {{ $xr.apiVersion }}
+          kind: {{ $xr.kind }}
+          status:
+            keys:
+              {{- toYaml $marks | nindent 6 }}
+            {{- with $rotation }}
+            rotation:
+              {{- toYaml . | nindent 6 }}
+            {{- end }}
+            {{- with $missing }}
+            missingSecrets:
+              {{- toYaml . | nindent 6 }}
+            {{- end }}
+
   # The AWS side: a customer gateway and the VPN connection to the target gateway,
   # which exists already. Both are named after the Connection, so the VPN connection
   # finds its customer gateway by reference, without waiting for its id. AWS returns
@@ -55,12 +187,15 @@ spec:
               tags:
                 Name: {{ $xr.metadata.name }}
           ---
+          {{- /* a new mark of the keys makes the provider take them at once, not at its poll */}}
+          {{- $keys := dig "keys" "resource" "data" dict (default (dict) .desired.resources) }}
           apiVersion: ec2.aws.m.upbound.io/v1beta1
           kind: VPNConnection
           metadata:
             name: {{ $xr.metadata.name }}
             annotations:
               gotemplating.fn.crossplane.io/composition-resource-name: vpn-connection
+              aws-vpn.netclab.dev/keys: {{ printf "%s/%s" $xr.metadata.uid (toJson $keys) | sha256sum | trunc 8 | quote }}
           spec:
             providerConfigRef:
               kind: {{ $pc.kind }}
@@ -79,8 +214,8 @@ spec:
               {{- range $i, $tun := $xr.spec.tunnels }}
               tunnel{{ add $i 1 }}InsideCidr: {{ $tun.insideCidr }}
               tunnel{{ add $i 1 }}PresharedKeySecretRef:
-                name: {{ $tun.preSharedKeySecretRef.name }}
-                key: {{ $tun.preSharedKeySecretRef.key }}
+                name: {{ $xr.metadata.name }}-applied-keys
+                key: tunnel{{ add $i 1 }}
               {{- end }}
               tags:
                 Name: {{ $xr.metadata.name }}
@@ -185,9 +320,9 @@ spec:
           {{- if $have }}
           {{- $ref := dict "name" $device }}
           {{- $peers := list }}{{ $outside := list }}
-          {{- range $tunnels }}
-          {{- $peers = append $peers (dict "name" (upper .spec.interface) "address" .outside
-                "preSharedKeySecretRef" .spec.preSharedKeySecretRef) }}
+          {{- range $i, $t := $tunnels }}
+          {{- $peers = append $peers (dict "name" (upper $t.spec.interface) "address" $t.outside
+                "preSharedKeySecretRef" (dict "name" (printf "%s-applied-keys" $xr.metadata.name) "key" (printf "tunnel%d" (add $i 1)))) }}
           {{- $outside = append $outside .outside }}
           {{- end }}
           {{- $keyring := dict "managementPolicy" "Replace" "deviceRef" $ref "name" $name "peers" $peers }}
@@ -290,7 +425,7 @@ spec:
           {{- $afi := "ipv4-unicast,default" }}
           {{- with $cgw.insideVrf }}{{ $afi = printf "vpnv4-unicast,%s" . }}{{ end }}
 
-          {{- /* ---- status.router, and the Secrets the keyring misses ---- */}}
+          {{- /* ---- status.router ---- */}}
           {{- $rows := list }}
           {{- range $i, $t := $tunnels }}
           {{- $row := dict "interface" $t.spec.interface }}
@@ -310,10 +445,6 @@ spec:
             router:
               tunnels:
                 {{- toYaml $rows | nindent 8 }}
-            {{- with index $observed "keyring" }}{{ with .resource.status }}{{ with .missingSecrets }}
-            missingSecrets:
-              {{- toYaml . | nindent 6 }}
-            {{- end }}{{ end }}{{ end }}
 
   - step: ready
     functionRef:
