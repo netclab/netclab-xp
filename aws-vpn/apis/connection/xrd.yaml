@@ -57,6 +57,27 @@ spec:
                   && !has(self.customerGateway.tunnelInterfaceSpec.fvrf)
                   && !has(self.customerGateway.tunnelInterfaceSpec.vrf))
               message: on IOS XE, TunnelInterface fields the connection sets itself
+            - rule: >-
+                self.customerGateway.deviceRef.apiGroup != 'iosxe.netclab.dev'
+                || !has(self.customerGateway.ikev2ProfileSpec)
+                || (!has(self.customerGateway.ikev2ProfileSpec.managementPolicy)
+                  && !has(self.customerGateway.ikev2ProfileSpec.deviceRef)
+                  && !has(self.customerGateway.ikev2ProfileSpec.after)
+                  && !has(self.customerGateway.ikev2ProfileSpec.name)
+                  && !has(self.customerGateway.ikev2ProfileSpec.remoteAddresses)
+                  && !has(self.customerGateway.ikev2ProfileSpec.keyring)
+                  && !has(self.customerGateway.ikev2ProfileSpec.fvrf))
+              message: on IOS XE, Ikev2Profile fields the connection sets itself
+            - rule: >-
+                self.customerGateway.deviceRef.apiGroup != 'iosxe.netclab.dev'
+                || !has(self.customerGateway.ipsecProfileSpec)
+                || (!has(self.customerGateway.ipsecProfileSpec.managementPolicy)
+                  && !has(self.customerGateway.ipsecProfileSpec.deviceRef)
+                  && !has(self.customerGateway.ipsecProfileSpec.after)
+                  && !has(self.customerGateway.ipsecProfileSpec.name)
+                  && !has(self.customerGateway.ipsecProfileSpec.transformSets)
+                  && !has(self.customerGateway.ipsecProfileSpec.ikev2Profile))
+              message: on IOS XE, IpsecProfile fields the connection sets itself
             properties:
               customerGateway:
                 type: object
@@ -134,6 +155,48 @@ spec:
                       ipsecProfile: {type: string}
                       fvrf: {type: string}
                       vrf: {type: string}
+                  ikev2ProfileSpec:
+                    type: object
+                    description: >-
+                      Settings of the IKEv2 profile beyond the connection, as fields
+                      of the spec of the vendor's IKEv2 profile, which validates them;
+                      on IOS XE, iosxe.netclab.dev Ikev2Profile.
+                    x-kubernetes-preserve-unknown-fields: true
+                    maxProperties: 16
+                    # iosxe.netclab.dev Ikev2Profile: the fields the connection sets.
+                    properties:
+                      managementPolicy: {type: string}
+                      deviceRef: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                      after:
+                        type: array
+                        items: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                      name: {type: string}
+                      remoteAddresses:
+                        type: array
+                        items: {type: string}
+                      keyring: {type: string}
+                      fvrf: {type: string}
+                  ipsecProfileSpec:
+                    type: object
+                    description: >-
+                      Settings of the IPsec profile beyond the connection, as fields
+                      of the spec of the vendor's IPsec profile, which validates them;
+                      on IOS XE, iosxe.netclab.dev IpsecProfile, whose pfs replaces
+                      the connection's group14.
+                    x-kubernetes-preserve-unknown-fields: true
+                    maxProperties: 16
+                    # iosxe.netclab.dev IpsecProfile: the fields the connection sets.
+                    properties:
+                      managementPolicy: {type: string}
+                      deviceRef: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                      after:
+                        type: array
+                        items: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                      name: {type: string}
+                      transformSets:
+                        type: array
+                        items: {type: string}
+                      ikev2Profile: {type: string}
                 required:
                 - deviceRef
                 - ipAddress

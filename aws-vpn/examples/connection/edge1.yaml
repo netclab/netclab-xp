@@ -11,6 +11,16 @@ spec:
     bgpAsn: 65010
     source: GigabitEthernet2
     outsideVrf: WAN
+    ikev2ProfileSpec:
+      dpd: {interval: 10, retry: 10, query: on-demand}
+      lifetime: 28800
+    ipsecProfileSpec:
+      pfs: group20
+      lifetime: 3600
+      dfbit: clear
+      replayWindowSize: 128
+    tunnelInterfaceSpec:
+      tcpAdjustMss: 1379
   targetGateway:
     region: us-east-1
     vpnGatewayId: vgw-0123456789abcdef0

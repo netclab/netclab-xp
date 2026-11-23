@@ -117,6 +117,204 @@ spec:
               {{- end }}
           {{- end }}{{ end }}{{ end }}
 
+  # The router side, once the VPN connection gives both tunnels' addresses, which it
+  # does while pending: keyring, IKEv2 profile, transform-set and IPsec profile under
+  # one name on the router, the Connection's name in capitals, and a tunnel interface
+  # per tunnel; all Replace, named as configuration-iosxe requires, each waiting in
+  # `after` on what it names. The pass-throughs go under what the connection sets;
+  # pfs is the one field a pass-through replaces. Should the addresses go missing,
+  # the children stay as they are rather than be deleted with the router's sections.
+  # One read of the router's BGP neighbours gives each tunnel the state of its
+  # session to AWS's inside address, none where the router has no such neighbour.
+  - step: router
+    functionRef:
+      name: crossplane-contrib-function-go-templating
+    input:
+      apiVersion: gotemplating.fn.crossplane.io/v1beta1
+      kind: GoTemplate
+      source: Inline
+      inline:
+        template: |
+          {{- $xr := .observed.composite.resource }}
+          {{- $ns := $xr.metadata.namespace }}
+          {{- $observed := default (dict) .observed.resources }}
+          {{- $cgw := $xr.spec.customerGateway }}
+          {{- $device := $cgw.deviceRef.name }}
+          {{- $name := upper $xr.metadata.name }}
+
+          {{- /* configuration-iosxe's names: <device>--<slug>--<8 hex> */}}
+          {{- $xrName := dict }}
+          {{- $names := list $name }}
+          {{- range $xr.spec.tunnels }}{{ $names = append $names .interface }}{{ end }}
+          {{- range $n := $names }}
+          {{- $slug := regexReplaceAll "[^a-z0-9]+" (lower $n) "-" | trimAll "-" }}
+          {{- $slug = trunc (int (max 0 (sub 51 (len $device)))) $slug | trimSuffix "-" }}
+          {{- $_ := set $xrName $n (printf "%s--%s--%s" $device $slug (sha256sum $n | trunc 8)) }}
+          {{- end }}
+
+          ---
+          apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
+          kind: ExtraResources
+          requirements:
+            device:
+              apiVersion: iosxe.netclab.dev/v1alpha1
+              kind: Device
+              matchName: {{ $device }}
+              namespace: {{ $ns }}
+          {{- $dev := dict }}
+          {{- with .extraResources }}{{ with index . "device" }}{{ with .items }}{{ $dev = (index . 0).resource }}{{ end }}{{ end }}{{ end }}
+
+          {{- /* ---- each tunnel's addresses, read back from the VPN connection ---- */}}
+          {{- $at := dict }}
+          {{- with index $observed "vpn-connection" }}{{ with .resource.status }}{{ with .atProvider }}{{ $at = . }}{{ end }}{{ end }}{{ end }}
+          {{- $tunnels := list }}
+          {{- $have := true }}
+          {{- range $i, $tun := $xr.spec.tunnels }}
+          {{- $n := add $i 1 }}
+          {{- $t := dict "spec" $tun
+                "outside" (index $at (printf "tunnel%dAddress" $n) | default "")
+                "inside" (index $at (printf "tunnel%dCgwInsideAddress" $n) | default "")
+                "vgw" (index $at (printf "tunnel%dVgwInsideAddress" $n) | default "")
+                "cidr" (index $at (printf "tunnel%dInsideCidr" $n) | default $tun.insideCidr) }}
+          {{- if not (and $t.outside $t.inside) }}{{ $have = false }}{{ end }}
+          {{- $tunnels = append $tunnels $t }}
+          {{- end }}
+
+          {{- /* ---- the children ---- */}}
+          {{- $children := list }}
+          {{- if $have }}
+          {{- $ref := dict "name" $device }}
+          {{- $peers := list }}{{ $outside := list }}
+          {{- range $tunnels }}
+          {{- $peers = append $peers (dict "name" (upper .spec.interface) "address" .outside
+                "preSharedKeySecretRef" .spec.preSharedKeySecretRef) }}
+          {{- $outside = append $outside .outside }}
+          {{- end }}
+          {{- $keyring := dict "managementPolicy" "Replace" "deviceRef" $ref "name" $name "peers" $peers }}
+          {{- $profile := merge
+                (dict "managementPolicy" "Replace" "deviceRef" $ref "name" $name
+                  "after" (list (dict "kind" "Ikev2Keyring" "name" (index $xrName $name)))
+                  "remoteAddresses" $outside "keyring" $name)
+                (deepCopy (default (dict) $cgw.ikev2ProfileSpec)) }}
+          {{- with $cgw.outsideVrf }}{{ $_ := set $profile "fvrf" . }}{{ end }}
+          {{- $ts := dict "managementPolicy" "Replace" "deviceRef" $ref "name" $name
+                "esp" "esp-gcm" "keyBits" 256 }}
+          {{- $ipsec := merge
+                (dict "managementPolicy" "Replace" "deviceRef" $ref "name" $name
+                  "after" (list (dict "kind" "IpsecTransformSet" "name" (index $xrName $name))
+                                (dict "kind" "Ikev2Profile" "name" (index $xrName $name)))
+                  "transformSets" (list $name) "ikev2Profile" $name)
+                (mergeOverwrite (dict "pfs" "group14") (deepCopy (default (dict) $cgw.ipsecProfileSpec))) }}
+          {{- $children = list
+                (list "keyring" "Ikev2Keyring" $name $keyring)
+                (list "ikev2-profile" "Ikev2Profile" $name $profile)
+                (list "transform-set" "IpsecTransformSet" $name $ts)
+                (list "ipsec-profile" "IpsecProfile" $name $ipsec) }}
+          {{- range $i, $t := $tunnels }}
+          {{- $tunnel := merge
+                (dict "managementPolicy" "Replace" "deviceRef" $ref "name" $t.spec.interface
+                  "after" (list (dict "kind" "IpsecProfile" "name" (index $xrName $name)))
+                  "mode" "ipsec-ipv4"
+                  "ipv4Address" (printf "%s/%s" $t.inside (index (splitList "/" $t.cidr) 1))
+                  "source" $cgw.source "destination" $t.outside "ipsecProfile" $name)
+                (deepCopy (default (dict) $cgw.tunnelInterfaceSpec)) }}
+          {{- with $cgw.outsideVrf }}{{ $_ := set $tunnel "fvrf" . }}{{ end }}
+          {{- with $cgw.insideVrf }}{{ $_ := set $tunnel "vrf" . }}{{ end }}
+          {{- $children = append $children (list (printf "tunnel-%d" (add $i 1)) "TunnelInterface" $t.spec.interface $tunnel) }}
+          {{- end }}
+          {{- range $children }}
+          ---
+          apiVersion: iosxe.netclab.dev/v1alpha1
+          kind: {{ index . 1 }}
+          metadata:
+            name: {{ index $xrName (index . 2) }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: {{ index . 0 }}
+          spec:
+            {{- toYaml (index . 3) | nindent 2 }}
+          {{- end }}
+          {{- else }}
+          {{- range $r := list "keyring" "ikev2-profile" "transform-set" "ipsec-profile" "tunnel-1" "tunnel-2" }}
+          {{- with index $observed $r }}
+          ---
+          apiVersion: {{ .resource.apiVersion }}
+          kind: {{ .resource.kind }}
+          metadata:
+            name: {{ .resource.metadata.name }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: {{ $r }}
+          spec:
+            {{- toYaml .resource.spec | nindent 2 }}
+          {{- end }}
+          {{- end }}
+          {{- end }}
+
+          {{- /* ---- the router's BGP neighbours, once a tunnel interface exists ---- */}}
+          {{- if and $dev (or (hasKey $observed "tunnel-1") (hasKey $observed "tunnel-2")) }}
+          {{- $cred := $dev.spec.credentialsSecretRef }}
+          {{- $auth := printf "{{ %s:%s:%s }}" $cred.name $ns $cred.key }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: bgp
+              gotemplating.fn.crossplane.io/ready: "True"
+          spec:
+            managementPolicies: ["Observe"]
+            forProvider:
+              insecureSkipTLSVerify: {{ $dev.spec.insecureSkipTLSVerify }}
+              headers:
+                Accept: ["application/yang-data+json"]
+                Authorization: ["Basic {{ $auth }}"]
+              payload:
+                baseUrl: {{ printf "https://%s/restconf/data/Cisco-IOS-XE-bgp-oper:bgp-state-data/neighbors?fields=neighbor(afi-safi;vrf-name;neighbor-id;session-state)" $dev.spec.address | quote }}
+              mappings:
+              - action: OBSERVE
+                method: GET
+                url: .payload.baseUrl
+          {{- end }}
+
+          {{- /* each neighbour's state by its key, as the last read found them; a 204 is none */}}
+          {{- $bgp := dict }}
+          {{- $read := false }}
+          {{- with index $observed "bgp" }}{{ with .resource.status }}{{ with .response }}
+          {{- $code := int (.statusCode | default 0) }}
+          {{- $read = or (eq $code 200) (eq $code 204) }}
+          {{- if eq $code 200 }}
+            {{- range dig "Cisco-IOS-XE-bgp-oper:neighbors" "neighbor" list (fromYaml .body) }}
+            {{- $_ := set $bgp (printf "%s,%s,%s" (get . "afi-safi") (get . "vrf-name") (get . "neighbor-id")) (trimPrefix "fsm-" (get . "session-state")) }}
+            {{- end }}
+          {{- end }}
+          {{- end }}{{ end }}{{ end }}
+          {{- $afi := "ipv4-unicast,default" }}
+          {{- with $cgw.insideVrf }}{{ $afi = printf "vpnv4-unicast,%s" . }}{{ end }}
+
+          {{- /* ---- status.router, and the Secrets the keyring misses ---- */}}
+          {{- $rows := list }}
+          {{- range $i, $t := $tunnels }}
+          {{- $row := dict "interface" $t.spec.interface }}
+          {{- if $t.inside }}{{ $_ := set $row "address" (printf "%s/%s" $t.inside (index (splitList "/" $t.cidr) 1)) }}{{ end }}
+          {{- with index $observed (printf "tunnel-%d" (add $i 1)) }}{{ with .resource.status }}{{ with .oper }}{{ with .interface }}
+          {{- $_ := set $row "oper" . }}
+          {{- end }}{{ end }}{{ end }}{{ end }}
+          {{- if and $read $t.vgw }}
+          {{- $_ := set $row "bgp" (get $bgp (printf "%s,%s" $afi $t.vgw) | default "none") }}
+          {{- end }}
+          {{- $rows = append $rows $row }}
+          {{- end }}
+          ---
+          apiVersion: {{ $xr.apiVersion }}
+          kind: {{ $xr.kind }}
+          status:
+            router:
+              tunnels:
+                {{- toYaml $rows | nindent 8 }}
+            {{- with index $observed "keyring" }}{{ with .resource.status }}{{ with .missingSecrets }}
+            missingSecrets:
+              {{- toYaml . | nindent 6 }}
+            {{- end }}{{ end }}{{ end }}
+
   - step: ready
     functionRef:
       name: crossplane-contrib-function-auto-ready
