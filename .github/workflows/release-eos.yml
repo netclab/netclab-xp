@@ -1,44 +1,21 @@
 name: Release configuration-eos
 
-# Publishes configuration-eos, the package under eos/, on a tag of its own, so it
-# is installable straight from a registry, instead of the hand-run script in the
-# *private* repo that releasing used to mean
-# (netclab-xp-priv/scripts/crossplane-xpkg-build-and-push.sh -- a script that
-# built the public repo from the private one, so a release needed both checkouts
-# and a hand-edited VERSION=):
+#   tag eos/v0.6.0  ->  ghcr.io/netclab/configuration-eos:v0.6.0
+#                       xpkg.upbound.io/netclab/configuration-eos:v0.6.0, with its icon,
+#                       when the Upbound secrets are set; the Marketplace lists this one
 #
-#   tag eos/v0.6.0  ->  ghcr.io/netclab/configuration-eos:v0.6.0          always
-#                       xpkg.upbound.io/netclab/configuration-eos:v0.6.0  when the Upbound secrets are set
-#
-# Until v0.5.0 the package was netclab-xp, tagged v<semver>; those tags and
-# images stay as they are.
-#
-# The Upbound push is what puts the Configuration on
-# https://marketplace.upbound.io/configurations/netclab -- the Marketplace
-# indexes that registry, so a GHCR-only release is not listed there.
-#
-# Both pushes go through `crossplane xpkg push`, which reads plain docker
-# credentials. The up CLI is not involved: its `up xpkg` group is deprecated in
-# favour of exactly this.
-#
-# **The git tag is the version.** Unlike function-avd, a Configuration has no
-# pyproject.toml -- nothing inside the package declares a version, it comes
-# from the image tag -- so there is no second number to cross-check and none to
-# forget to bump. Tagging is therefore the whole release ritual.
+# The tag is the only version: nothing in a Configuration declares one.
 
 on:
   push:
     tags: ['eos/v*']
-  # Re-run a release whose publish leg failed (an expired UPBOUND_TOKEN, say)
-  # without moving the tag. Select the tag as the ref when dispatching; the
-  # version check below rejects a branch, since a branch has no version.
+  # Re-runs a failed publish without moving the tag; dispatch it against the tag.
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
-# Read-only by default; only the publishing job widens this.
 permissions:
   contents: read
 
@@ -81,13 +58,6 @@ jobs:
           sudo mv ./crossplane /usr/local/bin/crossplane
           crossplane version --client
 
-      # One package, no per-arch matrix: a Configuration is YAML only. There is
-      # no runtime image to embed, so nothing here is architecture-specific --
-      # this is where the shape departs from function-avd's release.
-      #
-      # Same flags as ci.yml, deliberately: the artifact this pushes is built by
-      # the command PRs have been running all along. See ci.yml for why the
-      # package root is eos/apis/ rather than the repo root.
       - name: Build the package
         run: |
           set -euo pipefail
@@ -96,10 +66,15 @@ jobs:
             --examples-root=./eos/examples \
             -o "configuration-eos-${{ steps.version.outputs.version }}.xpkg"
 
+      - name: Lay out the package extensions
+        run: install -D docs/assets/icon.svg extensions/icons/icon.svg
+
       - uses: actions/upload-artifact@v7
         with:
           name: xpkg
-          path: configuration-eos-*.xpkg
+          path: |
+            configuration-eos-*.xpkg
+            extensions/
           if-no-files-found: error
           retention-days: 7
 
@@ -113,12 +88,10 @@ jobs:
       packages: write
     env:
       VERSION: ${{ needs.build.outputs.version }}
-      # secrets are not available to job-level `if:`, so hoist them into env and
-      # let the Upbound steps skip themselves when they are unset.
+      # A step's `if:` cannot read secrets, only env.
       UP_TOKEN: ${{ secrets.UPBOUND_TOKEN }}
       UP_USER: ${{ secrets.UPBOUND_USER }}
     steps:
-      # No checkout: pushing packages needs the .xpkg file and nothing else.
       - uses: actions/download-artifact@v8
         with:
           name: xpkg
@@ -142,11 +115,6 @@ jobs:
           crossplane xpkg push -f "configuration-eos-${VERSION}.xpkg" \
             "ghcr.io/netclab/configuration-eos:${VERSION}"
 
-      # The up CLI is deliberately not used here. Its whole `up xpkg` group,
-      # push included, is deprecated: "To work with non-project Crossplane
-      # packages, use the Crossplane CLI." So authenticate with plain docker
-      # credentials -- which is all `crossplane xpkg push` reads -- and push
-      # with the same command that pushed to GHCR above.
       - name: Login to the Upbound registry
         if: env.UP_TOKEN != '' && env.UP_USER != ''
         uses: docker/login-action@v4
@@ -155,13 +123,27 @@ jobs:
           username: ${{ secrets.UPBOUND_USER }}
           password: ${{ secrets.UPBOUND_TOKEN }}
 
-      # The repository has to exist on Upbound before the first push: there is
-      # no --create, and the robot needs write on it.
+      # The repository has to exist on Upbound, with write for the robot.
       - name: Push to the Upbound Marketplace
         if: env.UP_TOKEN != '' && env.UP_USER != ''
         run: |
           set -euo pipefail
           crossplane xpkg push -f "configuration-eos-${VERSION}.xpkg" \
+            "xpkg.upbound.io/netclab/configuration-eos:${VERSION}"
+
+      # Only the Marketplace shows a package's extensions, so GHCR gets none.
+      - name: Install up CLI
+        if: env.UP_TOKEN != '' && env.UP_USER != ''
+        run: |
+          set -euo pipefail
+          curl -sfL "https://cli.upbound.io" | VERSION=v0.56.0 sh
+          sudo mv ./up /usr/local/bin/up
+
+      - name: Append the icon on Upbound
+        if: env.UP_TOKEN != '' && env.UP_USER != ''
+        run: |
+          set -euo pipefail
+          up xpkg append --extensions-root=extensions \
             "xpkg.upbound.io/netclab/configuration-eos:${VERSION}"
 
       - name: Note a skipped Upbound push

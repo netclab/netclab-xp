@@ -1,14 +1,10 @@
 name: Release configuration-iosxe
 
-# Publishes configuration-iosxe, the package under iosxe/, on a tag of its own so
-# that its versions and configuration-eos's do not move together:
-#
 #   tag iosxe/v0.1.0  ->  ghcr.io/netclab/configuration-iosxe:v0.1.0
-#                         xpkg.upbound.io/netclab/configuration-iosxe:v0.1.0
+#                         xpkg.upbound.io/netclab/configuration-iosxe:v0.1.0, with its icon,
+#                         when the Upbound secrets are set; the Marketplace lists this one
 #
-# The same shape as release-eos.yml, which says why each step is what it is: the
-# tag is the version, the build is the one CI runs, and both pushes go through
-# `crossplane xpkg push` with plain docker credentials.
+# The tag is the only version: nothing in a Configuration declares one.
 
 on:
   push:
@@ -69,10 +65,15 @@ jobs:
             --examples-root=./iosxe/examples \
             -o "configuration-iosxe-${{ steps.version.outputs.version }}.xpkg"
 
+      - name: Lay out the package extensions
+        run: install -D docs/assets/icon.svg extensions/icons/icon.svg
+
       - uses: actions/upload-artifact@v7
         with:
           name: xpkg
-          path: configuration-iosxe-*.xpkg
+          path: |
+            configuration-iosxe-*.xpkg
+            extensions/
           if-no-files-found: error
           retention-days: 7
 
@@ -120,13 +121,25 @@ jobs:
           username: ${{ secrets.UPBOUND_USER }}
           password: ${{ secrets.UPBOUND_TOKEN }}
 
-      # The repository has to exist on Upbound before the first push: there is
-      # no --create, and the robot needs write on it.
       - name: Push to the Upbound Marketplace
         if: env.UP_TOKEN != '' && env.UP_USER != ''
         run: |
           set -euo pipefail
           crossplane xpkg push -f "configuration-iosxe-${VERSION}.xpkg" \
+            "xpkg.upbound.io/netclab/configuration-iosxe:${VERSION}"
+
+      - name: Install up CLI
+        if: env.UP_TOKEN != '' && env.UP_USER != ''
+        run: |
+          set -euo pipefail
+          curl -sfL "https://cli.upbound.io" | VERSION=v0.56.0 sh
+          sudo mv ./up /usr/local/bin/up
+
+      - name: Append the icon on Upbound
+        if: env.UP_TOKEN != '' && env.UP_USER != ''
+        run: |
+          set -euo pipefail
+          up xpkg append --extensions-root=extensions \
             "xpkg.upbound.io/netclab/configuration-iosxe:${VERSION}"
 
       - name: Note a skipped Upbound push

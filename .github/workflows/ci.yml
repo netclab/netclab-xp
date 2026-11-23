@@ -1,32 +1,8 @@
 name: CI
 
-# Builds the Configuration package on every PR. Until now the only thing that
-# ever built this repo was a script in a *private* repo, run by hand at release
-# time -- so a broken XRD or composition was found after the tag, if at all.
-#
-# `crossplane xpkg build` is not a lint: it parses every YAML under
-# --package-root and rejects anything that is not a valid Kubernetes manifest,
-# and --examples-root puts the examples through the same check. So a green build
-# is a real statement about every XRD, composition and example that ships --
-# which is why it is the gate here and the first job of the release.
-#
-# The package root is `eos/apis/`, and the meta file lives there with it -- xpkg
-# requires the meta in the root it is given. This is what makes the build need
-# no --ignore at all: it collects every .yml and .yaml under --package-root
-# recursively, so with the repo root as package root, every workflow file,
-# kustomize overlay and helm values file had to be excluded by a glob. Those
-# globs were file-only and did not cross '/', so each nesting level needed its
-# own -- meaning a new sub-directory anywhere silently required an edit in three
-# places, and broke the build when it did not get one.
-#
-# Narrowing the root inverts that: anything outside eos/apis/ is excluded by
-# construction, and no directory added later can affect this build. Verified
-# when it changed: the package is byte-identical to the one the globs produced.
-#
-# `eos/examples/` is passed separately and is not collected here. Note --ignore
-# never reached --examples-root either, so anything placed under eos/examples/
-# ships with no way to filter it -- which is why eos/examples/ holds XR manifests
-# and nothing else, and why the scenario overlays live outside it and reach in.
+# xpkg build parses every YAML under the package root and the examples, so a green
+# build checks every XRD, composition and example. eos/examples holds XRs only:
+# --ignore does not reach --examples-root.
 
 on:
   push:
@@ -54,15 +30,11 @@ jobs:
       - name: Install crossplane CLI
         run: |
           set -euo pipefail
-          # XP_VERSION pins the CLI: install.sh otherwise takes whatever is
-          # current, so this job would drift onto a different CLI with no commit.
+          # install.sh otherwise takes whatever CLI is current.
           curl -sfL "https://cli.crossplane.io/install.sh" | XP_VERSION=v2.5.0 sh
           sudo mv ./crossplane /usr/local/bin/crossplane
           crossplane version --client
 
-      # Unversioned on purpose: CI only has to answer "does this build", and a
-      # Configuration carries no version of its own -- the release tag supplies
-      # it. See release.yml for the same command with a real version.
       - name: Build the package
         run: |
           set -euo pipefail
@@ -71,13 +43,7 @@ jobs:
             --examples-root=./eos/examples \
             -o configuration-eos-ci.xpkg
 
-      # The install snippet used to carry a hard-coded tag that was hand-synced
-      # with the release script -- and went stale every time someone forgot.
-      # Now the git tag is the only version, and this keeps it that way.
-      #
-      # It covers docs/ as well as the README, because that is where the snippet
-      # now lives. Guarding only the file the snippet used to be in is how this
-      # check would quietly stop protecting anything.
+      # The git tag is the only version; the docs' install snippets keep ${VERSION}.
       - name: Check no pinned version in README or docs
         run: |
           set -euo pipefail
@@ -88,11 +54,8 @@ jobs:
             exit 1
           fi
 
-      # The docs tell the reader to kustomize directories of this repository, and
-      # mkdocs --strict checks links, not the commands in a page. So every
-      # directory a page names after `-k` or `LoadRestrictionsNone` is built
-      # here, from the repository root where the docs run it: a moved directory,
-      # or an overlay whose path into eos/examples/ broke, fails the PR.
+      # mkdocs --strict checks links, not commands: every directory a page names
+      # after `-k` or `LoadRestrictionsNone` is built here, from the repository root.
       - name: Build the kustomizations the docs name
         run: |
           set -euo pipefail
@@ -110,10 +73,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # configuration-iosxe is its own package, with its own root and examples under
-  # iosxe/ and its own tag (release-iosxe.yml). Its tests render every example
-  # with `crossplane composition render`, which runs the functions of the
-  # package's floors in Docker, and run the compositions' own checks against the
+  # The tests render every example and check the compositions against the
   # router's answers recorded in iosxe/tests/fixtures/.
   iosxe:
     name: configuration-iosxe
