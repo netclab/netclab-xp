@@ -18,8 +18,8 @@ permissions:
   contents: read
 
 jobs:
-  package:
-    name: configuration-eos
+  docs:
+    name: docs
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -27,27 +27,11 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Install crossplane CLI
-        run: |
-          set -euo pipefail
-          # install.sh otherwise takes whatever CLI is current.
-          curl -sfL "https://cli.crossplane.io/install.sh" | XP_VERSION=v2.5.0 sh
-          sudo mv ./crossplane /usr/local/bin/crossplane
-          crossplane version --client
-
-      - name: Build the package
-        run: |
-          set -euo pipefail
-          crossplane xpkg build \
-            --package-root=eos/apis \
-            --examples-root=./eos/examples \
-            -o configuration-eos-ci.xpkg
-
       # The git tag is the only version; the docs' install snippets keep ${VERSION}.
       - name: Check no pinned version in README or docs
         run: |
           set -euo pipefail
-          if grep -rnE '(configuration-eos|configuration-iosxe|netclab-xp):v[0-9]' README.md docs/; then
+          if grep -rnE '(configuration-eos|configuration-iosxe|configuration-aws-vpn|netclab-xp):v[0-9]' README.md docs/; then
             echo "::error::A package version is pinned above. The git tag is" \
                  "the version; leave the install snippet's \${VERSION}" \
                  "placeholder alone."
@@ -66,12 +50,33 @@ jobs:
             kubectl kustomize --load-restrictor LoadRestrictionsNone "$d" > /dev/null
           done
 
-      - uses: actions/upload-artifact@v7
+  eos:
+    name: configuration-eos
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: eos
+    steps:
+      - uses: actions/checkout@v7
         with:
-          name: xpkg-ci
-          path: configuration-eos-ci.xpkg
-          if-no-files-found: error
-          retention-days: 7
+          fetch-depth: 1
+
+      - name: Install crossplane CLI
+        run: |
+          set -euo pipefail
+          # install.sh otherwise takes whatever CLI is current.
+          curl -sfL "https://cli.crossplane.io/install.sh" | XP_VERSION=v2.5.0 sh
+          sudo mv ./crossplane /usr/local/bin/crossplane
+          crossplane version --client
+
+      - name: Build the package
+        run: |
+          set -euo pipefail
+          crossplane xpkg build \
+            --package-root=apis \
+            --examples-root=./examples \
+            -o configuration-eos-ci.xpkg
 
   # The tests render every example and check the compositions against the
   # router's answers recorded in iosxe/tests/fixtures/.
@@ -106,6 +111,44 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: iosxe/uv.lock
+
+      - name: Ruff
+        run: uvx ruff check && uvx ruff format --check
+
+      - name: Tests
+        run: uv run pytest
+
+  aws-vpn:
+    name: configuration-aws-vpn
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: aws-vpn
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Install crossplane CLI
+        run: |
+          set -euo pipefail
+          curl -sfL "https://cli.crossplane.io/install.sh" | XP_VERSION=v2.5.0 sh
+          sudo mv ./crossplane /usr/local/bin/crossplane
+          crossplane version --client
+
+      - name: Build the package
+        run: |
+          set -euo pipefail
+          crossplane xpkg build \
+            --package-root=apis \
+            --examples-root=./examples \
+            -o configuration-aws-vpn-ci.xpkg
+
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: aws-vpn/uv.lock
 
       - name: Ruff
         run: uvx ruff check && uvx ruff format --check

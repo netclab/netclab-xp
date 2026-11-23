@@ -1,6 +1,6 @@
 .claude/
 
-# Left by pytest in iosxe/tests.
+# Left by pytest.
 __pycache__/
 .pytest_cache/
 
