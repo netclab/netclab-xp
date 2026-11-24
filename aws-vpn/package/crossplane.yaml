@@ -1,0 +1,14 @@
+apiVersion: meta.pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-aws-vpn
+  annotations:
+    meta.crossplane.io/maintainer: netclab.dev
+    meta.crossplane.io/source: github.com/netclab/netclab-xp
+    meta.crossplane.io/license: Apache-2.0
+    meta.crossplane.io/description: >-
+      The decisions of configuration-aws-vpn's Connection: the tunnels' keys and their
+      rotation, each tunnel's addresses and state, and the status.
+spec:
+  capabilities:
+  - composition

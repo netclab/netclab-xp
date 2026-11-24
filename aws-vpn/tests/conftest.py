@@ -2,15 +2,19 @@
 
 By default the functions run once for the whole session and the render engine is a local
 Crossplane binary; `--render=docker` renders each time in Docker, as the CLI does alone.
+function-aws-vpn is served from this checkout, or with FUNCTION_IMAGE set from that image,
+as Crossplane runs it: uid 2000.
 """
 
 import base64
 import copy
 import hashlib
+import json
 import os
 import platform
 import socket
 import subprocess
+import sys
 import time
 import urllib.request
 from collections import namedtuple
@@ -98,14 +102,75 @@ def listening(port, wait=60):
     return False
 
 
+IMAGE = os.environ.get("FUNCTION_IMAGE")
+
+
+def free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 @pytest.fixture(scope="session")
-def functions(request, tmp_path_factory):
+def function_aws_vpn(tmp_path_factory):
+    """function-aws-vpn listening on a free port, and its Function pointing there."""
+    port = free_port()
+    # every interface: a render engine in Docker calls it from a container
+    args = ["--insecure", "--address", f"0.0.0.0:{port}"]
+    if IMAGE is None:
+        command = [sys.executable, "-m", "function.main", *args]
+    else:
+        name = f"function-aws-vpn-{port}"
+        command = [
+            "docker",
+            "run",
+            "--rm",
+            "--init",
+            "--name",
+            name,
+            "--network",
+            "host",
+        ]
+        command += ["--user", "2000:2000", IMAGE, *args]
+    log = tmp_path_factory.mktemp("function-aws-vpn") / "function.log"
+    with log.open("w") as out:
+        server = subprocess.Popen(
+            command, cwd=AWS_VPN, stdout=out, stderr=subprocess.STDOUT
+        )
+    try:
+        if not listening(port):
+            raise RuntimeError(
+                f"function-aws-vpn not listening on {port}: {log.read_text()}"
+            )
+        yield {
+            "apiVersion": "pkg.crossplane.io/v1",
+            "kind": "Function",
+            "metadata": {
+                "name": "netclab-function-aws-vpn",
+                "annotations": {
+                    "render.crossplane.io/runtime": "Development",
+                    "render.crossplane.io/runtime-development-target": f"localhost:{port}",
+                },
+            },
+            "spec": {"package": "xpkg.upbound.io/netclab/function-aws-vpn:v0.0.0"},
+        }
+    finally:
+        if IMAGE is not None:
+            subprocess.run(
+                ["docker", "rm", "-f", name], capture_output=True, check=False
+            )
+        server.terminate()
+        server.wait(timeout=10)
+
+
+@pytest.fixture(scope="session")
+def functions(request, tmp_path_factory, function_aws_vpn):
     """The Functions file the renders use: with --render=local, each Function's container
     started once, the file pointing at it, and the containers removed at the end."""
     path = tmp_path_factory.mktemp("functions") / "functions.yaml"
     docs = list(yaml.safe_load_all(FUNCTIONS))
     if request.config.getoption("render") == "docker":
-        path.write_text(FUNCTIONS)
+        path.write_text(yaml.safe_dump_all([*docs, function_aws_vpn]))
         yield path, []
         return
     started = []
@@ -136,7 +201,7 @@ def functions(request, tmp_path_factory):
                 "render.crossplane.io/runtime": "Development",
                 "render.crossplane.io/runtime-development-target": f"127.0.0.1:{port}",
             }
-        path.write_text(yaml.safe_dump_all(docs))
+        path.write_text(yaml.safe_dump_all([*docs, function_aws_vpn]))
         yield path, [f"--crossplane-binary={engine()}"]
     finally:
         if started:
@@ -320,3 +385,23 @@ def values(rendered):
 def status(rendered):
     """The rendered XR's status, without its conditions."""
     return {k: v for k, v in rendered.composite["status"].items() if k != "conditions"}
+
+
+def bgp(code, neighbours=()):
+    response = {"statusCode": code}
+    if code == 200:
+        response["body"] = json.dumps(
+            {"Cisco-IOS-XE-bgp-oper:neighbors": {"neighbor": list(neighbours)}}
+        )
+    return composed(
+        "bgp", "Request", "http.m.crossplane.io/v1alpha2", {"response": response}
+    )
+
+
+def neighbour(afi, vrf, address, state):
+    return {
+        "afi-safi": afi,
+        "vrf-name": vrf,
+        "neighbor-id": address,
+        "session-state": state,
+    }

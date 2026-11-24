@@ -4,8 +4,10 @@ Secret one tunnel at a time while the other tunnel is up, or at once when none i
 import pytest
 from conftest import (
     applied,
+    bgp,
     device,
     example,
+    neighbour,
     secret,
     status,
     tunnel,
@@ -13,18 +15,33 @@ from conftest import (
     vpn_connection,
 )
 
-ESTABLISHED = {"router": {"tunnels": [{"bgp": "established"}, {"bgp": "established"}]}}
+
+def rotation(aws_tunnel, step, since="2026-11-23T15:00:00Z"):
+    return {
+        "awsTunnel": aws_tunnel,
+        "interface": f"Tunnel{aws_tunnel}",
+        "step": step,
+        "since": since,
+    }
 
 
-def rotation(interface, step, since="2026-11-23T15:00:00Z"):
-    return {"interface": interface, "step": step, "since": since}
+def sessions(tunnel1="established", tunnel2="established"):
+    """The router's read of its BGP neighbours, each session to AWS's inside address of a
+    tunnel in this state; none: the router has no such neighbour."""
+    found = [
+        neighbour("ipv4-unicast", "default", address, f"fsm-{state}")
+        for address, state in (("169.254.10.1", tunnel1), ("169.254.10.5", tunnel2))
+        if state != "none"
+    ]
+    return bgp(200, found)
 
 
-def keys(render, user, observed, old=None):
+def keys(render, user, observed, old=None, read=None):
     """The applied keys and status after one render: the user's Secret `user`, the old
-    status `old` (both tunnels established unless given)."""
-    xr = example(status=ESTABLISHED if old is None else old)
-    rendered = render(xr, [vpn_connection(), *observed], [device(), user])
+    status `old`, the BGP read `read` (both sessions established unless given)."""
+    xr = example(status=old)
+    read = sessions() if read is None else read
+    rendered = render(xr, [vpn_connection(), read, *observed], [device(), user])
     return values(rendered), status(rendered)
 
 
@@ -54,7 +71,7 @@ def test_both_keys_new_and_both_up_starts_with_tunnel_1(render):
 
 
 def test_sent_then_down_while_aws_rebuilds(render):
-    old = dict(ESTABLISHED, rotation=rotation("Tunnel1", "sent"))
+    old = {"rotation": rotation(1, "sent")}
     got, st = keys(
         render,
         secret("N1", "N2"),
@@ -62,13 +79,11 @@ def test_sent_then_down_while_aws_rebuilds(render):
         old,
     )
     assert got == {"tunnel1": "N1", "tunnel2": "A2"}
-    assert st["rotation"] == rotation("Tunnel1", "down")
+    assert st["rotation"] == rotation(1, "down")
 
 
 def test_sent_and_still_up_waits(render):
-    old = dict(
-        ESTABLISHED, rotation=rotation("Tunnel1", "sent", "2099-01-01T00:00:00Z")
-    )
+    old = {"rotation": rotation(1, "sent", "2099-01-01T00:00:00Z")}
     got, st = keys(
         render, secret("N1", "N2"), [applied("N1", "A2"), tunnel(1), tunnel(2)], old
     )
@@ -77,7 +92,7 @@ def test_sent_and_still_up_waits(render):
 
 
 def test_up_again_moves_on_to_tunnel_2(render):
-    old = dict(ESTABLISHED, rotation=rotation("Tunnel1", "down"))
+    old = {"rotation": rotation(1, "down")}
     got, st = keys(
         render, secret("N1", "N2"), [applied("N1", "A2"), tunnel(1), tunnel(2)], old
     )
@@ -87,7 +102,7 @@ def test_up_again_moves_on_to_tunnel_2(render):
 
 
 def test_up_again_with_nothing_left_ends_the_rotation(render):
-    old = dict(ESTABLISHED, rotation=rotation("Tunnel2", "down"))
+    old = {"rotation": rotation(2, "down")}
     got, st = keys(
         render, secret("N1", "N2"), [applied("N1", "N2"), tunnel(1), tunnel(2)], old
     )
@@ -96,9 +111,7 @@ def test_up_again_with_nothing_left_ends_the_rotation(render):
 
 
 def test_a_tunnel_never_seen_down_counts_as_done_after_20_minutes(render):
-    old = dict(
-        ESTABLISHED, rotation=rotation("Tunnel1", "sent", "2026-11-23T10:00:00Z")
-    )
+    old = {"rotation": rotation(1, "sent", "2026-11-23T10:00:00Z")}
     got, st = keys(
         render, secret("N1", "N2"), [applied("N1", "A2"), tunnel(1), tunnel(2)], old
     )
@@ -117,13 +130,17 @@ def test_with_no_tunnel_up_every_key_goes_at_once(render):
 
 
 @pytest.mark.parametrize(
-    "bgp, moves",
+    "state, moves",
     [("established", True), ("none", True), ("idle", False), ("active", False)],
 )
-def test_the_other_tunnel_counts_as_up_with_bgp_established_or_none(render, bgp, moves):
-    old = {"router": {"tunnels": [{"bgp": "established"}, {"bgp": bgp}]}}
+def test_the_other_tunnel_counts_as_up_with_bgp_established_or_none(
+    render, state, moves
+):
     got, _ = keys(
-        render, secret("N1", "A2"), [applied("A1", "A2"), tunnel(1), tunnel(2)], old
+        render,
+        secret("N1", "A2"),
+        [applied("A1", "A2"), tunnel(1), tunnel(2)],
+        read=sessions("established", state),
     )
     assert got["tunnel1"] == ("N1" if moves else "A1")
 

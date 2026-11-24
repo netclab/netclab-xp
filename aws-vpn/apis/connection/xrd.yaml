@@ -332,6 +332,10 @@ spec:
                   The tunnel whose new key both ends have been given: sent, then down
                   while AWS rebuilds it, until it is up again on the new key.
                 properties:
+                  awsTunnel:
+                    type: integer
+                    description: AWS's number of the tunnel, its place in spec.tunnels.
+                    enum: [1, 2]
                   interface:
                     type: string
                   step:

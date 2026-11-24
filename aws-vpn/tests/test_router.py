@@ -1,10 +1,8 @@
 """The router side of a Connection: what it composes once the VPN connection gives the
 tunnels' addresses, under configuration-iosxe's names, and status.router."""
 
-import json
-
 import pytest
-from conftest import composed, example, status, tunnel, vpn_connection
+from conftest import bgp, composed, example, neighbour, status, tunnel, vpn_connection
 
 CHILDREN = [
     "ikev2-profile",
@@ -161,26 +159,6 @@ def test_the_children_stay_when_the_addresses_go(render, up):
     assert children(again) == CHILDREN
     assert {n: again[n]["spec"] for n in CHILDREN} == {
         n: up[n]["spec"] for n in CHILDREN
-    }
-
-
-def bgp(code, neighbours=()):
-    response = {"statusCode": code}
-    if code == 200:
-        response["body"] = json.dumps(
-            {"Cisco-IOS-XE-bgp-oper:neighbors": {"neighbor": list(neighbours)}}
-        )
-    return composed(
-        "bgp", "Request", "http.m.crossplane.io/v1alpha2", {"response": response}
-    )
-
-
-def neighbour(afi, vrf, address, state):
-    return {
-        "afi-safi": afi,
-        "vrf-name": vrf,
-        "neighbor-id": address,
-        "session-state": state,
     }
 
 

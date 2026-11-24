@@ -8,147 +8,19 @@ spec:
     kind: Connection
   mode: Pipeline
   pipeline:
-  # The tunnels' keys: a Secret of the Connection's own, which the VPN connection and the
-  # keyring both read, holds what both ends have been given. A change in the user's Secret
-  # goes into it one tunnel at a time, and only while every other tunnel is up, or none is,
-  # since then nothing carries traffic; the next tunnel once this one has been seen down
-  # and up again. Up is the interface ready with its IKE SA, and BGP established where the
-  # router has a neighbour for it. status.keys holds marks of both values, status.rotation
-  # the tunnel in progress; a tunnel never seen down counts as done after 20 minutes up.
-  - step: keys
+  # The decisions: the keys and their rotation one tunnel at a time, each tunnel's addresses
+  # and state, configuration-iosxe's names, and the status. Composes the applied Secret of
+  # keys, and hands the rest to the steps below in the context.
+  - step: decisions
     functionRef:
-      name: crossplane-contrib-function-go-templating
-    input:
-      apiVersion: gotemplating.fn.crossplane.io/v1beta1
-      kind: GoTemplate
-      source: Inline
-      inline:
-        template: |
-          {{- $xr := .observed.composite.resource }}
-          {{- $ns := $xr.metadata.namespace }}
-          {{- $observed := default (dict) .observed.resources }}
-          {{- $old := default (dict) $xr.status }}
-          {{- $names := list }}
-          {{- range $xr.spec.tunnels }}{{ $names = append $names .preSharedKeySecretRef.name }}{{ end }}
-          {{- $names = $names | uniq | sortAlpha }}
-          ---
-          apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
-          kind: ExtraResources
-          requirements:
-            {{- range $i, $n := $names }}
-            secret-{{ $i }}:
-              apiVersion: v1
-              kind: Secret
-              matchName: {{ $n }}
-              namespace: {{ $ns }}
-            {{- end }}
-          {{- $extra := default (dict) .extraResources }}
-          {{- $secrets := dict }}
-          {{- range $i, $n := $names }}{{ with index $extra (printf "secret-%d" $i) }}{{ with .items }}
-          {{- $_ := set $secrets $n (index . 0).resource }}
-          {{- end }}{{ end }}{{ end }}
+      name: netclab-function-aws-vpn
 
-          {{- /* ---- each tunnel: the user's value, the applied one, and whether it is up ---- */}}
-          {{- $applied := dict }}
-          {{- with index $observed "keys" }}{{ $applied = default (dict) .resource.data }}{{ end }}
-          {{- $oldRouter := dig "router" "tunnels" list $old }}
-          {{- $rows := list }}{{ $missing := list }}
-          {{- range $i, $tun := $xr.spec.tunnels }}
-          {{- $ref := $tun.preSharedKeySecretRef }}
-          {{- $user := "" }}
-          {{- with get $secrets $ref.name }}{{ $user = dig "data" $ref.key "" . }}{{ end }}
-          {{- if not $user }}{{ $missing = append $missing (printf "%s/%s" $ref.name $ref.key) }}{{ end }}
-          {{- $ike := false }}
-          {{- with index $observed (printf "tunnel-%d" (add $i 1)) }}{{ with .resource.status }}{{ with .oper }}
-          {{- $ike = and (eq (default "" .interface) "ready") (eq (default "" .activePeers) "1/1") }}
-          {{- end }}{{ end }}{{ end }}
-          {{- $bgp := "" }}
-          {{- if gt (len $oldRouter) $i }}{{ $bgp = dig "bgp" "" (index $oldRouter $i) }}{{ end }}
-          {{- $key := printf "tunnel%d" (add $i 1) }}
-          {{- $rows = append $rows (dict "interface" $tun.interface "key" $key "user" $user
-                "applied" (get $applied $key | default "")
-                "up" (and $ike (has $bgp (list "established" "none")))) }}
-          {{- end }}
-
-          {{- /* ---- what both ends get ---- */}}
-          {{- $values := dict }}
-          {{- range $rows }}{{ $_ := set $values .key (.applied | default .user) }}{{ end }}
-          {{- $rotation := deepCopy (default (dict) $old.rotation) }}
-          {{- $now := now }}
-          {{- with $rotation.interface }}
-          {{- range $rows }}{{ if eq .interface $rotation.interface }}
-          {{- $age := ($now.Sub (toDate "2006-01-02T15:04:05Z07:00" $rotation.since)).Seconds }}
-          {{- if and (eq $rotation.step "sent") (not .up) }}{{ $_ := set $rotation "step" "down" }}
-          {{- else if and .up (or (eq $rotation.step "down") (gt $age 1200.0)) }}{{ $rotation = dict }}
-          {{- end }}
-          {{- end }}{{ end }}
-          {{- end }}
-          {{- if not $rotation.interface }}
-          {{- $rotation = dict }}
-          {{- $pending := list }}{{ $anyUp := false }}
-          {{- range $rows }}
-          {{- if and .user (ne .user (get $values .key)) }}{{ $pending = append $pending . }}{{ end }}
-          {{- if .up }}{{ $anyUp = true }}{{ end }}
-          {{- end }}
-          {{- if and $pending (not $anyUp) }}
-          {{- range $pending }}{{ $_ := set $values .key .user }}{{ end }}
-          {{- else }}
-          {{- range $p := $pending }}{{ if not $rotation.interface }}
-          {{- $othersUp := true }}
-          {{- range $rows }}{{ if and (ne .key $p.key) (not .up) }}{{ $othersUp = false }}{{ end }}{{ end }}
-          {{- if $othersUp }}
-          {{- $_ := set $values $p.key $p.user }}
-          {{- $rotation = dict "interface" $p.interface "step" "sent" "since" ($now | date "2006-01-02T15:04:05Z07:00") }}
-          {{- end }}
-          {{- end }}{{ end }}
-          {{- end }}
-          {{- end }}
-
-          {{- $data := dict }}
-          {{- range $k, $v := $values }}{{ if $v }}{{ $_ := set $data $k $v }}{{ end }}{{ end }}
-          {{- if $data }}
-          ---
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: {{ $xr.metadata.name }}-applied-keys
-            annotations:
-              gotemplating.fn.crossplane.io/composition-resource-name: keys
-          type: Opaque
-          data:
-            {{- toYaml $data | nindent 2 }}
-          {{- end }}
-          {{- $marks := list }}
-          {{- range $rows }}
-          {{- $m := dict "interface" .interface }}
-          {{- with .user }}{{ $_ := set $m "wanted" (printf "%s/%s" $xr.metadata.uid . | sha256sum | trunc 8) }}{{ end }}
-          {{- with get $values .key }}{{ $_ := set $m "applied" (printf "%s/%s" $xr.metadata.uid . | sha256sum | trunc 8) }}{{ end }}
-          {{- $marks = append $marks $m }}
-          {{- end }}
-          ---
-          apiVersion: {{ $xr.apiVersion }}
-          kind: {{ $xr.kind }}
-          status:
-            keys:
-              {{- toYaml $marks | nindent 6 }}
-            {{- with $rotation }}
-            rotation:
-              {{- toYaml . | nindent 6 }}
-            {{- end }}
-            {{- with $missing }}
-            missingSecrets:
-              {{- toYaml . | nindent 6 }}
-            {{- end }}
-
-  # The AWS side: a customer gateway and the VPN connection to the target gateway,
-  # which exists already. Both are named after the Connection, so the VPN connection
-  # finds its customer gateway by reference, without waiting for its id. AWS returns
-  # the customer gateway that exists for the same address, ASN and type, and refuses
-  # its delete while a VPN connection uses it.
-  # The provider is done creating the VPN connection once it is available, so the
-  # MR's Ready is AWS's available. Its status has no state of its own; the status
-  # of the Connection takes AWS's ends of each tunnel and the telemetry, matched by
-  # outside address, since AWS's list need not follow tunnel 1 and tunnel 2.
+  # The AWS side as it is applied: a customer gateway and the VPN connection to the target
+  # gateway, which exists already. Both are named after the Connection, so the VPN connection
+  # finds its customer gateway by reference, without waiting for its id. AWS returns the
+  # customer gateway that exists for the same address, ASN and type, and refuses its delete
+  # while a VPN connection uses it. The provider is done creating the VPN connection once it
+  # is available, so the MR's Ready is AWS's available.
   - step: aws
     functionRef:
       name: crossplane-contrib-function-go-templating
@@ -159,7 +31,7 @@ spec:
       inline:
         template: |
           {{- $xr := .observed.composite.resource }}
-          {{- $observed := default (dict) .observed.resources }}
+          {{- $c := index .context "aws-vpn.netclab.dev/connection" }}
           {{- $cgw := $xr.spec.customerGateway }}
           {{- $tgw := $xr.spec.targetGateway }}
           {{- $pc := default (dict "kind" "ClusterProviderConfig" "name" "default") $tgw.providerConfigRef }}
@@ -187,15 +59,13 @@ spec:
               tags:
                 Name: {{ $xr.metadata.name }}
           ---
-          {{- /* a new mark of the keys makes the provider take them at once, not at its poll */}}
-          {{- $keys := dig "keys" "resource" "data" dict (default (dict) .desired.resources) }}
           apiVersion: ec2.aws.m.upbound.io/v1beta1
           kind: VPNConnection
           metadata:
             name: {{ $xr.metadata.name }}
             annotations:
               gotemplating.fn.crossplane.io/composition-resource-name: vpn-connection
-              aws-vpn.netclab.dev/keys: {{ printf "%s/%s" $xr.metadata.uid (toJson $keys) | sha256sum | trunc 8 | quote }}
+              aws-vpn.netclab.dev/keys: {{ $c.keys.mark | quote }}
           spec:
             providerConfigRef:
               kind: {{ $pc.kind }}
@@ -211,56 +81,21 @@ spec:
               transitGatewayId: {{ $tgw.transitGatewayId }}
               {{- end }}
               staticRoutesOnly: false
-              {{- range $i, $tun := $xr.spec.tunnels }}
-              tunnel{{ add $i 1 }}InsideCidr: {{ $tun.insideCidr }}
-              tunnel{{ add $i 1 }}PresharedKeySecretRef:
-                name: {{ $xr.metadata.name }}-applied-keys
-                key: tunnel{{ add $i 1 }}
+              {{- range $c.tunnels }}
+              tunnel{{ .awsTunnel }}InsideCidr: {{ .insideCidr }}
+              tunnel{{ .awsTunnel }}PresharedKeySecretRef:
+                name: {{ $c.keys.secret }}
+                key: {{ .secretKey }}
               {{- end }}
               tags:
                 Name: {{ $xr.metadata.name }}
 
-          {{- /* ---- status.aws, once the provider reports the VPN connection ---- */}}
-          {{- with index $observed "vpn-connection" }}{{ with .resource.status }}{{ with .atProvider }}
-          {{- $at := . }}
-          {{- $telemetry := dict }}
-          {{- range default (list) $at.vgwTelemetry }}
-          {{- $_ := set $telemetry (default "" .outsideIpAddress) . }}
-          {{- end }}
-          ---
-          apiVersion: {{ $xr.apiVersion }}
-          kind: {{ $xr.kind }}
-          status:
-            aws:
-              {{- with $at.customerGatewayId }}
-              customerGatewayId: {{ . }}
-              {{- end }}
-              {{- with $at.id }}
-              vpnConnectionId: {{ . }}
-              {{- end }}
-              tunnels:
-              {{- range $n := list 1 2 }}
-              {{- $outside := index $at (printf "tunnel%dAddress" $n) | default "" }}
-              - outsideAddress: {{ $outside | quote }}
-                insideAddress: {{ index $at (printf "tunnel%dVgwInsideAddress" $n) | default "" | quote }}
-                bgpAsn: {{ index $at (printf "tunnel%dBgpAsn" $n) | default "" | toString | quote }}
-                {{- with index $telemetry $outside }}
-                oper: {{ .status | default "" | quote }}
-                lastChange: {{ .lastStatusChange | default "" | quote }}
-                message: {{ .statusMessage | default "" | quote }}
-                {{- end }}
-              {{- end }}
-          {{- end }}{{ end }}{{ end }}
-
-  # The router side, once the VPN connection gives both tunnels' addresses, which it
-  # does while pending: keyring, IKEv2 profile, transform-set and IPsec profile under
-  # one name on the router, the Connection's name in capitals, and a tunnel interface
-  # per tunnel; all Replace, named as configuration-iosxe requires, each waiting in
-  # `after` on what it names. The pass-throughs go under what the connection sets;
-  # pfs is the one field a pass-through replaces. Should the addresses go missing,
-  # the children stay as they are rather than be deleted with the router's sections.
-  # One read of the router's BGP neighbours gives each tunnel the state of its
-  # session to AWS's inside address, none where the router has no such neighbour.
+  # The router side as it is applied, once every tunnel has its addresses at both ends:
+  # keyring, IKEv2 profile, transform-set and IPsec profile under one name on the router,
+  # the Connection's name in capitals, and a tunnel interface per tunnel; all Replace, named
+  # as configuration-iosxe requires, each waiting in `after` on what it names. The
+  # pass-throughs go under what the connection sets, which CEL keeps out of them; pfs is the
+  # one field a pass-through replaces. Then one read of the router's BGP neighbours.
   - step: router
     functionRef:
       name: crossplane-contrib-function-go-templating
@@ -271,123 +106,118 @@ spec:
       inline:
         template: |
           {{- $xr := .observed.composite.resource }}
-          {{- $ns := $xr.metadata.namespace }}
-          {{- $observed := default (dict) .observed.resources }}
+          {{- $c := index .context "aws-vpn.netclab.dev/connection" }}
           {{- $cgw := $xr.spec.customerGateway }}
           {{- $device := $cgw.deviceRef.name }}
-          {{- $name := upper $xr.metadata.name }}
-
-          {{- /* configuration-iosxe's names: <device>--<slug>--<8 hex> */}}
-          {{- $xrName := dict }}
-          {{- $names := list $name }}
-          {{- range $xr.spec.tunnels }}{{ $names = append $names .interface }}{{ end }}
-          {{- range $n := $names }}
-          {{- $slug := regexReplaceAll "[^a-z0-9]+" (lower $n) "-" | trimAll "-" }}
-          {{- $slug = trunc (int (max 0 (sub 51 (len $device)))) $slug | trimSuffix "-" }}
-          {{- $_ := set $xrName $n (printf "%s--%s--%s" $device $slug (sha256sum $n | trunc 8)) }}
-          {{- end }}
-
-          ---
-          apiVersion: meta.gotemplating.fn.crossplane.io/v1alpha1
-          kind: ExtraResources
-          requirements:
-            device:
-              apiVersion: iosxe.netclab.dev/v1alpha1
-              kind: Device
-              matchName: {{ $device }}
-              namespace: {{ $ns }}
-          {{- $dev := dict }}
-          {{- with .extraResources }}{{ with index . "device" }}{{ with .items }}{{ $dev = (index . 0).resource }}{{ end }}{{ end }}{{ end }}
-
-          {{- /* ---- each tunnel's addresses, read back from the VPN connection ---- */}}
-          {{- $at := dict }}
-          {{- with index $observed "vpn-connection" }}{{ with .resource.status }}{{ with .atProvider }}{{ $at = . }}{{ end }}{{ end }}{{ end }}
-          {{- $tunnels := list }}
-          {{- $have := true }}
-          {{- range $i, $tun := $xr.spec.tunnels }}
-          {{- $n := add $i 1 }}
-          {{- $t := dict "spec" $tun
-                "outside" (index $at (printf "tunnel%dAddress" $n) | default "")
-                "inside" (index $at (printf "tunnel%dCgwInsideAddress" $n) | default "")
-                "vgw" (index $at (printf "tunnel%dVgwInsideAddress" $n) | default "")
-                "cidr" (index $at (printf "tunnel%dInsideCidr" $n) | default $tun.insideCidr) }}
-          {{- if not (and $t.outside $t.inside) }}{{ $have = false }}{{ end }}
-          {{- $tunnels = append $tunnels $t }}
-          {{- end }}
-
-          {{- /* ---- the children ---- */}}
-          {{- $children := list }}
-          {{- if $have }}
-          {{- $ref := dict "name" $device }}
-          {{- $peers := list }}{{ $outside := list }}
-          {{- range $i, $t := $tunnels }}
-          {{- $peers = append $peers (dict "name" (upper $t.spec.interface) "address" $t.outside
-                "preSharedKeySecretRef" (dict "name" (printf "%s-applied-keys" $xr.metadata.name) "key" (printf "tunnel%d" (add $i 1)))) }}
-          {{- $outside = append $outside .outside }}
-          {{- end }}
-          {{- $keyring := dict "managementPolicy" "Replace" "deviceRef" $ref "name" $name "peers" $peers }}
-          {{- $profile := merge
-                (dict "managementPolicy" "Replace" "deviceRef" $ref "name" $name
-                  "after" (list (dict "kind" "Ikev2Keyring" "name" (index $xrName $name)))
-                  "remoteAddresses" $outside "keyring" $name)
-                (deepCopy (default (dict) $cgw.ikev2ProfileSpec)) }}
-          {{- with $cgw.outsideVrf }}{{ $_ := set $profile "fvrf" . }}{{ end }}
-          {{- $ts := dict "managementPolicy" "Replace" "deviceRef" $ref "name" $name
-                "esp" "esp-gcm" "keyBits" 256 }}
-          {{- $ipsec := merge
-                (dict "managementPolicy" "Replace" "deviceRef" $ref "name" $name
-                  "after" (list (dict "kind" "IpsecTransformSet" "name" (index $xrName $name))
-                                (dict "kind" "Ikev2Profile" "name" (index $xrName $name)))
-                  "transformSets" (list $name) "ikev2Profile" $name)
-                (mergeOverwrite (dict "pfs" "group14") (deepCopy (default (dict) $cgw.ipsecProfileSpec))) }}
-          {{- $children = list
-                (list "keyring" "Ikev2Keyring" $name $keyring)
-                (list "ikev2-profile" "Ikev2Profile" $name $profile)
-                (list "transform-set" "IpsecTransformSet" $name $ts)
-                (list "ipsec-profile" "IpsecProfile" $name $ipsec) }}
-          {{- range $i, $t := $tunnels }}
-          {{- $tunnel := merge
-                (dict "managementPolicy" "Replace" "deviceRef" $ref "name" $t.spec.interface
-                  "after" (list (dict "kind" "IpsecProfile" "name" (index $xrName $name)))
-                  "mode" "ipsec-ipv4"
-                  "ipv4Address" (printf "%s/%s" $t.inside (index (splitList "/" $t.cidr) 1))
-                  "source" $cgw.source "destination" $t.outside "ipsecProfile" $name)
-                (deepCopy (default (dict) $cgw.tunnelInterfaceSpec)) }}
-          {{- with $cgw.outsideVrf }}{{ $_ := set $tunnel "fvrf" . }}{{ end }}
-          {{- with $cgw.insideVrf }}{{ $_ := set $tunnel "vrf" . }}{{ end }}
-          {{- $children = append $children (list (printf "tunnel-%d" (add $i 1)) "TunnelInterface" $t.spec.interface $tunnel) }}
-          {{- end }}
-          {{- range $children }}
+          {{- $router := $c.router }}
+          {{- $section := $router.name }}
+          {{- $ipsecSpec := default (dict) $cgw.ipsecProfileSpec }}
+          {{- if $router.compose }}
           ---
           apiVersion: iosxe.netclab.dev/v1alpha1
-          kind: {{ index . 1 }}
+          kind: Ikev2Keyring
           metadata:
-            name: {{ index $xrName (index . 2) }}
+            name: {{ index $router.xrNames $section }}
             annotations:
-              gotemplating.fn.crossplane.io/composition-resource-name: {{ index . 0 }}
+              gotemplating.fn.crossplane.io/composition-resource-name: keyring
           spec:
-            {{- toYaml (index . 3) | nindent 2 }}
-          {{- end }}
-          {{- else }}
-          {{- range $r := list "keyring" "ikev2-profile" "transform-set" "ipsec-profile" "tunnel-1" "tunnel-2" }}
-          {{- with index $observed $r }}
+            managementPolicy: Replace
+            deviceRef: {name: {{ $device }}}
+            name: {{ $section }}
+            peers:
+            {{- range $c.tunnels }}
+            - name: {{ upper .interface }}
+              address: {{ .outside }}
+              preSharedKeySecretRef: {name: {{ $c.keys.secret }}, key: {{ .secretKey }}}
+            {{- end }}
           ---
-          apiVersion: {{ .resource.apiVersion }}
-          kind: {{ .resource.kind }}
+          apiVersion: iosxe.netclab.dev/v1alpha1
+          kind: Ikev2Profile
           metadata:
-            name: {{ .resource.metadata.name }}
+            name: {{ index $router.xrNames $section }}
             annotations:
-              gotemplating.fn.crossplane.io/composition-resource-name: {{ $r }}
+              gotemplating.fn.crossplane.io/composition-resource-name: ikev2-profile
           spec:
-            {{- toYaml .resource.spec | nindent 2 }}
+            managementPolicy: Replace
+            deviceRef: {name: {{ $device }}}
+            name: {{ $section }}
+            after:
+            - {kind: Ikev2Keyring, name: {{ index $router.xrNames $section }}}
+            remoteAddresses:
+            {{- range $c.tunnels }}
+            - {{ .outside }}
+            {{- end }}
+            keyring: {{ $section }}
+            {{- with $cgw.outsideVrf }}
+            fvrf: {{ . }}
+            {{- end }}
+            {{- with $cgw.ikev2ProfileSpec }}
+            {{- toYaml . | nindent 2 }}
+            {{- end }}
+          ---
+          apiVersion: iosxe.netclab.dev/v1alpha1
+          kind: IpsecTransformSet
+          metadata:
+            name: {{ index $router.xrNames $section }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: transform-set
+          spec:
+            managementPolicy: Replace
+            deviceRef: {name: {{ $device }}}
+            name: {{ $section }}
+            esp: esp-gcm
+            keyBits: 256
+          ---
+          apiVersion: iosxe.netclab.dev/v1alpha1
+          kind: IpsecProfile
+          metadata:
+            name: {{ index $router.xrNames $section }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: ipsec-profile
+          spec:
+            managementPolicy: Replace
+            deviceRef: {name: {{ $device }}}
+            name: {{ $section }}
+            after:
+            - {kind: IpsecTransformSet, name: {{ index $router.xrNames $section }}}
+            - {kind: Ikev2Profile, name: {{ index $router.xrNames $section }}}
+            transformSets: [{{ $section }}]
+            ikev2Profile: {{ $section }}
+            pfs: {{ dig "pfs" "group14" $ipsecSpec }}
+            {{- with omit $ipsecSpec "pfs" }}
+            {{- toYaml . | nindent 2 }}
+            {{- end }}
+          {{- range $c.tunnels }}
+          ---
+          apiVersion: iosxe.netclab.dev/v1alpha1
+          kind: TunnelInterface
+          metadata:
+            name: {{ index $router.xrNames .interface }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: tunnel-{{ .awsTunnel }}
+          spec:
+            managementPolicy: Replace
+            deviceRef: {name: {{ $device }}}
+            name: {{ .interface }}
+            after:
+            - {kind: IpsecProfile, name: {{ index $router.xrNames $section }}}
+            mode: ipsec-ipv4
+            ipv4Address: {{ .inside }}
+            source: {{ $cgw.source }}
+            destination: {{ .outside }}
+            ipsecProfile: {{ $section }}
+            {{- with $cgw.outsideVrf }}
+            fvrf: {{ . }}
+            {{- end }}
+            {{- with $cgw.insideVrf }}
+            vrf: {{ . }}
+            {{- end }}
+            {{- with $cgw.tunnelInterfaceSpec }}
+            {{- toYaml . | nindent 2 }}
+            {{- end }}
           {{- end }}
           {{- end }}
-          {{- end }}
-
-          {{- /* ---- the router's BGP neighbours, once a tunnel interface exists ---- */}}
-          {{- if and $dev (or (hasKey $observed "tunnel-1") (hasKey $observed "tunnel-2")) }}
-          {{- $cred := $dev.spec.credentialsSecretRef }}
-          {{- $auth := printf "{{ %s:%s:%s }}" $cred.name $ns $cred.key }}
+          {{- with $router.bgpRead }}
           ---
           apiVersion: http.m.crossplane.io/v1alpha2
           kind: Request
@@ -398,53 +228,17 @@ spec:
           spec:
             managementPolicies: ["Observe"]
             forProvider:
-              insecureSkipTLSVerify: {{ $dev.spec.insecureSkipTLSVerify }}
+              insecureSkipTLSVerify: {{ .insecureSkipTLSVerify }}
               headers:
                 Accept: ["application/yang-data+json"]
-                Authorization: ["Basic {{ $auth }}"]
+                Authorization: [{{ .authorization | quote }}]
               payload:
-                baseUrl: {{ printf "https://%s/restconf/data/Cisco-IOS-XE-bgp-oper:bgp-state-data/neighbors?fields=neighbor(afi-safi;vrf-name;neighbor-id;session-state)" $dev.spec.address | quote }}
+                baseUrl: {{ printf "https://%s/restconf/data/Cisco-IOS-XE-bgp-oper:bgp-state-data/neighbors?fields=neighbor(afi-safi;vrf-name;neighbor-id;session-state)" .address | quote }}
               mappings:
               - action: OBSERVE
                 method: GET
                 url: .payload.baseUrl
           {{- end }}
-
-          {{- /* each neighbour's state by its key, as the last read found them; a 204 is none */}}
-          {{- $bgp := dict }}
-          {{- $read := false }}
-          {{- with index $observed "bgp" }}{{ with .resource.status }}{{ with .response }}
-          {{- $code := int (.statusCode | default 0) }}
-          {{- $read = or (eq $code 200) (eq $code 204) }}
-          {{- if eq $code 200 }}
-            {{- range dig "Cisco-IOS-XE-bgp-oper:neighbors" "neighbor" list (fromYaml .body) }}
-            {{- $_ := set $bgp (printf "%s,%s,%s" (get . "afi-safi") (get . "vrf-name") (get . "neighbor-id")) (trimPrefix "fsm-" (get . "session-state")) }}
-            {{- end }}
-          {{- end }}
-          {{- end }}{{ end }}{{ end }}
-          {{- $afi := "ipv4-unicast,default" }}
-          {{- with $cgw.insideVrf }}{{ $afi = printf "vpnv4-unicast,%s" . }}{{ end }}
-
-          {{- /* ---- status.router ---- */}}
-          {{- $rows := list }}
-          {{- range $i, $t := $tunnels }}
-          {{- $row := dict "interface" $t.spec.interface }}
-          {{- if $t.inside }}{{ $_ := set $row "address" (printf "%s/%s" $t.inside (index (splitList "/" $t.cidr) 1)) }}{{ end }}
-          {{- with index $observed (printf "tunnel-%d" (add $i 1)) }}{{ with .resource.status }}{{ with .oper }}{{ with .interface }}
-          {{- $_ := set $row "oper" . }}
-          {{- end }}{{ end }}{{ end }}{{ end }}
-          {{- if and $read $t.vgw }}
-          {{- $_ := set $row "bgp" (get $bgp (printf "%s,%s" $afi $t.vgw) | default "none") }}
-          {{- end }}
-          {{- $rows = append $rows $row }}
-          {{- end }}
-          ---
-          apiVersion: {{ $xr.apiVersion }}
-          kind: {{ $xr.kind }}
-          status:
-            router:
-              tunnels:
-                {{- toYaml $rows | nindent 8 }}
 
   - step: ready
     functionRef:

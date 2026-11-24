@@ -21,6 +21,12 @@ spec:
       package: ghcr.io/crossplane-contrib/provider-http
       version: ">=v1.0.14"
 
+    # Released with this package, at its version.
+    - apiVersion: pkg.crossplane.io/v1
+      kind: Function
+      package: xpkg.upbound.io/netclab/function-aws-vpn
+      version: ">=v0.1.0"
+
     - apiVersion: pkg.crossplane.io/v1
       kind: Function
       package: xpkg.upbound.io/crossplane-contrib/function-go-templating
