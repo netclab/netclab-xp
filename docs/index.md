@@ -12,9 +12,10 @@ resources: versioned, reviewable, and reconciled like anything else in a cluster
 |---|---|---|
 | `configuration-eos` | Arista EOS | RESTCONF, JSON-RPC (eAPI) |
 | `configuration-iosxe` | Cisco IOS XE | RESTCONF |
+| `configuration-aws-vpn` | Cisco IOS XE and AWS | RESTCONF, the AWS API |
 
-Each package installs on its own, from its own tags (`eos/v*`, `iosxe/v*`), and both
-run in one cluster.
+Each package installs on its own, from its own tags (`eos/v*`, `iosxe/v*`, `aws-vpn/v*`),
+and all run in one cluster.
 
 <div class="grid cards" markdown>
 
@@ -27,5 +28,10 @@ run in one cluster.
 
     An IPsec tunnel between Cisco routers with a post-quantum preshared key mixed
     into IKEv2, as Kubernetes objects kept on the routers by reconcile.
+
+- **[Site-to-Site VPN to AWS](aws-vpn/index.md)**
+
+    A router on premises and an AWS gateway, both sides from one object, with keys
+    rotated one tunnel at a time.
 
 </div>
