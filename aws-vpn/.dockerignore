@@ -1,0 +1,10 @@
+.venv/
+apis/
+examples/
+lab/
+package/
+tests/
+**/__pycache__/
+*.xpkg
+Dockerfile
+.dockerignore

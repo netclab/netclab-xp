@@ -87,6 +87,10 @@ nav:
       - Overlay: iosxe/overlay.md
       - Rotate keys: iosxe/keys.md
       - Adopt a router: iosxe/adopt.md
+  - AWS VPN:
+      - Overview: aws-vpn/index.md
+      - Rotate keys: aws-vpn/keys.md
+      - AWS's sample: aws-vpn/sample.md
 
 extra:
   homepage: https://netclab.dev

@@ -1,0 +1,245 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: connections.aws-vpn.netclab.dev
+spec:
+  compositeTypeRef:
+    apiVersion: aws-vpn.netclab.dev/v1alpha1
+    kind: Connection
+  mode: Pipeline
+  pipeline:
+  # The decisions: the keys and their rotation one tunnel at a time, each tunnel's addresses
+  # and state, configuration-iosxe's names, and the status. Composes the applied Secret of
+  # keys, and hands the rest to the steps below in the context.
+  - step: decisions
+    functionRef:
+      name: netclab-function-aws-vpn
+
+  # The AWS side as it is applied: a customer gateway and the VPN connection to the target
+  # gateway, which exists already. Both are named after the Connection, so the VPN connection
+  # finds its customer gateway by reference, without waiting for its id. AWS returns the
+  # customer gateway that exists for the same address, ASN and type, and refuses its delete
+  # while a VPN connection uses it. The provider is done creating the VPN connection once it
+  # is available, so the MR's Ready is AWS's available.
+  - step: aws
+    functionRef:
+      name: crossplane-contrib-function-go-templating
+    input:
+      apiVersion: gotemplating.fn.crossplane.io/v1beta1
+      kind: GoTemplate
+      source: Inline
+      inline:
+        template: |
+          {{- $xr := .observed.composite.resource }}
+          {{- $c := index .context "aws-vpn.netclab.dev/connection" }}
+          {{- $cgw := $xr.spec.customerGateway }}
+          {{- $tgw := $xr.spec.targetGateway }}
+          {{- $pc := default (dict "kind" "ClusterProviderConfig" "name" "default") $tgw.providerConfigRef }}
+          ---
+          apiVersion: ec2.aws.m.upbound.io/v1beta1
+          kind: CustomerGateway
+          metadata:
+            name: {{ $xr.metadata.name }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: customer-gateway
+          spec:
+            providerConfigRef:
+              kind: {{ $pc.kind }}
+              name: {{ $pc.name }}
+            forProvider:
+              region: {{ $tgw.region }}
+              type: ipsec.1
+              ipAddress: {{ $cgw.ipAddress }}
+              {{- /* the provider splits the ASN's range in two fields */}}
+              {{- if gt (int64 $cgw.bgpAsn) 2147483647 }}
+              bgpAsnExtended: {{ int64 $cgw.bgpAsn | toString | quote }}
+              {{- else }}
+              bgpAsn: {{ int64 $cgw.bgpAsn | toString | quote }}
+              {{- end }}
+              tags:
+                Name: {{ $xr.metadata.name }}
+          ---
+          apiVersion: ec2.aws.m.upbound.io/v1beta1
+          kind: VPNConnection
+          metadata:
+            name: {{ $xr.metadata.name }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: vpn-connection
+              aws-vpn.netclab.dev/keys: {{ $c.keys.mark | quote }}
+          spec:
+            providerConfigRef:
+              kind: {{ $pc.kind }}
+              name: {{ $pc.name }}
+            forProvider:
+              region: {{ $tgw.region }}
+              type: ipsec.1
+              customerGatewayIdRef:
+                name: {{ $xr.metadata.name }}
+              {{- if $tgw.vpnGatewayId }}
+              vpnGatewayId: {{ $tgw.vpnGatewayId }}
+              {{- else }}
+              transitGatewayId: {{ $tgw.transitGatewayId }}
+              {{- end }}
+              staticRoutesOnly: false
+              {{- range $c.tunnels }}
+              tunnel{{ .awsTunnel }}InsideCidr: {{ .insideCidr }}
+              tunnel{{ .awsTunnel }}PresharedKeySecretRef:
+                name: {{ $c.keys.secret }}
+                key: {{ .secretKey }}
+              {{- end }}
+              tags:
+                Name: {{ $xr.metadata.name }}
+
+  # The router side as it is applied, once every tunnel has its addresses at both ends:
+  # keyring, IKEv2 profile, transform-set and IPsec profile under one name on the router,
+  # the Connection's name in capitals, and a tunnel interface per tunnel; all Replace, named
+  # as configuration-iosxe requires, each waiting in `after` on what it names. The
+  # pass-throughs go under what the connection sets, which CEL keeps out of them; pfs is the
+  # one field a pass-through replaces. Then one read of the router's BGP neighbours.
+  - step: router
+    functionRef:
+      name: crossplane-contrib-function-go-templating
+    input:
+      apiVersion: gotemplating.fn.crossplane.io/v1beta1
+      kind: GoTemplate
+      source: Inline
+      inline:
+        template: |
+          {{- $xr := .observed.composite.resource }}
+          {{- $c := index .context "aws-vpn.netclab.dev/connection" }}
+          {{- $cgw := $xr.spec.customerGateway }}
+          {{- $device := $cgw.deviceRef.name }}
+          {{- $router := $c.router }}
+          {{- $section := $router.name }}
+          {{- $ipsecSpec := default (dict) $cgw.ipsecProfileSpec }}
+          {{- if $router.compose }}
+          ---
+          apiVersion: iosxe.netclab.dev/v1alpha1
+          kind: Ikev2Keyring
+          metadata:
+            name: {{ index $router.xrNames $section }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: keyring
+          spec:
+            managementPolicy: Replace
+            deviceRef: {name: {{ $device }}}
+            name: {{ $section }}
+            peers:
+            {{- range $c.tunnels }}
+            - name: {{ upper .interface }}
+              address: {{ .outside }}
+              preSharedKeySecretRef: {name: {{ $c.keys.secret }}, key: {{ .secretKey }}}
+            {{- end }}
+          ---
+          apiVersion: iosxe.netclab.dev/v1alpha1
+          kind: Ikev2Profile
+          metadata:
+            name: {{ index $router.xrNames $section }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: ikev2-profile
+          spec:
+            managementPolicy: Replace
+            deviceRef: {name: {{ $device }}}
+            name: {{ $section }}
+            after:
+            - {kind: Ikev2Keyring, name: {{ index $router.xrNames $section }}}
+            remoteAddresses:
+            {{- range $c.tunnels }}
+            - {{ .outside }}
+            {{- end }}
+            keyring: {{ $section }}
+            {{- with $cgw.outsideVrf }}
+            fvrf: {{ . }}
+            {{- end }}
+            {{- with $cgw.ikev2ProfileSpec }}
+            {{- toYaml . | nindent 2 }}
+            {{- end }}
+          ---
+          apiVersion: iosxe.netclab.dev/v1alpha1
+          kind: IpsecTransformSet
+          metadata:
+            name: {{ index $router.xrNames $section }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: transform-set
+          spec:
+            managementPolicy: Replace
+            deviceRef: {name: {{ $device }}}
+            name: {{ $section }}
+            esp: esp-gcm
+            keyBits: 256
+          ---
+          apiVersion: iosxe.netclab.dev/v1alpha1
+          kind: IpsecProfile
+          metadata:
+            name: {{ index $router.xrNames $section }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: ipsec-profile
+          spec:
+            managementPolicy: Replace
+            deviceRef: {name: {{ $device }}}
+            name: {{ $section }}
+            after:
+            - {kind: IpsecTransformSet, name: {{ index $router.xrNames $section }}}
+            - {kind: Ikev2Profile, name: {{ index $router.xrNames $section }}}
+            transformSets: [{{ $section }}]
+            ikev2Profile: {{ $section }}
+            pfs: {{ dig "pfs" "group14" $ipsecSpec }}
+            {{- with omit $ipsecSpec "pfs" }}
+            {{- toYaml . | nindent 2 }}
+            {{- end }}
+          {{- range $c.tunnels }}
+          ---
+          apiVersion: iosxe.netclab.dev/v1alpha1
+          kind: TunnelInterface
+          metadata:
+            name: {{ index $router.xrNames .interface }}
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: tunnel-{{ .awsTunnel }}
+          spec:
+            managementPolicy: Replace
+            deviceRef: {name: {{ $device }}}
+            name: {{ .interface }}
+            after:
+            - {kind: IpsecProfile, name: {{ index $router.xrNames $section }}}
+            mode: ipsec-ipv4
+            ipv4Address: {{ .inside }}
+            source: {{ $cgw.source }}
+            destination: {{ .outside }}
+            ipsecProfile: {{ $section }}
+            {{- with $cgw.outsideVrf }}
+            fvrf: {{ . }}
+            {{- end }}
+            {{- with $cgw.insideVrf }}
+            vrf: {{ . }}
+            {{- end }}
+            {{- with $cgw.tunnelInterfaceSpec }}
+            {{- toYaml . | nindent 2 }}
+            {{- end }}
+          {{- end }}
+          {{- end }}
+          {{- with $router.bgpRead }}
+          ---
+          apiVersion: http.m.crossplane.io/v1alpha2
+          kind: Request
+          metadata:
+            annotations:
+              gotemplating.fn.crossplane.io/composition-resource-name: bgp
+              gotemplating.fn.crossplane.io/ready: "True"
+          spec:
+            managementPolicies: ["Observe"]
+            forProvider:
+              insecureSkipTLSVerify: {{ .insecureSkipTLSVerify }}
+              headers:
+                Accept: ["application/yang-data+json"]
+                Authorization: [{{ .authorization | quote }}]
+              payload:
+                baseUrl: {{ printf "https://%s/restconf/data/Cisco-IOS-XE-bgp-oper:bgp-state-data/neighbors?fields=neighbor(afi-safi;vrf-name;neighbor-id;session-state)" .address | quote }}
+              mappings:
+              - action: OBSERVE
+                method: GET
+                url: .payload.baseUrl
+          {{- end }}
+
+  - step: ready
+    functionRef:
+      name: crossplane-contrib-function-auto-ready

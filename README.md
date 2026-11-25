@@ -14,6 +14,7 @@ reviewable, and reconciled like anything else in a cluster.
 |---|---|---|---|
 | `configuration-iosxe` | Cisco IOS XE | RESTCONF | `iosxe/v*` |
 | `configuration-eos` | Arista EOS | RESTCONF, JSON-RPC (eAPI) | `eos/v*` |
+| `configuration-aws-vpn` | Cisco IOS XE and AWS | RESTCONF, the AWS API | `aws-vpn/v*` |
 
 Until `v0.5.0` the EOS package was published as `netclab-xp`; those releases stay
 where they are.
@@ -25,6 +26,7 @@ where they are.
 | | |
 |---|---|
 | [IPsec on IOS XE](https://netclab.dev/netclab-xp/iosxe/) | adopting a router, part 9 with a post-quantum preshared key, an overlay in VRFs, key rotation |
+| [Site-to-Site VPN to AWS](https://netclab.dev/netclab-xp/aws-vpn/) | a router and an AWS gateway from one object, keys rotated one tunnel at a time |
 | [Arista EOS](https://netclab.dev/netclab-xp/eos/) | one API over several mechanisms |
 | [Set up a lab](https://netclab.dev/netclab-xp/eos/lab/) | two cEOS devices on Kubernetes |
 | [Install the package](https://netclab.dev/netclab-xp/eos/install/) | the Configuration and its prerequisites |
