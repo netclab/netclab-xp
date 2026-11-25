@@ -1,5 +1,7 @@
 # netclab-xp, routers operated from Kubernetes
 
+[![published](https://static.production.devnetcloud.com/codeexchange/assets/images/devnet-published.svg)](https://developer.cisco.com/codeexchange/github/repo/netclab/netclab-xp)
+
 > ***Extend Kubernetes to manage any resource anywhere***
 > <br>Powered by [crossplane.io](https://www.crossplane.io)
 
