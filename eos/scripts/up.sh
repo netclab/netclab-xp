@@ -22,6 +22,6 @@ crossplane xpkg push -f "/tmp/configuration-eos-${TAG}.xpkg" "localhost:5001/net
 
 # Crossplane pulls by the registry's address on the kind network.
 REG_IP=$(docker inspect -f '{{(index .NetworkSettings.Networks "kind").IPAddress}}' kind-registry)
-uvx netclab up --cluster "$CLUSTER" --crossplane v2.4.3 \
+uvx netclab up --cluster "$CLUSTER" --crossplane v2.5.0 \
   --configuration "${REG_IP}:5000/netclab/configuration-eos:${TAG}" \
   --namespace default --values scripts/topology.yaml
