@@ -1,6 +1,6 @@
 FROM python:3.12-slim AS build
 
-COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.10 /uv /bin/
 
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 \
