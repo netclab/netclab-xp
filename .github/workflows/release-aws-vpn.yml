@@ -85,7 +85,7 @@ jobs:
           provenance: false
           cache-from: type=gha,scope=aws-vpn-${{ matrix.arch }}
 
-      - uses: astral-sh/setup-uv@v10.3.2
+      - uses: astral-sh/setup-uv@v10.4.0
         with:
           enable-cache: true
           cache-dependency-glob: aws-vpn/uv.lock
